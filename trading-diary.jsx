@@ -738,7 +738,6 @@ export default function App(){
               </div>
             </div>
           </div>
-          </div>
         )}
 
         {/* ═══ PATRONES ═══ */}
@@ -881,8 +880,6 @@ export default function App(){
               );
             })}
           </div>
-          </div>
-        </div>
         )}
 
         {/* ═══ PERFIL ═══ */}
@@ -985,9 +982,6 @@ export default function App(){
               ))}
             </div>
           </div>
-          </div>
-          </div>
-        </div>
         )}
 
         {/* ═══ RECUPERACION ═══ */}
@@ -1230,8 +1224,6 @@ export default function App(){
       )}
 
     </div>
-    </div>
-  </div>
   );
 }
 
