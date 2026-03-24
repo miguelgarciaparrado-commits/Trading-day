@@ -1314,47 +1314,128 @@ function App() {
 // - SUBCOMPONENTS -
 // - INDICADORES -
 // - CHAT TAB -
+function detectAssetFromText(text) {
+    var lower = text.toLowerCase();
+    var tf = "4h";
+    if (/\b(semanal|semana|1w|weekly)\b/.test(lower))
+        tf = "1w";
+    else if (/\b(diario|diaria|1d|daily)\b/.test(lower))
+        tf = "1d";
+    else if (/\b4h\b|\b4 ?horas?\b/.test(lower))
+        tf = "4h";
+    else if (/\b1h\b|\b1 ?hora\b|\bhorario\b/.test(lower))
+        tf = "1h";
+    else if (/\b15m\b|\b15 ?min/.test(lower))
+        tf = "15m";
+    var cryptos = [
+        { p: /\b(btc|bitcoin)\b/, s: "BTCUSDT", d: "BTC/USD" },
+        { p: /\b(eth|ethereum|ether)\b/, s: "ETHUSDT", d: "ETH/USD" },
+        { p: /\b(sol|solana)\b/, s: "SOLUSDT", d: "SOL/USD" },
+        { p: /\b(link|chainlink)\b/, s: "LINKUSDT", d: "LINK/USD" },
+        { p: /\b(bnb|binance.?coin)\b/, s: "BNBUSDT", d: "BNB/USD" },
+        { p: /\b(xrp|ripple)\b/, s: "XRPUSDT", d: "XRP/USD" },
+        { p: /\b(ada|cardano)\b/, s: "ADAUSDT", d: "ADA/USD" },
+        { p: /\b(doge|dogecoin)\b/, s: "DOGEUSDT", d: "DOGE/USD" },
+        { p: /\b(avax|avalanche)\b/, s: "AVAXUSDT", d: "AVAX/USD" },
+        { p: /\b(dot|polkadot)\b/, s: "DOTUSDT", d: "DOT/USD" },
+        { p: /\b(uni|uniswap)\b/, s: "UNIUSDT", d: "UNI/USD" },
+    ];
+    var stocks = [
+        { p: /\b(nvda|nvidia)\b/, s: "NVDA", d: "NVDA" },
+        { p: /\b(mstr|microstrategy)\b/, s: "MSTR", d: "MSTR" },
+        { p: /\b(googl|google|alphabet)\b/, s: "GOOGL", d: "GOOGL" },
+        { p: /\b(aapl|apple)\b/, s: "AAPL", d: "AAPL" },
+        { p: /\bamd\b/, s: "AMD", d: "AMD" },
+        { p: /\b(spy|sp500)\b/, s: "SPY", d: "SPY" },
+        { p: /\boxy\b/, s: "OXY", d: "OXY" },
+        { p: /\b(rgti|rigetti)\b/, s: "RGTI", d: "RGTI" },
+        { p: /\btlt\b/, s: "TLT", d: "TLT" },
+        { p: /\b(gld|gold|oro)\b/, s: "GLD", d: "GLD" },
+        { p: /\b(mara|marathon digital)\b/, s: "MARA", d: "MARA" },
+        { p: /\b(tsla|tesla)\b/, s: "TSLA", d: "TSLA" },
+        { p: /\b(meta|facebook)\b/, s: "META", d: "META" },
+        { p: /\b(amzn|amazon)\b/, s: "AMZN", d: "AMZN" },
+        { p: /\b(msft|microsoft)\b/, s: "MSFT", d: "MSFT" },
+    ];
+    for (var i = 0; i < cryptos.length; i++) {
+        if (cryptos[i].p.test(lower))
+            return { symbol: cryptos[i].s, isCrypto: true, tf: tf, display: cryptos[i].d };
+    }
+    for (var j = 0; j < stocks.length; j++) {
+        if (stocks[j].p.test(lower))
+            return { symbol: stocks[j].s, isCrypto: false, tf: tf, display: stocks[j].d };
+    }
+    return null;
+}
+async function getStockData(symbol, tf) {
+    var intervalMap = { "15m": { interval: "15m", range: "5d" }, "1h": { interval: "1h", range: "15d" }, "4h": { interval: "1h", range: "30d" }, "1d": { interval: "1d", range: "1y" }, "1w": { interval: "1wk", range: "5y" } };
+    var p = intervalMap[tf] || (intervalMap["1d"]);
+    var tfLabel = tf === "1w" ? "Semanal" : tf === "1d" ? "Diario" : tf === "4h" ? "4H" : tf === "1h" ? "1H" : "15M";
+    try {
+        var r = await fetch("https://query2.finance.yahoo.com/v8/finance/chart/" + symbol + "?interval=" + p.interval + "&range=" + p.range);
+        if (!r.ok)
+            return null;
+        var data = await r.json();
+        var res = (data.chart && data.chart.result && data.chart.result[0]) || null;
+        if (!res)
+            return null;
+        var rawCloses = (res.indicators && res.indicators.quote && res.indicators.quote[0] && res.indicators.quote[0].close) || [];
+        var closes = rawCloses.filter(function (v) { return v != null; });
+        if (closes.length < 2)
+            return null;
+        var price = closes[closes.length - 1];
+        var prev = closes[closes.length - 2];
+        var change24h = ((price - prev) / prev * 100).toFixed(2);
+        var rsi = calcRSI(closes, 14);
+        var ema7 = calcEMA(closes, 7);
+        var ema25 = calcEMA(closes, 25);
+        var ema50 = calcEMA(closes, 50);
+        var emaRel = ema7 && ema25 ? (ema7 > ema25 ? "EMA7 sobre EMA25 (alcista)" : "EMA7 bajo EMA25 (bajista)") : "--";
+        return { asset: symbol, tf: tfLabel, price: price.toFixed(2), change24h: change24h,
+            rsi: rsi, ema7: ema7 ? ema7.toFixed(2) : null, ema25: ema25 ? ema25.toFixed(2) : null,
+            ema50: ema50 ? ema50.toFixed(2) : null, emaRelation: emaRel,
+            trend: "--", volRatio: "--", high24h: "--", low24h: "--", isCrypto: false };
+    }
+    catch (e) {
+        return null;
+    }
+}
 function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save }) {
-    const [messages, setMessages] = useState([{
-            role: "assistant",
-            content: "Hola Miguel. Soy tu analista personal. Tengo acceso en tiempo real a tus posiciones, patrones, estadisticas e historial.\n\nPuedo analizar cualquier activo con datos de Binance: precio, RSI, EMAs 7/25/50/200. Describeme lo que ves en el grafico y te doy mi opinion tecnica.\n\n¿Que quieres analizar?",
-            time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
-        }]);
+    var INIT_MSG = {
+        role: "assistant",
+        content: "Hola Miguel. Soy tu analista personal.\n\nPuedo analizar cualquier activo de crypto (BTC, ETH, SOL, LINK...) o acciones (NVDA, GOOGL, TSLA, MSTR...) con datos en tiempo real.\n\nSimplemente describeme lo que ves, por ejemplo:\n- \"En 4H en LINK veo una ineficiencia FVG, puedo entrar?\"\n- \"En diario en BTC el RSI esta en 65, hay sobrecompra?\"\n- \"NVDA en semanal, como ve la estructura?\"\n\nNo necesitas seleccionar activo ni temporalidad, yo los detecto de tu mensaje.",
+        time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
+    };
+    const [messages, setMessages] = useState(function () {
+        try {
+            var saved = localStorage.getItem("td-chat-msgs");
+            if (saved) {
+                var parsed = JSON.parse(saved);
+                if (parsed && parsed.length > 0)
+                    return parsed;
+            }
+        }
+        catch (e) { }
+        return [INIT_MSG];
+    });
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
-    const [selAsset, setSelAsset] = useState("BTCUSDT");
-    const [selTF, setSelTF] = useState("4h");
     const [marketData, setMarketData] = useState(null);
-    const [fetchingMD, setFetchingMD] = useState(false);
+    const [detectedInfo, setDetectedInfo] = useState(null);
     const [apiKey, setApiKey] = useState(function () { return localStorage.getItem("td-anthropic-key") || ""; });
     const [showKeyInput, setShowKeyInput] = useState(false);
     const [tmpKey, setTmpKey] = useState("");
     const listRef = useRef(null);
-    const ASSETS = [
-        { v: "BTCUSDT", l: "BTC/USD" }, { v: "SOLUSDT", l: "SOL/USD" }, { v: "ETHUSDT", l: "ETH/USD" },
-        { v: "LINKUSDT", l: "LINK/USD" }, { v: "BNBUSDT", l: "BNB/USD" }, { v: "XRPUSDT", l: "XRP/USD" },
-    ];
-    const TFS = [{ v: "15m", l: "15m" }, { v: "1h", l: "1H" }, { v: "4h", l: "4H" }, { v: "1d", l: "D" }, { v: "1w", l: "W" }];
-    useEffect(() => {
+    useEffect(function () {
         if (listRef.current)
             listRef.current.scrollTop = listRef.current.scrollHeight;
     }, [messages]);
-    async function fetchMarketData() {
-        setFetchingMD(true);
+    useEffect(function () {
         try {
-            const md = await getBinanceData(selAsset, selTF, ASSETS, TFS);
-            if (md)
-                setMarketData(md);
-            return md;
+            localStorage.setItem("td-chat-msgs", JSON.stringify(messages.slice(-100)));
         }
-        catch (e) {
-            console.error(e);
-            return null;
-        }
-        finally {
-            setFetchingMD(false);
-        }
-    }
+        catch (e) { }
+    }, [messages]);
     function buildSystemPrompt(md) {
         const allHist = [...xhist, ...hist];
         const wins = allHist.filter(function (h) { return h.result > 0; }).length;
@@ -1427,22 +1508,46 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save 
             "- Si hay confluencia (RSI + EMA + patron), destacalo como oportunidad\n" +
             "- Termina SIEMPRE con: EVALUACION_TRADER:[positivo|negativo|neutro]:[descripcion breve de max 15 palabras]";
     }
+    function clearChat() {
+        setMessages([INIT_MSG]);
+        setMarketData(null);
+        setDetectedInfo(null);
+        try {
+            localStorage.removeItem("td-chat-msgs");
+        }
+        catch (e) { }
+    }
     async function sendMessage() {
         if (!input.trim() || loading)
             return;
+        if (!apiKey) {
+            setMessages(function (prev) { return [...prev, { role: "assistant", content: "Configura tu clave API de Anthropic con el boton (🔑) arriba.", time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) }]; });
+            return;
+        }
         const userMsg = { role: "user", content: input, time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) };
         const newMessages = [...messages, userMsg];
         setMessages(newMessages);
+        var currentInput = input;
         setInput("");
         setLoading(true);
         try {
-            if (!apiKey) {
-                setMessages(prev => [...prev, { role: "assistant", content: "Configura tu clave API de Anthropic con el boton (🔑) arriba a la derecha.", time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) }]);
-                setLoading(false);
-                return;
+            // Auto-detect asset and timeframe from message
+            var detected = detectAssetFromText(currentInput);
+            var md = null;
+            if (detected) {
+                setDetectedInfo(detected);
+                if (detected.isCrypto) {
+                    md = await getBinanceData(detected.symbol, detected.tf, [], []);
+                }
+                else {
+                    md = await getStockData(detected.symbol, detected.tf);
+                }
+                if (md)
+                    setMarketData(md);
             }
-            // Always fetch fresh market data
-            const md = await fetchMarketData();
+            else if (marketData) {
+                md = marketData;
+            }
             const systemPrompt = buildSystemPrompt(md);
             const apiMessages = newMessages.map(function (m) { return { role: m.role === "assistant" ? "assistant" : "user", content: m.content }; });
             const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1510,57 +1615,55 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save 
                 React.createElement("button", { onClick: function () { setShowKeyInput(false); setTmpKey(""); }, style: { background: "transparent", border: "1px solid #333", color: "#555", padding: "6px 10px", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "\u2715")),
             React.createElement("div", { style: { fontSize: 8, color: "#444", marginTop: 5 } }, "Se guarda solo en tu dispositivo (localStorage). Necesitas una cuenta en console.anthropic.com"))),
         React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap", alignItems: "center" } },
-            React.createElement("select", { value: selAsset, onChange: function (e) { setSelAsset(e.target.value); setMarketData(null); }, style: { ...S.inp, width: "auto", padding: "5px 8px", fontSize: 9, flex: 1 } }, ASSETS.map(a => React.createElement("option", { key: a.v, value: a.v }, a.l))),
-            React.createElement("div", { style: { display: "flex", gap: 3 } }, TFS.map(function (t) {
-                return (React.createElement("button", { key: t.v, onClick: function () { setSelTF(t.v); setMarketData(null); }, style: { padding: "5px 8px", borderRadius: 4, fontSize: 9, fontWeight: 700, border: "none", cursor: "pointer", background: selTF === t.v ? "#f0b429" : "#1e1e2e", color: selTF === t.v ? "#0a0a0f" : "#666" } }, t.l));
-            })),
-            React.createElement("button", { onClick: fetchMarketData, style: { background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", color: "#00ff88", padding: "5px 10px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" } },
-                fetchingMD ? "⏳" : "⚡",
-                " ",
-                marketData ? "Actualizar" : "Cargar datos"),
-            React.createElement("button", { onClick: function () { setShowKeyInput(!showKeyInput); setTmpKey(apiKey); }, title: "Configurar API Key", style: { background: apiKey ? "rgba(0,255,136,.1)" : "rgba(255,68,68,.1)", border: "1px solid " + (apiKey ? "#00ff88" : "#ff4444"), color: apiKey ? "#00ff88" : "#ff4444", padding: "5px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer" } }, "\uD83D\uDD11")),
-        marketData && (React.createElement("div", { style: { background: "#0d0d16", border: "1px solid #1e1e2e", borderRadius: 6, padding: "6px 10px", marginBottom: 8, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" } },
-            React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: "#f0b429" } },
-                marketData.asset,
-                " ",
-                marketData.tf),
-            React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: "#e0e0e0" } },
-                "$",
-                marketData.price),
-            React.createElement("span", { style: { fontSize: 9, color: parseFloat(marketData.change24h) >= 0 ? "#00ff88" : "#ff4444" } },
-                parseFloat(marketData.change24h) >= 0 ? "+" : "",
-                marketData.change24h,
-                "%"),
-            React.createElement("span", { style: { fontSize: 9, color: marketData.rsi <= 30 ? "#00ff88" : marketData.rsi >= 70 ? "#ff4444" : "#888" } },
-                "RSI ",
-                marketData.rsi),
-            React.createElement("span", { style: { fontSize: 9, color: parseFloat(marketData.ema7) > parseFloat(marketData.ema25) ? "#00ff88" : "#ff4444" } }, marketData.emaRelation))),
-        React.createElement("div", { ref: listRef, style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, paddingBottom: 8 } },
-            messages.map((m, i) => (React.createElement("div", { key: i, style: { display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" } },
-                React.createElement("div", { style: {
-                        maxWidth: "85%",
-                        padding: "10px 12px",
-                        borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                        background: m.role === "user" ? "rgba(240,180,41,.15)" : "#111118",
-                        border: "1px solid " + (m.role === "user" ? "rgba(240,180,41,.3)" : "#1e1e2e"),
-                        fontSize: 11,
-                        color: "#e0e0e0",
-                        lineHeight: 1.7,
-                        whiteSpace: "pre-wrap"
-                    } }, m.content),
-                React.createElement("span", { style: { fontSize: 8, color: "#333", marginTop: 2, marginLeft: m.role === "user" ? 0 : 4, marginRight: m.role === "user" ? 4 : 0 } },
-                    m.role === "user" ? "Tu" : "Claude",
+            React.createElement("div", { style: { flex: 1, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } },
+                detectedInfo && (React.createElement("div", { style: { background: "rgba(0,255,136,.08)", border: "1px solid rgba(0,255,136,.3)", borderRadius: 4, padding: "4px 8px", fontSize: 9, color: "#00ff88", fontWeight: 700 } },
+                    detectedInfo.display,
                     " \u00B7 ",
-                    m.time)))),
+                    detectedInfo.tf.toUpperCase(),
+                    " ",
+                    detectedInfo.isCrypto ? "(Binance)" : "(Yahoo Finance)")),
+                marketData && (React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+                    React.createElement("span", { style: { fontSize: 9, fontWeight: 700, color: "#f0b429" } },
+                        "$",
+                        marketData.price),
+                    React.createElement("span", { style: { fontSize: 9, color: parseFloat(marketData.change24h) >= 0 ? "#00ff88" : "#ff4444" } },
+                        parseFloat(marketData.change24h) >= 0 ? "+" : "",
+                        marketData.change24h,
+                        "%"),
+                    React.createElement("span", { style: { fontSize: 9, color: marketData.rsi <= 30 ? "#00ff88" : marketData.rsi >= 70 ? "#ff4444" : "#888" } },
+                        "RSI ",
+                        marketData.rsi))),
+                !detectedInfo && (React.createElement("span", { style: { fontSize: 9, color: "#333" } }, "Nombra un activo y temporalidad en tu mensaje"))),
+            React.createElement("button", { onClick: clearChat, title: "Borrar historial del chat", style: { background: "transparent", border: "1px solid #1e1e2e", color: "#444", padding: "5px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "Limpiar"),
+            React.createElement("button", { onClick: function () { setShowKeyInput(!showKeyInput); setTmpKey(apiKey); }, title: "Configurar API Key", style: { background: apiKey ? "rgba(0,255,136,.1)" : "rgba(255,68,68,.1)", border: "1px solid " + (apiKey ? "#00ff88" : "#ff4444"), color: apiKey ? "#00ff88" : "#ff4444", padding: "5px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer" } }, "\uD83D\uDD11")),
+        React.createElement("div", { ref: listRef, style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, paddingBottom: 8 } },
+            messages.map(function (m, i) {
+                return (React.createElement("div", { key: i, style: { display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" } },
+                    React.createElement("div", { style: {
+                            maxWidth: "85%",
+                            padding: "10px 12px",
+                            borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+                            background: m.role === "user" ? "rgba(240,180,41,.15)" : "#111118",
+                            border: "1px solid " + (m.role === "user" ? "rgba(240,180,41,.3)" : "#1e1e2e"),
+                            fontSize: 11,
+                            color: "#e0e0e0",
+                            lineHeight: 1.7,
+                            whiteSpace: "pre-wrap"
+                        } }, m.content),
+                    React.createElement("span", { style: { fontSize: 8, color: "#333", marginTop: 2, marginLeft: m.role === "user" ? 0 : 4, marginRight: m.role === "user" ? 4 : 0 } },
+                        m.role === "user" ? "Tu" : "Claude",
+                        " \u00B7 ",
+                        m.time)));
+            }),
             loading && (React.createElement("div", { style: { alignSelf: "flex-start" } },
                 React.createElement("div", { style: { padding: "10px 14px", background: "#111118", border: "1px solid #1e1e2e", borderRadius: "12px 12px 12px 2px", fontSize: 11, color: "#555" } }, "Analizando...")))),
         React.createElement("div", { style: { display: "flex", gap: 6, paddingTop: 8, borderTop: "1px solid #1a1a2a" } },
-            React.createElement("input", { style: { ...S.inp, flex: 1, fontSize: 12, padding: "10px 12px" }, placeholder: marketData ? "Describe lo que ves en el grafico o pregunta lo que quieras..." : "Carga los datos del mercado primero con ⚡", value: input, onChange: e => setInput(e.target.value), onKeyDown: e => { if (e.key === "Enter" && !e.shiftKey) {
+            React.createElement("input", { style: { ...S.inp, flex: 1, fontSize: 12, padding: "10px 12px" }, placeholder: "Ej: en 4H en LINK veo una ineficiencia FVG, puedo entrar?", value: input, onChange: function (e) { setInput(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     sendMessage();
                 } } }),
             React.createElement("button", { onClick: sendMessage, disabled: loading || !input.trim(), style: { background: loading || !input.trim() ? "#1e1e2e" : "#f0b429", color: loading || !input.trim() ? "#444" : "#0a0a0f", border: "none", padding: "10px 16px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : !input.trim() ? "default" : "pointer" } }, loading ? "..." : "→")),
-        React.createElement("div", { style: { fontSize: 8, color: "#333", marginTop: 4, textAlign: "center" } }, "Pulsa \u26A1 para cargar datos en tiempo real antes de preguntar \u00B7 Enter para enviar")));
+        React.createElement("div", { style: { fontSize: 8, color: "#333", marginTop: 4, textAlign: "center" } }, "Nombra el activo y temporalidad en tu mensaje \u00B7 Los datos se cargan automaticamente \u00B7 Enter para enviar")));
 }
 function EmaDisplay({ data }) {
     if (!data)
