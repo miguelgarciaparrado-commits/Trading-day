@@ -1451,24 +1451,53 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
 
 function EmaDisplay({data}){
   if(!data)return null;
-  const isGolden=data.relation==="above";
-  const crossLabel=data.cross==="golden"?"CRUCE DORADO":data.cross==="death"?"CRUCE MUERTE":null;
+  const isGolden7_25=data.relation==="above";
+  const crossLabel7_25=data.cross==="golden"?"CRUCE DORADO 7/25":data.cross==="death"?"CRUCE MUERTE 7/25":null;
+  const isGolden50_200=data.relation50_200==="above";
+  const has50_200=data.ema50!=null&&data.ema200!=null;
+  const crossLabel50_200=data.cross50_200==="golden"?"CRUCE DORADO 50/200":data.cross50_200==="death"?"CRUCE MUERTE 50/200":null;
   return(
-    <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:4}}>
-      <div style={{background:"rgba(136,170,255,.1)",border:"1px solid rgba(136,170,255,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
-        <span style={{color:"#88aaff"}}>EMA7 </span>
-        <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema7.toFixed(0)}</span>
+    <div style={{marginTop:6}}>
+      <div style={{fontSize:8,color:"#555",marginBottom:3}}>EMA 7 / 25</div>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+        <div style={{background:"rgba(136,170,255,.1)",border:"1px solid rgba(136,170,255,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
+          <span style={{color:"#88aaff"}}>EMA7 </span>
+          <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema7.toFixed(0)}</span>
+        </div>
+        <div style={{background:"rgba(255,136,170,.1)",border:"1px solid rgba(255,136,170,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
+          <span style={{color:"#ff88aa"}}>EMA25 </span>
+          <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema25.toFixed(0)}</span>
+        </div>
+        <div style={{background:isGolden7_25?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(isGolden7_25?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:isGolden7_25?"#00ff88":"#ff4444"}}>
+          {isGolden7_25?"EMA7 > EMA25":"EMA7 < EMA25"}
+        </div>
+        {crossLabel7_25&&(
+          <div style={{background:data.cross==="golden"?"rgba(255,215,0,.15)":"rgba(100,0,100,.15)",border:"1px solid "+(data.cross==="golden"?"#ffd700":"#cc00cc"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:data.cross==="golden"?"#ffd700":"#cc44cc"}}>
+            {crossLabel7_25}
+          </div>
+        )}
       </div>
-      <div style={{background:"rgba(255,136,170,.1)",border:"1px solid rgba(255,136,170,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
-        <span style={{color:"#ff88aa"}}>EMA25 </span>
-        <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema25.toFixed(0)}</span>
-      </div>
-      <div style={{background:isGolden?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(isGolden?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:isGolden?"#00ff88":"#ff4444"}}>
-        {isGolden?"EMA7 > EMA25":"EMA7 < EMA25"}
-      </div>
-      {crossLabel&&(
-        <div style={{background:data.cross==="golden"?"rgba(255,215,0,.15)":"rgba(100,0,100,.15)",border:"1px solid "+(data.cross==="golden"?"#ffd700":"#cc00cc"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:data.cross==="golden"?"#ffd700":"#cc44cc"}}>
-          {crossLabel}
+      {has50_200&&(
+        <div>
+          <div style={{fontSize:8,color:"#555",marginBottom:3}}>EMA 50 / 200</div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{background:"rgba(255,200,100,.1)",border:"1px solid rgba(255,200,100,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
+              <span style={{color:"#ffc864"}}>EMA50 </span>
+              <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema50.toFixed(0)}</span>
+            </div>
+            <div style={{background:"rgba(200,150,255,.1)",border:"1px solid rgba(200,150,255,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
+              <span style={{color:"#c896ff"}}>EMA200 </span>
+              <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema200.toFixed(0)}</span>
+            </div>
+            <div style={{background:isGolden50_200?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(isGolden50_200?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:isGolden50_200?"#00ff88":"#ff4444"}}>
+              {isGolden50_200?"EMA50 > EMA200":"EMA50 < EMA200"}
+            </div>
+            {crossLabel50_200&&(
+              <div style={{background:data.cross50_200==="golden"?"rgba(255,215,0,.15)":"rgba(100,0,100,.15)",border:"1px solid "+(data.cross50_200==="golden"?"#ffd700":"#cc00cc"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:data.cross50_200==="golden"?"#ffd700":"#cc44cc"}}>
+                {crossLabel50_200}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1522,19 +1551,30 @@ function calcEMASeries(closes, period){
 }
 
 function detectCross(closes){
-  // Returns null | "golden" | "death"
+  // Returns null | "golden" | "death" for EMA7/EMA25
   if(closes.length<30)return null;
   const ema7=calcEMASeries(closes,7);
   const ema25=calcEMASeries(closes,25);
   if(ema7.length<2||ema25.length<2)return null;
-  // Align arrays (ema25 starts later)
-  const offset=ema7.length-ema25.length;
   const prevE7=ema7[ema7.length-2];
   const currE7=ema7[ema7.length-1];
   const prevE25=ema25[ema25.length-2];
   const currE25=ema25[ema25.length-1];
   if(prevE7<=prevE25&&currE7>currE25)return"golden";
   if(prevE7>=prevE25&&currE7<currE25)return"death";
+  return null;
+}
+
+function detectCross50_200(closes){
+  // Returns null | "golden" | "death" for EMA50/EMA200
+  if(closes.length<205)return null;
+  const s50=calcEMASeries(closes,50);
+  const s200=calcEMASeries(closes,200);
+  if(s50.length<2||s200.length<2)return null;
+  const p50=s50[s50.length-2], c50=s50[s50.length-1];
+  const p200=s200[s200.length-2], c200=s200[s200.length-1];
+  if(p50<=p200&&c50>c200)return"golden";
+  if(p50>=p200&&c50<c200)return"death";
   return null;
 }
 
@@ -1551,8 +1591,9 @@ function AlertasTab({S}){
 
   const[alerts,setAlerts]=useState([]);
   const[customAlerts,setCustomAlerts]=useState([]);
+  const customAlertsRef=useRef([]);
   const[showCustomForm,setShowCustomForm]=useState(false);
-  const[customForm,setCustomForm]=useState({symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",condition:"below",threshold:30,description:""});
+  const[customForm,setCustomForm]=useState({symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",condition:"below",threshold:30,type:"rsi",crossType:"golden",description:""});
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
   const wsRefs=useRef({});
@@ -1566,7 +1607,7 @@ function AlertasTab({S}){
     // Load saved alerts - if none, init the 4 default BTC alerts
     try{
       const savedCustom=localStorage.getItem("td-custom-alerts");
-      if(savedCustom)setCustomAlerts(JSON.parse(savedCustom));
+      if(savedCustom){const ca=JSON.parse(savedCustom);customAlertsRef.current=ca;setCustomAlerts(ca);}
     }catch(e){}
     try{
       const saved=localStorage.getItem("td-rsi-alerts");
@@ -1592,16 +1633,18 @@ function AlertasTab({S}){
   }
 
   function saveCustomAlerts(arr){
+    customAlertsRef.current=arr;
     setCustomAlerts(arr);
     localStorage.setItem("td-custom-alerts",JSON.stringify(arr));
   }
 
   function addCustomAlert(){
-    if(!customForm.threshold)return;
+    const isRsi=customForm.type==="rsi";
+    if(isRsi&&!customForm.threshold)return;
     const na={...customForm,id:Date.now(),triggered:false};
     saveCustomAlerts([...customAlerts,na]);
     setShowCustomForm(false);
-    setCustomForm({symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",condition:"below",threshold:30,description:""});
+    setCustomForm({symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",condition:"below",threshold:30,type:"rsi",crossType:"golden",description:""});
   }
 
   function requestNotif(){
@@ -1619,18 +1662,31 @@ function AlertasTab({S}){
     });
   }
 
-  function sendAlert(label,interval,rsi,type,ema7,ema25,customDesc){
-    const rsiPart=rsi!==null?(type==="oversold"?"RSI SOBREVENTA "+rsi:type==="overbought"?"RSI SOBRECOMPRA "+rsi:""):"";
-    const emaPart=type==="golden"?"CRUCE DORADO EMA7 > EMA25":type==="death"?"CRUCE DE LA MUERTE EMA7 < EMA25":"";
-    const customPart=customDesc||"";
-    const title=type==="golden"||type==="death"?"Alerta EMA":type.startsWith("custom")?"Alerta Personalizada":"Alerta RSI";
-    const body=customDesc?customDesc:[rsiPart,emaPart].filter(Boolean).join(" + ");
+  function sendAlert(label,interval,rsi,type,e1,e2,customDesc){
     const tf=interval==="1h"?"1H":interval==="4h"?"4H":interval==="1d"?"Diario":"Semanal";
-    const msg=label+" "+tf+" — "+body;
-    const log={id:Date.now(),label,interval:tf,rsi,type,ema7:ema7?ema7.toFixed(0):null,ema25:ema25?ema25.toFixed(0):null,time:new Date().toLocaleTimeString("es-ES")};
+    var title="Alerta Trading";
+    var body="";
+    if(type==="oversold"){title="RSI Sobreventa";body=label+" "+tf+" — RSI SOBREVENTA "+rsi;}
+    else if(type==="overbought"){title="RSI Sobrecompra";body=label+" "+tf+" — RSI SOBRECOMPRA "+rsi;}
+    else if(type==="golden"){title="Cruce EMA 7/25";body=label+" "+tf+" — CRUCE DORADO EMA7 > EMA25";}
+    else if(type==="death"){title="Cruce EMA 7/25";body=label+" "+tf+" — CRUCE MUERTE EMA7 < EMA25";}
+    else if(type==="ema200_golden"){title="Cruce EMA 50/200";body=label+" "+tf+" — CRUCE DORADO EMA50 > EMA200";}
+    else if(type==="ema200_death"){title="Cruce EMA 50/200";body=label+" "+tf+" — CRUCE MUERTE EMA50 < EMA200";}
+    else if(customDesc){title="Alerta Personalizada";body=label+" "+tf+" — "+customDesc;}
+    else{title="Alerta";body=label+" "+tf+" — "+type;}
+    const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,body,time:new Date().toLocaleTimeString("es-ES")};
     setLogs(prev=>[log,...prev.slice(0,49)]);
     if(Notification.permission==="granted"){
-      new Notification(title,{body:msg,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png"});
+      try{
+        new Notification(title,{
+          body:body,
+          icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",
+          requireInteraction:true,
+          vibrate:[200,100,200]
+        });
+      }catch(ex){
+        new Notification(title,{body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png"});
+      }
     }
   }
 
@@ -1639,69 +1695,106 @@ function AlertasTab({S}){
     if(wsRefs.current[key])wsRefs.current[key].close();
     closesRef.current[key]=[];
 
-    // First fetch historical data for RSI calculation
-    fetch("https://api.binance.com/api/v3/klines?symbol="+alert.symbol+"&interval="+alert.interval+"&limit=50")
+    // Fetch 250 historical candles (needed for EMA 200)
+    fetch("https://api.binance.com/api/v3/klines?symbol="+alert.symbol+"&interval="+alert.interval+"&limit=250")
       .then(r=>r.json())
       .then(data=>{
         closesRef.current[key]=data.map(k=>parseFloat(k[4]));
-        // Open WebSocket for live updates
         const ws=new WebSocket("wss://stream.binance.com:9443/ws/"+alert.symbol.toLowerCase()+"@kline_"+alert.interval);
         ws.onmessage=e=>{
           const d=JSON.parse(e.data);
           const k=d.k;
           const closePrice=parseFloat(k.c);
           const closes=[...closesRef.current[key]];
-          if(k.x){closes.push(closePrice);if(closes.length>100)closes.shift();}
+          if(k.x){closes.push(closePrice);if(closes.length>300)closes.shift();}
           else{if(closes.length>0)closes[closes.length-1]=closePrice;}
           closesRef.current[key]=closes;
 
           const rsi=calcRSI(closes,14);
           const ema7=calcEMA(closes,7);
           const ema25=calcEMA(closes,25);
-          const cross=detectCross(closes);
+          const ema50=calcEMA(closes,50);
+          const ema200=calcEMA(closes,200);
+          const cross7_25=detectCross(closes);
+          const cross50_200=detectCross50_200(closes);
           const relation=ema7&&ema25?(ema7>ema25?"above":"below"):null;
+          const relation50_200=ema50&&ema200?(ema50>ema200?"above":"below"):null;
 
           // Update UI
           setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,rsi,active:true}:a));
           if(ema7&&ema25){
-            setEmaData(prev=>({...prev,[alert.id]:{ema7,ema25,relation,cross}}));
+            setEmaData(prev=>({...prev,[alert.id]:{ema7,ema25,relation,cross:cross7_25,ema50,ema200,relation50_200,cross50_200}}));
           }
 
-          // RSI alerts
+          // RSI alerts (standard)
           if(rsi!==null){
-            if(rsi<=alert.oversold)sendAlert(alert.label,alert.interval,rsi,"oversold",ema7,ema25);
-            if(rsi>=alert.overbought)sendAlert(alert.label,alert.interval,rsi,"overbought",ema7,ema25);
+            const rsiOSKey=key+"_rsiOS";
+            const rsiOBKey=key+"_rsiOB";
+            if(rsi<=alert.oversold){
+              if(lastCrossRef.current[rsiOSKey]!==true){
+                lastCrossRef.current[rsiOSKey]=true;
+                sendAlert(alert.label,alert.interval,rsi,"oversold",ema7,ema25);
+              }
+            } else { lastCrossRef.current[rsiOSKey]=false; }
+            if(rsi>=alert.overbought){
+              if(lastCrossRef.current[rsiOBKey]!==true){
+                lastCrossRef.current[rsiOBKey]=true;
+                sendAlert(alert.label,alert.interval,rsi,"overbought",ema7,ema25);
+              }
+            } else { lastCrossRef.current[rsiOBKey]=false; }
           }
 
-          // EMA cross alerts - only fire once per cross (not every tick)
-          if(cross){
-            const crossKey=key+"_cross";
-            const lastCross=lastCrossRef.current[crossKey];
-            if(lastCross!==cross){
-              lastCrossRef.current[crossKey]=cross;
-              sendAlert(alert.label,alert.interval,rsi,cross,ema7,ema25);
+          // EMA 7/25 cross alert
+          if(cross7_25){
+            const crossKey=key+"_cross7_25";
+            if(lastCrossRef.current[crossKey]!==cross7_25){
+              lastCrossRef.current[crossKey]=cross7_25;
+              sendAlert(alert.label,alert.interval,rsi,cross7_25,ema7,ema25);
             }
           }
 
-          // Combined: RSI oversold + EMA relation favorable
-          if(rsi!==null&&rsi<=alert.oversold&&relation==="above"){
-            sendAlert(alert.label,alert.interval,rsi,"oversold_golden",ema7,ema25);
+          // EMA 50/200 cross alert
+          if(cross50_200){
+            const crossKey200=key+"_cross50_200";
+            if(lastCrossRef.current[crossKey200]!==cross50_200){
+              lastCrossRef.current[crossKey200]=cross50_200;
+              sendAlert(alert.label,alert.interval,rsi,"ema200_"+cross50_200,ema50,ema200);
+            }
           }
-          // Check custom personalized alerts
-          if(rsi!==null){
-            customAlerts.forEach(function(ca){
-              if(ca.symbol!==alert.symbol||ca.interval!==alert.interval)return;
+
+          // Check custom alerts using ref (avoids stale closure)
+          customAlertsRef.current.forEach(function(ca){
+            if(ca.symbol!==alert.symbol||ca.interval!==alert.interval)return;
+            const ck=ca.id+"_"+alert.symbol+alert.interval;
+            var triggered=false;
+            var desc="";
+            if(ca.type==="rsi"||!ca.type){
               const thresh=parseFloat(ca.threshold);
-              const triggered=(ca.condition==="below"&&rsi<=thresh)||(ca.condition==="above"&&rsi>=thresh);
-              const ck=ca.id+"_"+alert.symbol+alert.interval;
+              triggered=(ca.condition==="below"&&rsi!==null&&rsi<=thresh)||(ca.condition==="above"&&rsi!==null&&rsi>=thresh);
+              desc=ca.description||("RSI "+(ca.condition==="below"?"por debajo de":"por encima de")+" "+thresh);
               if(triggered&&lastCustomRef.current[ck]!==true){
                 lastCustomRef.current[ck]=true;
-                const desc=ca.description||("RSI "+(ca.condition==="below"?"por debajo de":"por encima de")+" "+thresh);
-                sendAlert(alert.label,alert.interval,rsi,"custom_"+ca.condition,ema7,ema25,desc);
+                sendAlert(alert.label,alert.interval,rsi,"custom_rsi",ema7,ema25,desc);
               }
               if(!triggered)lastCustomRef.current[ck]=false;
-            });
-          }
+            } else if(ca.type==="ema_7_25"){
+              const crossMatch=ca.crossType==="any"?(cross7_25!==null):(cross7_25===ca.crossType);
+              if(crossMatch&&lastCustomRef.current[ck]!==cross7_25){
+                lastCustomRef.current[ck]=cross7_25;
+                desc=ca.description||(ca.crossType==="golden"?"Cruce Dorado EMA7/EMA25":ca.crossType==="death"?"Cruce Muerte EMA7/EMA25":"Cruce EMA7/EMA25");
+                sendAlert(alert.label,alert.interval,rsi,"custom_ema7_25_"+cross7_25,ema7,ema25,desc);
+              }
+              if(!cross7_25)lastCustomRef.current[ck]=null;
+            } else if(ca.type==="ema_50_200"){
+              const crossMatch200=ca.crossType==="any"?(cross50_200!==null):(cross50_200===ca.crossType);
+              if(crossMatch200&&lastCustomRef.current[ck]!==cross50_200){
+                lastCustomRef.current[ck]=cross50_200;
+                desc=ca.description||(ca.crossType==="golden"?"Cruce Dorado EMA50/EMA200":ca.crossType==="death"?"Cruce Muerte EMA50/EMA200":"Cruce EMA50/EMA200");
+                sendAlert(alert.label,alert.interval,rsi,"custom_ema50_200_"+cross50_200,ema50,ema200,desc);
+              }
+              if(!cross50_200)lastCustomRef.current[ck]=null;
+            }
+          });
         };
         ws.onerror=()=>setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,active:false,error:true}:a));
         wsRefs.current[key]=ws;
@@ -1876,6 +1969,7 @@ function AlertasTab({S}){
 
         {showCustomForm&&(
           <div style={{background:"#0d0d16",borderRadius:6,padding:12,marginBottom:10,border:"1px solid rgba(136,170,255,.2)"}}>
+            {/* Fila 1: Activo + Temporalidad */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
               <div>
                 <div style={{fontSize:8,color:"#555",marginBottom:3}}>ACTIVO</div>
@@ -1889,31 +1983,87 @@ function AlertasTab({S}){
               <div>
                 <div style={{fontSize:8,color:"#555",marginBottom:3}}>TEMPORALIDAD</div>
                 <select value={customForm.interval} onChange={e=>setCustomForm({...customForm,interval:e.target.value})} style={{...S.inp,padding:"5px",fontSize:9}}>
-                  {INTERVALS.map(i=><option key={i.value} value={i.value}>{i.label}</option>)}
+                  {[{value:"4h",label:"4H"},{value:"1d",label:"Diario"},{value:"1w",label:"Semanal"},{value:"1h",label:"1H"}].map(i=><option key={i.value} value={i.value}>{i.label}</option>)}
                 </select>
-              </div>
-              <div>
-                <div style={{fontSize:8,color:"#555",marginBottom:3}}>CONDICION</div>
-                <select value={customForm.condition} onChange={e=>setCustomForm({...customForm,condition:e.target.value})} style={{...S.inp,padding:"5px",fontSize:9}}>
-                  <option value="below">RSI por debajo de</option>
-                  <option value="above">RSI por encima de</option>
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:8,color:customForm.condition==="below"?"#00ff88":"#ff4444",marginBottom:3}}>VALOR RSI</div>
-                <input type="number" min="1" max="99" value={customForm.threshold}
-                  onChange={e=>setCustomForm({...customForm,threshold:+e.target.value})}
-                  style={{...S.inp,padding:"5px",fontSize:14,textAlign:"center",fontWeight:700}}/>
               </div>
             </div>
+            {/* Tipo de alerta */}
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,color:"#555",marginBottom:3}}>TIPO DE ALERTA</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+                {[{v:"rsi",l:"RSI",c:"#00ff88"},{v:"ema_7_25",l:"EMA 7/25",c:"#88aaff"},{v:"ema_50_200",l:"EMA 50/200",c:"#ffc864"}].map(function(t){
+                  const active=customForm.type===t.v;
+                  return(
+                    <button key={t.v} onClick={()=>setCustomForm({...customForm,type:t.v})}
+                      style={{padding:"7px 4px",borderRadius:5,border:"1px solid "+(active?t.c:"#333"),background:active?"rgba(136,170,255,.1)":"transparent",color:active?t.c:"#555",fontSize:9,fontWeight:active?700:400,cursor:"pointer"}}>
+                      {t.l}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {/* Campos RSI */}
+            {(customForm.type==="rsi"||!customForm.type)&&(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:8,color:"#555",marginBottom:3}}>CONDICION</div>
+                  <select value={customForm.condition} onChange={e=>setCustomForm({...customForm,condition:e.target.value})} style={{...S.inp,padding:"5px",fontSize:9}}>
+                    <option value="below">Sobreventa (RSI menor o igual a)</option>
+                    <option value="above">Sobrecompra (RSI mayor o igual a)</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:8,color:customForm.condition==="below"?"#00ff88":"#ff4444",marginBottom:3}}>
+                    {customForm.condition==="below"?"UMBRAL SOBREVENTA":"UMBRAL SOBRECOMPRA"}
+                  </div>
+                  <input type="number" min="1" max="99" value={customForm.threshold}
+                    onChange={e=>setCustomForm({...customForm,threshold:+e.target.value})}
+                    style={{...S.inp,padding:"5px",fontSize:16,textAlign:"center",fontWeight:700}}/>
+                </div>
+              </div>
+            )}
+            {/* Campos EMA cruce */}
+            {(customForm.type==="ema_7_25"||customForm.type==="ema_50_200")&&(
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:8,color:"#555",marginBottom:3}}>TIPO DE CRUCE</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+                  {[{v:"golden",l:"Cruce Dorado",c:"#ffd700"},{v:"death",l:"Cruce Muerte",c:"#cc44cc"},{v:"any",l:"Cualquiera",c:"#888"}].map(function(ct){
+                    const active=customForm.crossType===ct.v;
+                    return(
+                      <button key={ct.v} onClick={()=>setCustomForm({...customForm,crossType:ct.v})}
+                        style={{padding:"7px 4px",borderRadius:5,border:"1px solid "+(active?ct.c:"#333"),background:active?"rgba(255,255,255,.05)":"transparent",color:active?ct.c:"#555",fontSize:9,fontWeight:active?700:400,cursor:"pointer"}}>
+                        {ct.l}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{marginTop:6,fontSize:8,color:"#444"}}>
+                  {customForm.type==="ema_7_25"
+                    ?(customForm.crossType==="golden"?"EMA7 cruza por encima de EMA25 (señal alcista)":customForm.crossType==="death"?"EMA7 cruza por debajo de EMA25 (señal bajista)":"Cualquier cruce EMA7/EMA25")
+                    :(customForm.crossType==="golden"?"EMA50 cruza por encima de EMA200 (Cruce Dorado)":customForm.crossType==="death"?"EMA50 cruza por debajo de EMA200 (Cruce de la Muerte)":"Cualquier cruce EMA50/EMA200")
+                  }
+                </div>
+              </div>
+            )}
+            {/* Descripcion */}
             <div style={{marginBottom:8}}>
               <div style={{fontSize:8,color:"#555",marginBottom:3}}>DESCRIPCION (opcional)</div>
-              <input style={S.inp} placeholder="Ej: BTC en zona de decision diario"
+              <input style={S.inp} placeholder="Ej: BTC soporte semanal RSI sobreventa"
                 value={customForm.description}
                 onChange={e=>setCustomForm({...customForm,description:e.target.value})}/>
             </div>
+            {/* Preview */}
             <div style={{background:"rgba(136,170,255,.08)",border:"1px solid rgba(136,170,255,.2)",borderRadius:5,padding:"8px 10px",marginBottom:8,fontSize:9,color:"#88aaff"}}>
-              Notificar cuando {customForm.label} en {INTERVALS.find(function(i){return i.value===customForm.interval;})||{label:customForm.interval}}.label tenga RSI {customForm.condition==="below"?"por debajo de":"por encima de"} {customForm.threshold}
+              {"Notificar cuando "+customForm.label+" "+((INTERVALS.find(function(i){return i.value===customForm.interval;})||{label:customForm.interval}).label)+" — "+(
+                (customForm.type==="rsi"||!customForm.type)
+                  ? ("RSI "+(customForm.condition==="below"?"menor o igual a":"mayor o igual a")+" "+customForm.threshold)
+                  : customForm.type==="ema_7_25"
+                    ? (customForm.crossType==="golden"?"Cruce Dorado EMA7/EMA25":customForm.crossType==="death"?"Cruce Muerte EMA7/EMA25":"Cualquier cruce EMA7/EMA25")
+                    : (customForm.crossType==="golden"?"Cruce Dorado EMA50/EMA200":customForm.crossType==="death"?"Cruce Muerte EMA50/EMA200":"Cualquier cruce EMA50/EMA200")
+              )}
+            </div>
+            <div style={{fontSize:8,color:"#f0b429",background:"rgba(240,180,41,.08)",border:"1px solid rgba(240,180,41,.2)",borderRadius:4,padding:"6px 8px",marginBottom:8}}>
+              Inicia el monitor de la temporalidad correspondiente para activar esta alerta
             </div>
             <div style={{display:"flex",gap:6}}>
               <button onClick={addCustomAlert} style={{flex:2,padding:"8px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>GUARDAR ALERTA</button>
@@ -1930,25 +2080,37 @@ function AlertasTab({S}){
 
         {customAlerts.map(ca=>{
           const itvLabel=(INTERVALS.find(function(i){return i.value===ca.interval;})||{label:ca.interval}).label;
+          var condText="";
+          var condColor="#88aaff";
+          if(ca.type==="rsi"||!ca.type){
+            condText="RSI "+(ca.condition==="below"?"menor o igual a":"mayor o igual a")+" "+ca.threshold;
+            condColor=ca.condition==="below"?"#00ff88":"#ff4444";
+          } else if(ca.type==="ema_7_25"){
+            condText=ca.crossType==="golden"?"Cruce Dorado EMA7/EMA25":ca.crossType==="death"?"Cruce Muerte EMA7/EMA25":"Cualquier cruce EMA7/EMA25";
+            condColor=ca.crossType==="golden"?"#ffd700":"#cc44cc";
+          } else if(ca.type==="ema_50_200"){
+            condText=ca.crossType==="golden"?"Cruce Dorado EMA50/EMA200":ca.crossType==="death"?"Cruce Muerte EMA50/EMA200":"Cualquier cruce EMA50/EMA200";
+            condColor=ca.crossType==="golden"?"#ffd700":"#cc44cc";
+          }
           return(
             <div key={ca.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#0d0d16",borderRadius:6,marginBottom:4,border:"1px solid rgba(136,170,255,.15)"}}>
               <div>
                 <span style={{fontSize:10,fontWeight:700,color:"#88aaff"}}>{ca.label}</span>
-                <span style={{fontSize:9,color:"#f0b429",marginLeft:6}}>{itvLabel}</span>
-                <div style={{fontSize:9,color:ca.condition==="below"?"#00ff88":"#ff4444",marginTop:2}}>
-                  RSI {ca.condition==="below"?"menores de":"mayores de"} {ca.threshold}
-                  {ca.description&&<span style={{color:"#555"}}> · {ca.description}</span>}
+                <span style={{fontSize:9,color:"#f0b429",marginLeft:6,background:"rgba(240,180,41,.1)",padding:"1px 6px",borderRadius:3}}>{itvLabel}</span>
+                <div style={{fontSize:9,color:condColor,marginTop:3,fontWeight:700}}>
+                  {condText}
+                  {ca.description&&<span style={{color:"#555",fontWeight:400}}> · {ca.description}</span>}
                 </div>
               </div>
               <button onClick={()=>saveCustomAlerts(customAlerts.filter(function(x){return x.id!==ca.id;}))}
-                style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:16}}>✕</button>
+                style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:16,marginLeft:8}}>✕</button>
             </div>
           );
         })}
 
         {customAlerts.length>0&&(
-          <div style={{fontSize:8,color:"#444",marginTop:6,textAlign:"center"}}>
-            Las alertas personalizadas se comprueban cuando el monitor estandar esta activo
+          <div style={{fontSize:8,color:"#f0b429",background:"rgba(240,180,41,.06)",border:"1px solid rgba(240,180,41,.15)",borderRadius:4,marginTop:8,padding:"6px 8px",textAlign:"center"}}>
+            Inicia el monitor de cada temporalidad para activar las alertas
           </div>
         )}
       </div>
@@ -1956,22 +2118,33 @@ function AlertasTab({S}){
       {/* Log de alertas disparadas */}
       {logs.length>0&&(
         <div style={{background:"#111118",border:"1px solid #1e1e2e",borderRadius:8,padding:12,marginTop:4}}>
-          <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:8}}>HISTORIAL DE ALERTAS</div>
-          {logs.slice(0,20).map(log=>(
-            <div key={log.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid #1a1a2a",fontSize:9}}>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <span style={{fontSize:13}}>{log.type==="oversold"?"🟢":"🔴"}</span>
-                <div>
-                  <span style={{fontWeight:700,color:"#e0e0e0"}}>{log.label}</span>
-                  <span style={{color:"#555",marginLeft:5}}>{log.interval}</span>
-                  <span style={{color:log.type==="oversold"?"#00ff88":"#ff4444",marginLeft:5,fontWeight:700}}>
-                    RSI {log.rsi} — {log.type==="oversold"?"SOBREVENTA":"SOBRECOMPRA"}
-                  </span>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:9,color:"#f0b429",fontWeight:700}}>HISTORIAL DE ALERTAS</div>
+            <button onClick={()=>setLogs([])} style={{background:"transparent",border:"none",color:"#444",fontSize:8,cursor:"pointer"}}>Limpiar</button>
+          </div>
+          {logs.slice(0,20).map(function(log){
+            var icon="🔔";
+            var color="#88aaff";
+            if(log.type==="oversold"){icon="🟢";color="#00ff88";}
+            else if(log.type==="overbought"){icon="🔴";color="#ff4444";}
+            else if(log.type==="golden"||log.type.indexOf("golden")>-1){icon="🌟";color="#ffd700";}
+            else if(log.type==="death"||log.type.indexOf("death")>-1){icon="💀";color="#cc44cc";}
+            else if(log.type==="ema200_golden"){icon="🌟";color="#ffd700";}
+            else if(log.type==="ema200_death"){icon="💀";color="#cc44cc";}
+            return(
+              <div key={log.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"6px 0",borderBottom:"1px solid #1a1a2a",fontSize:9}}>
+                <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                  <span style={{fontSize:14,lineHeight:1}}>{icon}</span>
+                  <div>
+                    <span style={{fontWeight:700,color:"#e0e0e0"}}>{log.label}</span>
+                    <span style={{color:"#555",marginLeft:5,background:"rgba(240,180,41,.1)",padding:"1px 5px",borderRadius:3}}>{log.interval}</span>
+                    <div style={{color:color,marginTop:2,fontWeight:700,fontSize:8}}>{log.body}</div>
+                  </div>
                 </div>
+                <span style={{color:"#444",fontSize:8,whiteSpace:"nowrap",marginLeft:8}}>{log.time}</span>
               </div>
-              <span style={{color:"#444",fontSize:8}}>{log.time}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
