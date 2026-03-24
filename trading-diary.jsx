@@ -136,8 +136,8 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
   const lines=[];
   const allHist=[...xhist,...hist];
   const totalOps=allHist.length;
-  const wins=allHist.filter(h=>h.result>0).length;
-  const losses=allHist.filter(h=>h.result<0).length;
+  const wins=allHist.filter(function(h){return h.result>0;}).length;
+  const losses=allHist.filter(function(h){return h.result<0;}).length;
   const winRate=totalOps>0?Math.round(wins/totalOps*100):0;
 
   // Nivel general
@@ -155,13 +155,39 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
     else lines.push("Solo respetas el SL en el "+slRate+"% de casos. Esto es lo que mas dinero te cuesta.");
   }
 
-  // Close behavior
+  // Close behavior — tipos de cierre
   const totClose=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
   if(totClose>0){
+    const tpPct=Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totClose*100);
     const earlyPct=Math.round((ps.earlyClose||0)/totClose*100);
-    if(earlyPct>40)lines.push("Cierras prematuramente el "+earlyPct+"% de las veces. Dejas dinero sobre la mesa.");
-    else if(earlyPct>20)lines.push("Cierras antes de tiempo en el "+earlyPct+"% de casos. Trabaja la paciencia.");
-    else if((ps.tpAuto||0)>0)lines.push("Dejas correr las ganancias hasta el TP en el "+Math.round((ps.tpAuto||0)/totClose*100)+"% de las operaciones. Bien.");
+    if(earlyPct>40)lines.push("Cierras antes del objetivo el "+earlyPct+"% de las veces. Esto revela impaciencia o miedo a perder las ganancias.");
+    else if(earlyPct>20)lines.push("Cierras prematuramente en el "+earlyPct+"% de casos. Trabaja la confianza en tu propio plan.");
+    else if(tpPct>=60)lines.push("Alcanzas el objetivo en el "+tpPct+"% de los cierres. Buena ejecucion del plan.");
+  }
+
+  // Analisis de descripciones de cierre (jnl linkedClose)
+  const closeDocs=jnl.filter(function(j){return j.linkedClose;});
+  const tpDocs=jnl.filter(function(j){return j.linkedClose==="tp";});
+  const slDocs=jnl.filter(function(j){return j.linkedClose==="sl";});
+  const manualDocs=jnl.filter(function(j){return j.linkedClose==="manual";});
+  if(totClose>0){
+    const docRate=Math.round(closeDocs.length/Math.max(totClose,1)*100);
+    if(docRate===0)lines.push("No documentas tus cierres. Sin reflexion post-cierre no hay aprendizaje.");
+    else if(docRate>=70)lines.push("Documentas el "+docRate+"% de tus cierres. La reflexion constante es la base del progreso.");
+    else lines.push("Solo documentas el "+docRate+"% de tus cierres. Intenta escribir algo despues de cada operacion.");
+  }
+  // Calidad emocional en SL vs TP
+  if(slDocs.length>0){
+    const slLessons=slDocs.filter(function(j){return j.type==="lesson"||j.type==="analysis";}).length;
+    const slMistakes=slDocs.filter(function(j){return j.type==="mistake";}).length;
+    if(slLessons>slMistakes)lines.push("Conviertes los SL en aprendizaje ("+slLessons+" lecciones vs "+slMistakes+" errores). Mentalidad correcta.");
+    else if(slMistakes>slLessons)lines.push("Los SL te afectan mas emocionalmente de lo ideal ("+slMistakes+" entradas de error). Trabaja la aceptacion de perdidas.");
+  }
+  if(manualDocs.length>0){
+    const earlyWins=manualDocs.filter(function(j){return j.type==="win";}).length;
+    const earlyLessons=manualDocs.filter(function(j){return j.type==="lesson";}).length;
+    if(earlyWins>earlyLessons)lines.push("Clasificas tus cierres manuales como victorias. Asegurate de que realmente mejoran tu R/R.");
+    else if(earlyLessons>=earlyWins&&manualDocs.length>2)lines.push("Reconoces que los cierres anticipados son una area de mejora. Buen autoconocimiento.");
   }
 
   // Revenge trading
@@ -169,17 +195,17 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
   else if(ps.revenge===0)lines.push("Sin trading de revancha registrado. Muy buena senial de control emocional.");
 
   // Journal quality
-  const victories=jnl.filter(j=>j.type==="win").length;
-  const lessons=jnl.filter(j=>j.type==="lesson").length;
-  const mistakes=jnl.filter(j=>j.type==="mistake").length;
+  const victories=jnl.filter(function(j){return j.type==="win";}).length;
+  const lessons=jnl.filter(function(j){return j.type==="lesson";}).length;
+  const mistakes=jnl.filter(function(j){return j.type==="mistake";}).length;
   if(jnl.length===0)lines.push("El diario esta vacio. Documentar cada operacion es clave para mejorar.");
   else if(lessons>mistakes)lines.push("Conviertes los errores en lecciones. Eso es lo que diferencia a un trader profesional.");
-  else if(mistakes>lessons*2)lines.push("Tienes muchos errores documentados sin su leccion correspondiente. Reflexiona mas sobre cada uno.");
+  else if(mistakes>lessons*2)lines.push("Tienes muchos errores documentados sin su leccion correspondiente. Reflexiona mas.");
 
   // Patterns
-  const confPats=pats.filter(p=>p.conf>0);
+  const confPats=pats.filter(function(p){return p.conf>0;});
   if(confPats.length>0){
-    const bestPat=confPats.sort((a,b)=>{
+    const bestPat=confPats.sort(function(a,b){
       const ra=a.obs>0?(a.conf/a.obs):0;
       const rb=b.obs>0?(b.conf/b.obs):0;
       return rb-ra;
@@ -409,26 +435,63 @@ export default function App(){
       return t+": "+jnl.filter(function(j){return j.type===t;}).length;
     }).join(", ");
     const bestPat=pats.filter(function(p){return p.obs>0;}).sort(function(a,b){return(b.conf/b.obs)-(a.conf/a.obs);})[0];
+
+    // Analisis de cierres y sus descripciones
+    const totClose=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
+    const tpPct=totClose>0?Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totClose*100):0;
+    const earlyPct=totClose>0?Math.round((ps.earlyClose||0)/totClose*100):0;
+    // Entradas del diario vinculadas a cierres reales
+    const closeDocs=jnl.filter(function(j){return j.linkedClose;});
+    const closeDocRate=totClose>0?Math.round(closeDocs.length/totClose*100):0;
+    const tpDocs=jnl.filter(function(j){return j.linkedClose==="tp";});
+    const slDocs=jnl.filter(function(j){return j.linkedClose==="sl";});
+    const manualDocs=jnl.filter(function(j){return j.linkedClose==="manual";});
+    // Resumen emocional por tipo de cierre
+    function closeEmoSummary(docs){
+      if(!docs.length)return "sin documentar";
+      const byType={win:0,lesson:0,analysis:0,mistake:0};
+      docs.forEach(function(d){if(byType[d.type]!==undefined)byType[d.type]++;});
+      return Object.keys(byType).filter(function(k){return byType[k]>0;}).map(function(k){return k+":"+byType[k];}).join(", ");
+    }
+    // Ultimas 5 descripciones de cierre (texto real escrito por el trader)
+    const recentCloseDocs=closeDocs.slice(0,5).map(function(j){
+      const ct=j.linkedClose==="tp"?"TP":j.linkedClose==="sl"?"SL":"Manual";
+      return "["+ct+"] "+j.type.toUpperCase()+": "+j.text.slice(0,100);
+    }).join("\n");
+    // Ultimos 8 xhist con nota
+    const recentXhist=xhist.slice(0,8).map(function(h){
+      return h.asset+" "+(h.result>0?"+":"")+h.result.toFixed(0)+"$ ("+h.note+") "+h.date;
+    }).join(" | ");
+
     const prompt="Eres coach de trading. Analiza el perfil completo de este trader y genera un informe detallado en espanol.\n\n"+
       "DATOS DEL TRADER (Miguel Garcia Parrado, Quantfury desde nov 2024):\n"+
       "Nivel score: "+sc+"/100\n"+
       "Total operaciones: "+allH.length+" | Ganadoras: "+wins+" | Perdedoras: "+losses+" | Tasa exito: "+winRate+"%\n"+
       "P&L total acumulado: $"+totalPnl+"\n"+
       "Disciplina SL: "+ps.slOk+" respetados / "+slTotal+" totales ("+slRate+"% disciplina)\n"+
-      "Trading revancha: "+(ps.revenge||0)+" veces\n"+
-      "Cierres prematuros: "+(ps.earlyClose||0)+" | TP automaticos: "+(ps.tpAuto||0)+" | TP manuales: "+(ps.tpManual||0)+"\n"+
+      "Trading revancha: "+(ps.revenge||0)+" veces\n\n"+
+      "=== PATRON DE CIERRES ===\n"+
+      "Total cierres registrados: "+totClose+"\n"+
+      "TP alcanzados: "+((ps.tpAuto||0)+(ps.tpManual||0))+" ("+tpPct+"%) | Cierres prematuros: "+(ps.earlyClose||0)+" ("+earlyPct+"%)\n"+
+      "Cierres documentados en diario: "+closeDocs.length+"/"+totClose+" ("+closeDocRate+"%)\n"+
+      "Emociones al cerrar en TP: "+closeEmoSummary(tpDocs)+"\n"+
+      "Emociones al activarse SL: "+closeEmoSummary(slDocs)+"\n"+
+      "Emociones en cierres manuales: "+closeEmoSummary(manualDocs)+"\n"+
+      (recentCloseDocs?"Ultimas descripciones de cierre:\n"+recentCloseDocs+"\n":"")+
+      (recentXhist?"\nHistorial reciente de cierres via app: "+recentXhist+"\n":"")+"\n"+
+      "=== RESTO DEL PERFIL ===\n"+
       "Ultimas 10 operaciones: "+recentTrades+"\n"+
       "Por activo: "+assetSummary+"\n"+
       "Diario psicologico: "+jnlTypes+" ("+jnl.length+" entradas totales)\n"+
       "Mejor patron: "+(bestPat?bestPat.name+" "+Math.round(bestPat.conf/bestPat.obs*100)+"% exito":"sin datos")+"\n"+
       "Posiciones abiertas: "+pos.map(function(p){return p.asset+" "+p.dir+" entrada $"+p.entry;}).join(", ")+"\n\n"+
-      "GENERA UN INFORME con estas secciones exactas:\n"+
+      "GENERA UN INFORME con estas secciones exactas (analiza especialmente el patron de cierres y lo que sus descripciones revelan sobre su psicologia):\n"+
       "## RESUMEN EJECUTIVO\n(2-3 frases sobre el estado actual del trader)\n\n"+
-      "## PUNTOS FUERTES\n(lista de 3-4 puntos, con datos concretos)\n\n"+
-      "## PUNTOS DEBILES\n(lista de 3-4 puntos, con datos concretos)\n\n"+
-      "## EVOLUCION\n(analisis de tendencia, esta mejorando o empeorando y por que)\n\n"+
+      "## PUNTOS FUERTES\n(lista de 3-4 puntos, con datos concretos de cierres y trading)\n\n"+
+      "## PUNTOS DEBILES\n(lista de 3-4 puntos, analiza el patron de cierres prematuros, emociones, descripciones)\n\n"+
+      "## PATRON PSICOLOGICO EN CIERRES\n(analisis de como cierra las operaciones, que revelan sus descripciones sobre su mentalidad)\n\n"+
       "## RECOMENDACIONES PRIORITARIAS\n(lista de 3 acciones concretas para los proximos 30 dias)\n\n"+
-      "Sé directo, usa datos del perfil, max 400 palabras total.";
+      "Se directo, usa datos reales del perfil, max 450 palabras total.";
     try{
       const r=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
@@ -1416,6 +1479,16 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
         "Relacion EMAs: "+md.emaRelation;
     }
 
+    // Analisis de cierres para el chat
+    const totCloseC=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
+    const tpPctC=totCloseC>0?Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totCloseC*100):0;
+    const earlyPctC=totCloseC>0?Math.round((ps.earlyClose||0)/totCloseC*100):0;
+    const closeDocsC=jnl.filter(function(j){return j.linkedClose;});
+    const recentCloseDocsC=closeDocsC.slice(0,3).map(function(j){
+      const ct=j.linkedClose==="tp"?"TP":j.linkedClose==="sl"?"SL":"Manual";
+      return "["+ct+"/"+j.type+"] "+j.text.slice(0,80);
+    }).join(" | ");
+
     return "Eres analista de trading y coach personal de Miguel Garcia Parrado (Quantfury, desde nov 2024).\n\n"+
       "=== PERFIL TRADER ===\n"+
       "Nivel: "+sc+"/100\n"+
@@ -1423,6 +1496,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       "P&L acumulado: $"+totalPnl+"\n"+
       "SL respetados: "+ps.slOk+"/"+slTotal+" ("+slRate+"%) | SL eliminados: "+ps.slBroken+"\n"+
       "Trading de revancha: "+(ps.revenge||0)+" veces\n"+
+      "Patron de cierres: TP "+tpPctC+"% | Cierre anticipado "+earlyPctC+"% de "+totCloseC+" cierres\n"+
+      (recentCloseDocsC?"Ultimas reflexiones post-cierre: "+recentCloseDocsC+"\n":"")+
       "Activo mas rentable: "+(bestAsset||"--")+" | Activo con mas perdidas: "+(worstAsset||"--")+"\n"+
       "Ultimas 5 operaciones: "+recentTrades+"\n"+
       "Estrategia: FVG (Fair Value Gaps) + patrones chartistas (cunas, banderines, canales)\n"+
@@ -1433,10 +1508,9 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       "=== INSTRUCCIONES ===\n"+
       "- Responde en espanol, directo y tecnico, max 250 palabras\n"+
       "- Analiza el setup con RSI, EMAs y estructura de precio del activo seleccionado\n"+
-      "- Relaciona el analisis con el historial del trader (activos donde pierde/gana mas)\n"+
+      "- Relaciona el analisis con su historial de cierres (tiende a cerrar antes del TP)\n"+
       "- Si el setup es arriesgado para su perfil, dilo claramente\n"+
       "- Si hay confluencia (RSI + EMA + patron), destacalo como oportunidad\n"+
-      "- Considera su historial de SL para evaluar gestion de riesgo\n"+
       "- Termina SIEMPRE con: EVALUACION_TRADER:[positivo|negativo|neutro]:[descripcion breve de max 15 palabras]";
   }
 
@@ -2781,8 +2855,15 @@ function ModalPostCierre({data,jnl,SJ,setModal,fmtNum,S,TC}){
       <div style={{padding:"7px 10px",background:"rgba(240,180,41,.05)",borderRadius:5,border:"1px solid rgba(240,180,41,.2)",marginBottom:12,fontSize:9,color:"#888"}}>
         Documenta este cierre para sumar puntos al score
       </div>
-      <div style={{fontSize:9,color:"#555",marginBottom:3}}>QUE APRENDISTE?</div>
-      <textarea style={{...S.inp,height:75,resize:"none",marginBottom:10}} value={form.text} onChange={e=>setForm(f=>({...f,text:e.target.value}))}/>
+      <div style={{fontSize:9,color:"#555",marginBottom:3}}>
+        {data.type==="tp"?"¿POR QUE CERRASTE? ¿SEGUISTE EL PLAN?":data.type==="sl"?"¿QUE FALLO? ¿RESPETASTE EL SL?":"¿POR QUE CERRASTE ANTES? ¿FUE LA DECISION CORRECTA?"}
+      </div>
+      <textarea
+        style={{...S.inp,height:80,resize:"none",marginBottom:10}}
+        placeholder={data.type==="tp"?"Ej: Segui el plan hasta el TP, RSI en sobrecompra confirmaba la salida...":data.type==="sl"?"Ej: El SL se activo correctamente, la tesis se invalido en 4H...":"Ej: Cerre antes porque vi debilidad en el momentum, aunque el TP estaba cerca..."}
+        value={form.text}
+        onChange={function(e){setForm(function(f){return{...f,text:e.target.value};});}}
+      />
       <div style={{fontSize:9,color:"#555",marginBottom:5}}>EMOCION</div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
         {["😰","😅","💪","🎯","😤","🧘","😊","😬"].map(em=>(
