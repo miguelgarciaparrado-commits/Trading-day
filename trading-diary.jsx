@@ -270,6 +270,10 @@ export default function App(){
   const[xhist,setXhist]=useState(XHIST_DEFAULT);
   const[ethClosed,setEthClosed]=useState(false);
   const[horarios,setHorarios]=useState([]);
+  const[aiProfile,setAiProfile]=useState(function(){
+    try{const s=localStorage.getItem("td-ai-profile");return s?JSON.parse(s):null;}catch(e){return null;}
+  });
+  const[aiProfileLoading,setAiProfileLoading]=useState(false);
   // fotos eliminadas - se usan URLs externas
   const[tab,setTab]=useState("Resumen");
   const[modal,setModal]=useState({});
@@ -377,6 +381,79 @@ export default function App(){
 
   const SX=v=>{D.current.xhist=v;setXhist(v);save();};
   const SH=v=>{D.current.horarios=v;setHorarios(v);save();};
+
+  async function generateAIProfile(){
+    const key=localStorage.getItem("td-anthropic-key")||"";
+    if(!key){alert("Configura tu clave API de Anthropic en el Chat (boton 🔑) primero.");return;}
+    setAiProfileLoading(true);
+    const allH=[...xhist,...hist];
+    const wins=allH.filter(function(h){return h.result>0;}).length;
+    const losses=allH.filter(function(h){return h.result<0;}).length;
+    const totalPnl=allH.reduce(function(s,h){return s+h.result;},0).toFixed(2);
+    const winRate=allH.length>0?Math.round(wins/allH.length*100):0;
+    const slTotal=ps.slOk+ps.slBroken;
+    const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
+    const recentTrades=allH.slice(-10).map(function(h){
+      return h.asset+" "+(h.result>0?"+":"")+h.result.toFixed(0)+"$";
+    }).join(", ");
+    const assetStats={};
+    allH.forEach(function(h){
+      if(!assetStats[h.asset])assetStats[h.asset]={w:0,l:0,pnl:0,n:0};
+      if(h.result>0)assetStats[h.asset].w++;else assetStats[h.asset].l++;
+      assetStats[h.asset].pnl+=h.result;assetStats[h.asset].n++;
+    });
+    const assetSummary=Object.keys(assetStats).map(function(a){
+      return a+": "+assetStats[a].n+" ops, P&L $"+assetStats[a].pnl.toFixed(0);
+    }).join(" | ");
+    const jnlTypes=["win","lesson","analysis","mistake"].map(function(t){
+      return t+": "+jnl.filter(function(j){return j.type===t;}).length;
+    }).join(", ");
+    const bestPat=pats.filter(function(p){return p.obs>0;}).sort(function(a,b){return(b.conf/b.obs)-(a.conf/a.obs);})[0];
+    const prompt="Eres coach de trading. Analiza el perfil completo de este trader y genera un informe detallado en espanol.\n\n"+
+      "DATOS DEL TRADER (Miguel Garcia Parrado, Quantfury desde nov 2024):\n"+
+      "Nivel score: "+sc+"/100\n"+
+      "Total operaciones: "+allH.length+" | Ganadoras: "+wins+" | Perdedoras: "+losses+" | Tasa exito: "+winRate+"%\n"+
+      "P&L total acumulado: $"+totalPnl+"\n"+
+      "Disciplina SL: "+ps.slOk+" respetados / "+slTotal+" totales ("+slRate+"% disciplina)\n"+
+      "Trading revancha: "+(ps.revenge||0)+" veces\n"+
+      "Cierres prematuros: "+(ps.earlyClose||0)+" | TP automaticos: "+(ps.tpAuto||0)+" | TP manuales: "+(ps.tpManual||0)+"\n"+
+      "Ultimas 10 operaciones: "+recentTrades+"\n"+
+      "Por activo: "+assetSummary+"\n"+
+      "Diario psicologico: "+jnlTypes+" ("+jnl.length+" entradas totales)\n"+
+      "Mejor patron: "+(bestPat?bestPat.name+" "+Math.round(bestPat.conf/bestPat.obs*100)+"% exito":"sin datos")+"\n"+
+      "Posiciones abiertas: "+pos.map(function(p){return p.asset+" "+p.dir+" entrada $"+p.entry;}).join(", ")+"\n\n"+
+      "GENERA UN INFORME con estas secciones exactas:\n"+
+      "## RESUMEN EJECUTIVO\n(2-3 frases sobre el estado actual del trader)\n\n"+
+      "## PUNTOS FUERTES\n(lista de 3-4 puntos, con datos concretos)\n\n"+
+      "## PUNTOS DEBILES\n(lista de 3-4 puntos, con datos concretos)\n\n"+
+      "## EVOLUCION\n(analisis de tendencia, esta mejorando o empeorando y por que)\n\n"+
+      "## RECOMENDACIONES PRIORITARIAS\n(lista de 3 acciones concretas para los proximos 30 dias)\n\n"+
+      "Sé directo, usa datos del perfil, max 400 palabras total.";
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key":key,
+          "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-access":"true"
+        },
+        body:JSON.stringify({
+          model:"claude-haiku-4-5-20251001",
+          max_tokens:1200,
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      if(!r.ok){const e=await r.json().catch(function(){return{};});throw new Error("API "+r.status+(e.error?" — "+e.error.message:""));}
+      const d=await r.json();
+      const analysis={text:d.content[0].text,date:new Date().toLocaleDateString("es-ES"),score:sc};
+      setAiProfile(analysis);
+      localStorage.setItem("td-ai-profile",JSON.stringify(analysis));
+    }catch(e){
+      alert("Error generando analisis: "+e.message);
+    }
+    setAiProfileLoading(false);
+  }
 
   // - COMPUTED -
   const PM={"BTC/USD":pr.BTC,"BTC/USDT":pr.BTC,"ETH/USDT":pr.ETH,"SOL/USD":pr.SOL,"SOL/USDT":pr.SOL,"LINK/USD":pr.LINK||9.20,"LINK/USDT":pr.LINK||9.20,"MSTR":pr.MSTR,"GOOGL":pr.GOOGL,"GOOGL/USD":pr.GOOGL};
@@ -949,6 +1026,35 @@ export default function App(){
               </div>
             </div>
             <ProfileAnalysis ps={ps} pats={pats} jnl={jnl} hist={hist} xhist={xhist} sc={sc} S={S}/>
+            {/* ── ANALISIS IA ── */}
+            <div style={{...S.card,marginBottom:10,border:"1px solid rgba(136,170,255,.25)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:10,color:"#88aaff",fontWeight:700}}>ANALISIS IA DEL TRADER</div>
+                  <div style={{fontSize:8,color:"#555",marginTop:2}}>
+                    {aiProfile?"Generado el "+aiProfile.date+" (Nivel "+aiProfile.score+")":"Genera un informe completo con IA sobre tu perfil"}
+                  </div>
+                </div>
+                <button
+                  onClick={generateAIProfile}
+                  disabled={aiProfileLoading}
+                  style={{background:aiProfileLoading?"#1e1e2e":"rgba(136,170,255,.15)",border:"1px solid #88aaff",color:aiProfileLoading?"#444":"#88aaff",padding:"7px 12px",borderRadius:6,fontSize:9,fontWeight:700,cursor:aiProfileLoading?"wait":"pointer"}}
+                >
+                  {aiProfileLoading?"Analizando...":aiProfile?"Regenerar":"Generar Analisis"}
+                </button>
+              </div>
+              {aiProfile&&(
+                <div style={{fontSize:10,color:"#aaa",lineHeight:1.8,whiteSpace:"pre-wrap"}}>
+                  {aiProfile.text}
+                </div>
+              )}
+              {!aiProfile&&!aiProfileLoading&&(
+                <div style={{fontSize:9,color:"#444",textAlign:"center",padding:"10px 0"}}>
+                  Pulsa "Generar Analisis" para que la IA evalue todos tus datos de trading y te de un informe con puntos fuertes, debiles y recomendaciones.
+                  <div style={{marginTop:4,color:"#f0b429"}}>Requiere clave API (configurar en Chat)</div>
+                </div>
+              )}
+            </div>
             {sc<65&&(
               <div style={{...S.card,marginBottom:10}}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:6}}>QUE TE FALTA PARA SUBIR</div>
@@ -1041,7 +1147,7 @@ export default function App(){
         )}
 
         {tab==="Chat"&&(
-          <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} SPs={SPs} SJ={SJ} D={D} save={save}/>
+          <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save}/>
         )}
       </div>
 
@@ -1230,10 +1336,10 @@ export default function App(){
 // - SUBCOMPONENTS -
 // - INDICADORES -
 // - CHAT TAB -
-function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
+function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
   const[messages,setMessages]=useState([{
     role:"assistant",
-    content:"Hola Miguel. Soy tu analista personal. Tengo acceso en tiempo real a tus posiciones, patrones y estadisticas.\n\nPuedo analizar cualquier activo con datos de Binance: precio, RSI, EMAs 7/25/50. Describeme lo que ves en el grafico y te doy mi opinion.\n\n¿Que quieres analizar?",
+    content:"Hola Miguel. Soy tu analista personal. Tengo acceso en tiempo real a tus posiciones, patrones, estadisticas e historial.\n\nPuedo analizar cualquier activo con datos de Binance: precio, RSI, EMAs 7/25/50/200. Describeme lo que ves en el grafico y te doy mi opinion tecnica.\n\n¿Que quieres analizar?",
     time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})
   }]);
   const[input,setInput]=useState("");
@@ -1242,6 +1348,9 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
   const[selTF,setSelTF]=useState("4h");
   const[marketData,setMarketData]=useState(null);
   const[fetchingMD,setFetchingMD]=useState(false);
+  const[apiKey,setApiKey]=useState(function(){return localStorage.getItem("td-anthropic-key")||"";});
+  const[showKeyInput,setShowKeyInput]=useState(false);
+  const[tmpKey,setTmpKey]=useState("");
   const listRef=useRef(null);
 
   const ASSETS=[
@@ -1269,31 +1378,66 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
   }
 
   function buildSystemPrompt(md){
-    const openPositions=pos.map(p=>{
+    const allHist=[...xhist,...hist];
+    const wins=allHist.filter(function(h){return h.result>0;}).length;
+    const losses=allHist.filter(function(h){return h.result<0;}).length;
+    const winRate=allHist.length>0?Math.round(wins/allHist.length*100):0;
+    const totalPnl=allHist.reduce(function(s,h){return s+h.result;},0).toFixed(2);
+    const recentTrades=allHist.slice(-5).map(function(h){
+      return h.asset+" "+(h.dir||"")+" "+(h.result>0?"+" :"")+h.result.toFixed(0)+"$";
+    }).join(", ")||"Sin historial";
+    const assetStats={};
+    allHist.forEach(function(h){
+      if(!assetStats[h.asset])assetStats[h.asset]={w:0,l:0,pnl:0};
+      if(h.result>0)assetStats[h.asset].w++;
+      else assetStats[h.asset].l++;
+      assetStats[h.asset].pnl+=h.result;
+    });
+    const bestAsset=Object.keys(assetStats).sort(function(a,b){return assetStats[b].pnl-assetStats[a].pnl;})[0];
+    const worstAsset=Object.keys(assetStats).sort(function(a,b){return assetStats[a].pnl-assetStats[b].pnl;})[0];
+
+    const openPositions=pos.map(function(p){
       return p.asset+" "+p.dir+" entrada $"+p.entry+" SL $"+(p.sl||"--")+" TP $"+(p.tp||"--")+(p.be?" [BE]":"");
     }).join(", ")||"Sin posiciones abiertas";
-    const confirmedPats=pats.filter(p=>p.conf>0).map(p=>p.name+" ("+Math.round(p.conf/(p.obs||1)*100)+"% exito)").join(", ")||"Sin patrones confirmados";
-    const recentJournal=jnl.slice(0,3).map(j=>j.type.toUpperCase()+": "+j.text.slice(0,80)).join(" | ")||"Sin entradas";
-    let mdContext="";
+    const confirmedPats=pats.filter(function(p){return p.conf>0;}).map(function(p){
+      return p.name+" ("+Math.round(p.conf/(p.obs||1)*100)+"% exito, "+p.conf+"/"+p.obs+" obs)";
+    }).join(", ")||"Sin patrones confirmados";
+    const recentJournal=jnl.slice(0,5).map(function(j){return j.type.toUpperCase()+": "+j.text.slice(0,80);}).join(" | ")||"Sin entradas";
+    const slTotal=ps.slOk+ps.slBroken;
+    const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
+
+    var mdContext="";
     if(md){
       const rsiStatus=md.rsi<30?"SOBREVENTA":md.rsi>70?"SOBRECOMPRA":"NEUTRO";
-      mdContext="\nMERCADO ("+md.asset+" "+md.tf+"): $"+md.price+" | 24h: "+md.change24h+"%"+
-        " | RSI: "+md.rsi+" "+rsiStatus+" | EMA7: "+md.ema7+" EMA25: "+md.ema25+" EMA50: "+md.ema50+
-        " | "+md.emaRelation+" | Estructura: "+md.trend+" | Vol: "+md.volRatio+"x | H:"+md.high24h+" L:"+md.low24h;
+      mdContext="\n\nMERCADO EN TIEMPO REAL ("+md.asset+" "+md.tf+"):\n"+
+        "Precio: $"+md.price+" | Cambio 24h: "+md.change24h+"%\n"+
+        "RSI 14: "+md.rsi+" ("+rsiStatus+") | EMA7: "+md.ema7+" | EMA25: "+md.ema25+" | EMA50: "+md.ema50+"\n"+
+        "Estructura: "+md.trend+" | Volumen: "+md.volRatio+"x media | Max24h: $"+md.high24h+" Min24h: $"+md.low24h+"\n"+
+        "Relacion EMAs: "+md.emaRelation;
     }
-    return "Eres analista de trading y coach personal de Miguel Garcia Parrado (Quantfury). Analiza graficos y ayudale a mejorar.\n\n"+
-      "PERFIL: Nivel "+sc+"/100 | SL respetados "+ps.slOk+" | SL eliminados "+ps.slBroken+"\n"+
-      "Estrategia: ineficiencias FVG + patrones chartistas (cunas, banderines, canales)\n"+
+
+    return "Eres analista de trading y coach personal de Miguel Garcia Parrado (Quantfury, desde nov 2024).\n\n"+
+      "=== PERFIL TRADER ===\n"+
+      "Nivel: "+sc+"/100\n"+
+      "Operaciones totales: "+allHist.length+" | Ganadoras: "+wins+" | Perdedoras: "+losses+" | Tasa: "+winRate+"%\n"+
+      "P&L acumulado: $"+totalPnl+"\n"+
+      "SL respetados: "+ps.slOk+"/"+slTotal+" ("+slRate+"%) | SL eliminados: "+ps.slBroken+"\n"+
+      "Trading de revancha: "+(ps.revenge||0)+" veces\n"+
+      "Activo mas rentable: "+(bestAsset||"--")+" | Activo con mas perdidas: "+(worstAsset||"--")+"\n"+
+      "Ultimas 5 operaciones: "+recentTrades+"\n"+
+      "Estrategia: FVG (Fair Value Gaps) + patrones chartistas (cunas, banderines, canales)\n"+
       "Patrones confirmados: "+confirmedPats+"\n"+
       "Posiciones abiertas: "+openPositions+"\n"+
       "Diario reciente: "+recentJournal+"\n"+
       mdContext+"\n\n"+
-      "INSTRUCCIONES:\n"+
-      "- Responde en espanol, directo, max 200 palabras\n"+
-      "- Menciona RSI, EMAs y estructura de precio\n"+
-      "- Si el setup es arriesgado, dilo claro\n"+
-      "- Si hay confluencia (RSI + EMA + patron), destacalo\n"+
-      "- Termina con: EVALUACION_TRADER:[positivo|negativo|neutro]:[descripcion breve]";
+      "=== INSTRUCCIONES ===\n"+
+      "- Responde en espanol, directo y tecnico, max 250 palabras\n"+
+      "- Analiza el setup con RSI, EMAs y estructura de precio del activo seleccionado\n"+
+      "- Relaciona el analisis con el historial del trader (activos donde pierde/gana mas)\n"+
+      "- Si el setup es arriesgado para su perfil, dilo claramente\n"+
+      "- Si hay confluencia (RSI + EMA + patron), destacalo como oportunidad\n"+
+      "- Considera su historial de SL para evaluar gestion de riesgo\n"+
+      "- Termina SIEMPRE con: EVALUACION_TRADER:[positivo|negativo|neutro]:[descripcion breve de max 15 palabras]";
   }
 
   async function sendMessage(){
@@ -1305,55 +1449,64 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
     setLoading(true);
 
     try{
-      // Fetch fresh market data if not recent
-      let md=marketData;
-      if(!md)md=await fetchMarketData();
+      if(!apiKey){
+        setMessages(prev=>[...prev,{role:"assistant",content:"Configura tu clave API de Anthropic con el boton (🔑) arriba a la derecha.",time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}]);
+        setLoading(false);return;
+      }
+      // Always fetch fresh market data
+      const md=await fetchMarketData();
 
       const systemPrompt=buildSystemPrompt(md);
-      const apiMessages=newMessages.map(m=>({role:m.role==="assistant"?"assistant":"user",content:m.content}));
+      const apiMessages=newMessages.map(function(m){return{role:m.role==="assistant"?"assistant":"user",content:m.content};});
 
       const response=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key":apiKey,
+          "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-access":"true"
+        },
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:1000,
+          model:"claude-haiku-4-5-20251001",
+          max_tokens:1024,
           system:systemPrompt,
           messages:apiMessages,
         })
       });
 
-      if(!response.ok)throw new Error("API error "+response.status);
+      if(!response.ok){
+        const errData=await response.json().catch(function(){return{};});
+        throw new Error("API "+response.status+(errData.error?" — "+errData.error.message:""));
+      }
       const data=await response.json();
       const raw=data.content[0].text;
 
-      // Extract evaluation for profile update
+      // Extract evaluation for profile update and save to journal
       const evalMatch=raw.match(/EVALUACION_TRADER:(positivo|negativo|neutro):(.+)/);
       if(evalMatch){
         const evalType=evalMatch[1];
         const evalDesc=evalMatch[2].trim();
-        // Add journal entry based on chat evaluation
         const jEntry={
           id:Date.now(),
           date:new Date().toLocaleDateString("es-ES"),
-          text:"[Chat] "+evalDesc,
+          text:"[IA] "+evalDesc,
           emoji:evalType==="positivo"?"💪":evalType==="negativo"?"😤":"🧘",
           type:evalType==="positivo"?"win":evalType==="negativo"?"lesson":"analysis",
           linkedClose:null
         };
         const newJnl=[jEntry,...D.current.jnl];
         D.current.jnl=newJnl;
-        // SJ updates jnl state and saves
-        // We use SJ directly
+        SJ(newJnl);
       }
 
       // Clean response (remove evaluation line from display)
-      const clean=raw.replace(/EVALUACION_TRADER:.+/,"").trim();
+      const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").trim();
       const assistantMsg={role:"assistant",content:clean,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
       setMessages(prev=>[...prev,assistantMsg]);
 
     }catch(e){
-      const errMsg={role:"assistant",content:"Error al conectar con la IA: "+e.message+". Verifica tu conexion.",time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
+      const errMsg={role:"assistant",content:"Error: "+e.message,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
       setMessages(prev=>[...prev,errMsg]);
     }
     setLoading(false);
@@ -1361,17 +1514,42 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 160px)"}}>
+      {/* API Key input panel */}
+      {showKeyInput&&(
+        <div style={{background:"#111118",border:"1px solid rgba(240,180,41,.3)",borderRadius:8,padding:10,marginBottom:8}}>
+          <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:6}}>CLAVE API ANTHROPIC</div>
+          <div style={{display:"flex",gap:6}}>
+            <input
+              type="password"
+              placeholder="sk-ant-..."
+              value={tmpKey}
+              onChange={function(e){setTmpKey(e.target.value);}}
+              style={{...S.inp,flex:1,fontSize:10,padding:"6px 8px"}}
+            />
+            <button onClick={function(){
+              if(tmpKey.trim()){
+                localStorage.setItem("td-anthropic-key",tmpKey.trim());
+                setApiKey(tmpKey.trim());
+                setTmpKey("");
+                setShowKeyInput(false);
+              }
+            }} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"6px 12px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar</button>
+            <button onClick={function(){setShowKeyInput(false);setTmpKey("");}} style={{background:"transparent",border:"1px solid #333",color:"#555",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer"}}>✕</button>
+          </div>
+          <div style={{fontSize:8,color:"#444",marginTop:5}}>Se guarda solo en tu dispositivo (localStorage). Necesitas una cuenta en console.anthropic.com</div>
+        </div>
+      )}
       {/* Selector activo + temporalidad */}
       <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
-        <select value={selAsset} onChange={e=>setSelAsset(e.target.value)} style={{...S.inp,width:"auto",padding:"5px 8px",fontSize:9,flex:1}}>
+        <select value={selAsset} onChange={function(e){setSelAsset(e.target.value);setMarketData(null);}} style={{...S.inp,width:"auto",padding:"5px 8px",fontSize:9,flex:1}}>
           {ASSETS.map(a=><option key={a.v} value={a.v}>{a.l}</option>)}
         </select>
         <div style={{display:"flex",gap:3}}>
-          {TFS.map(t=>(
-            <button key={t.v} onClick={()=>setSelTF(t.v)} style={{padding:"5px 8px",borderRadius:4,fontSize:9,fontWeight:700,border:"none",cursor:"pointer",background:selTF===t.v?"#f0b429":"#1e1e2e",color:selTF===t.v?"#0a0a0f":"#666"}}>
+          {TFS.map(function(t){return(
+            <button key={t.v} onClick={function(){setSelTF(t.v);setMarketData(null);}} style={{padding:"5px 8px",borderRadius:4,fontSize:9,fontWeight:700,border:"none",cursor:"pointer",background:selTF===t.v?"#f0b429":"#1e1e2e",color:selTF===t.v?"#0a0a0f":"#666"}}>
               {t.l}
             </button>
-          ))}
+          );})}
         </div>
         <button
           onClick={fetchMarketData}
@@ -1379,6 +1557,11 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
         >
           {fetchingMD?"⏳":"⚡"} {marketData?"Actualizar":"Cargar datos"}
         </button>
+        <button
+          onClick={function(){setShowKeyInput(!showKeyInput);setTmpKey(apiKey);}}
+          title="Configurar API Key"
+          style={{background:apiKey?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(apiKey?"#00ff88":"#ff4444"),color:apiKey?"#00ff88":"#ff4444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}
+        >🔑</button>
       </div>
 
       {/* Market data pill */}
@@ -1662,19 +1845,20 @@ function AlertasTab({S}){
     });
   }
 
-  function sendAlert(label,interval,rsi,type,e1,e2,customDesc){
+  function sendAlert(label,interval,rsi,type,e1,e2,customDesc,price){
     const tf=interval==="1h"?"1H":interval==="4h"?"4H":interval==="1d"?"Diario":"Semanal";
+    const priceStr=price!=null?" | $"+parseFloat(price).toFixed(2):"";
     var title="Alerta Trading";
     var body="";
-    if(type==="oversold"){title="RSI Sobreventa";body=label+" "+tf+" — RSI SOBREVENTA "+rsi;}
-    else if(type==="overbought"){title="RSI Sobrecompra";body=label+" "+tf+" — RSI SOBRECOMPRA "+rsi;}
-    else if(type==="golden"){title="Cruce EMA 7/25";body=label+" "+tf+" — CRUCE DORADO EMA7 > EMA25";}
-    else if(type==="death"){title="Cruce EMA 7/25";body=label+" "+tf+" — CRUCE MUERTE EMA7 < EMA25";}
-    else if(type==="ema200_golden"){title="Cruce EMA 50/200";body=label+" "+tf+" — CRUCE DORADO EMA50 > EMA200";}
-    else if(type==="ema200_death"){title="Cruce EMA 50/200";body=label+" "+tf+" — CRUCE MUERTE EMA50 < EMA200";}
-    else if(customDesc){title="Alerta Personalizada";body=label+" "+tf+" — "+customDesc;}
-    else{title="Alerta";body=label+" "+tf+" — "+type;}
-    const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,body,time:new Date().toLocaleTimeString("es-ES")};
+    if(type==="oversold"){title="RSI Sobreventa";body=label+" "+tf+" — RSI SOBREVENTA "+rsi+priceStr;}
+    else if(type==="overbought"){title="RSI Sobrecompra";body=label+" "+tf+" — RSI SOBRECOMPRA "+rsi+priceStr;}
+    else if(type==="golden"){title="Cruce EMA 7/25";body=label+" "+tf+" — CRUCE DORADO EMA7 > EMA25"+priceStr;}
+    else if(type==="death"){title="Cruce EMA 7/25";body=label+" "+tf+" — CRUCE MUERTE EMA7 < EMA25"+priceStr;}
+    else if(type==="ema200_golden"){title="Cruce EMA 50/200";body=label+" "+tf+" — CRUCE DORADO EMA50 > EMA200"+priceStr;}
+    else if(type==="ema200_death"){title="Cruce EMA 50/200";body=label+" "+tf+" — CRUCE MUERTE EMA50 < EMA200"+priceStr;}
+    else if(customDesc){title="Alerta Personalizada";body=label+" "+tf+" — "+customDesc+priceStr;}
+    else{title="Alerta";body=label+" "+tf+" — "+type+priceStr;}
+    const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,price:price!=null?parseFloat(price).toFixed(2):null,body,time:new Date().toLocaleTimeString("es-ES")};
     setLogs(prev=>[log,...prev.slice(0,49)]);
     if(Notification.permission==="granted"){
       try{
@@ -1733,13 +1917,13 @@ function AlertasTab({S}){
             if(rsi<=alert.oversold){
               if(lastCrossRef.current[rsiOSKey]!==true){
                 lastCrossRef.current[rsiOSKey]=true;
-                sendAlert(alert.label,alert.interval,rsi,"oversold",ema7,ema25);
+                sendAlert(alert.label,alert.interval,rsi,"oversold",ema7,ema25,null,closePrice);
               }
             } else { lastCrossRef.current[rsiOSKey]=false; }
             if(rsi>=alert.overbought){
               if(lastCrossRef.current[rsiOBKey]!==true){
                 lastCrossRef.current[rsiOBKey]=true;
-                sendAlert(alert.label,alert.interval,rsi,"overbought",ema7,ema25);
+                sendAlert(alert.label,alert.interval,rsi,"overbought",ema7,ema25,null,closePrice);
               }
             } else { lastCrossRef.current[rsiOBKey]=false; }
           }
@@ -1749,7 +1933,7 @@ function AlertasTab({S}){
             const crossKey=key+"_cross7_25";
             if(lastCrossRef.current[crossKey]!==cross7_25){
               lastCrossRef.current[crossKey]=cross7_25;
-              sendAlert(alert.label,alert.interval,rsi,cross7_25,ema7,ema25);
+              sendAlert(alert.label,alert.interval,rsi,cross7_25,ema7,ema25,null,closePrice);
             }
           }
 
@@ -1758,7 +1942,7 @@ function AlertasTab({S}){
             const crossKey200=key+"_cross50_200";
             if(lastCrossRef.current[crossKey200]!==cross50_200){
               lastCrossRef.current[crossKey200]=cross50_200;
-              sendAlert(alert.label,alert.interval,rsi,"ema200_"+cross50_200,ema50,ema200);
+              sendAlert(alert.label,alert.interval,rsi,"ema200_"+cross50_200,ema50,ema200,null,closePrice);
             }
           }
 
@@ -1774,7 +1958,7 @@ function AlertasTab({S}){
               desc=ca.description||("RSI "+(ca.condition==="below"?"por debajo de":"por encima de")+" "+thresh);
               if(triggered&&lastCustomRef.current[ck]!==true){
                 lastCustomRef.current[ck]=true;
-                sendAlert(alert.label,alert.interval,rsi,"custom_rsi",ema7,ema25,desc);
+                sendAlert(alert.label,alert.interval,rsi,"custom_rsi",ema7,ema25,desc,closePrice);
               }
               if(!triggered)lastCustomRef.current[ck]=false;
             } else if(ca.type==="ema_7_25"){
@@ -1782,7 +1966,7 @@ function AlertasTab({S}){
               if(crossMatch&&lastCustomRef.current[ck]!==cross7_25){
                 lastCustomRef.current[ck]=cross7_25;
                 desc=ca.description||(ca.crossType==="golden"?"Cruce Dorado EMA7/EMA25":ca.crossType==="death"?"Cruce Muerte EMA7/EMA25":"Cruce EMA7/EMA25");
-                sendAlert(alert.label,alert.interval,rsi,"custom_ema7_25_"+cross7_25,ema7,ema25,desc);
+                sendAlert(alert.label,alert.interval,rsi,"custom_ema7_25_"+cross7_25,ema7,ema25,desc,closePrice);
               }
               if(!cross7_25)lastCustomRef.current[ck]=null;
             } else if(ca.type==="ema_50_200"){
@@ -1790,7 +1974,7 @@ function AlertasTab({S}){
               if(crossMatch200&&lastCustomRef.current[ck]!==cross50_200){
                 lastCustomRef.current[ck]=cross50_200;
                 desc=ca.description||(ca.crossType==="golden"?"Cruce Dorado EMA50/EMA200":ca.crossType==="death"?"Cruce Muerte EMA50/EMA200":"Cruce EMA50/EMA200");
-                sendAlert(alert.label,alert.interval,rsi,"custom_ema50_200_"+cross50_200,ema50,ema200,desc);
+                sendAlert(alert.label,alert.interval,rsi,"custom_ema50_200_"+cross50_200,ema50,ema200,desc,closePrice);
               }
               if(!cross50_200)lastCustomRef.current[ck]=null;
             }
