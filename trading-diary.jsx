@@ -1453,8 +1453,11 @@ async function getStockData(symbol,tf){
     var data=await r.json();
     var res=(data.chart&&data.chart.result&&data.chart.result[0])||null;
     if(!res)return null;
-    var rawCloses=(res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close)||[];
-    var closes=rawCloses.filter(function(v){return v!=null;});
+    var q=res.indicators&&res.indicators.quote&&res.indicators.quote[0];
+    if(!q)return null;
+    var closes=(q.close||[]).filter(function(v){return v!=null;});
+    var highs=(q.high||[]).filter(function(v){return v!=null;});
+    var lows=(q.low||[]).filter(function(v){return v!=null;});
     if(closes.length<2)return null;
     var price=closes[closes.length-1];
     var prev=closes[closes.length-2];
@@ -1464,9 +1467,11 @@ async function getStockData(symbol,tf){
     var ema25=calcEMA(closes,25);
     var ema50=calcEMA(closes,50);
     var emaRel=ema7&&ema25?(ema7>ema25?"EMA7 sobre EMA25 (alcista)":"EMA7 bajo EMA25 (bajista)"):"--";
+    var sr=calcSRLevels(highs,lows,price);
     return{asset:symbol,tf:tfLabel,price:price.toFixed(2),change24h:change24h,
       rsi:rsi,ema7:ema7?ema7.toFixed(2):null,ema25:ema25?ema25.toFixed(2):null,
       ema50:ema50?ema50.toFixed(2):null,emaRelation:emaRel,
+      supports:sr.supports,resistances:sr.resistances,fvgs:[],
       trend:"--",volRatio:"--",high24h:"--",low24h:"--",isCrypto:false};
   }catch(e){return null;}
 }
@@ -1491,7 +1496,21 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
   const[apiKey,setApiKey]=useState(function(){return localStorage.getItem("td-anthropic-key")||"";});
   const[showKeyInput,setShowKeyInput]=useState(false);
   const[tmpKey,setTmpKey]=useState("");
+  const[pendingImage,setPendingImage]=useState(null);
   const listRef=useRef(null);
+  const fileInputRef=useRef(null);
+
+  function handleImageFile(e){
+    var file=e.target.files[0];
+    if(!file)return;
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      var b64=ev.target.result.split(",")[1];
+      setPendingImage({base64:b64,mediaType:file.type||"image/jpeg",name:file.name});
+    };
+    reader.readAsDataURL(file);
+    e.target.value="";
+  }
 
   useEffect(function(){
     if(listRef.current)listRef.current.scrollTop=listRef.current.scrollHeight;
@@ -1532,12 +1551,19 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
 
     var mdContext="";
     if(md){
-      const rsiStatus=md.rsi<30?"SOBREVENTA":md.rsi>70?"SOBRECOMPRA":"NEUTRO";
-      mdContext="\n\nMERCADO EN TIEMPO REAL ("+md.asset+" "+md.tf+"):\n"+
-        "Precio: $"+md.price+" | Cambio 24h: "+md.change24h+"%\n"+
-        "RSI 14: "+md.rsi+" ("+rsiStatus+") | EMA7: "+md.ema7+" | EMA25: "+md.ema25+" | EMA50: "+md.ema50+"\n"+
-        "Estructura: "+md.trend+" | Volumen: "+md.volRatio+"x media | Max24h: $"+md.high24h+" Min24h: $"+md.low24h+"\n"+
-        "Relacion EMAs: "+md.emaRelation;
+      const rsiStatus=md.rsi<30?"SOBREVENTA ⚠️":md.rsi>70?"SOBRECOMPRA ⚠️":"NEUTRO";
+      const supStr=md.supports&&md.supports.length>0?md.supports.map(function(s){return"$"+s;}).join(" | "):"ninguno detectado";
+      const resStr=md.resistances&&md.resistances.length>0?md.resistances.map(function(r){return"$"+r;}).join(" | "):"ninguna detectada";
+      const fvgStr=md.fvgs&&md.fvgs.length>0?md.fvgs.map(function(f){return f.type.toUpperCase()+" $"+f.bot+"-$"+f.top+" (hace "+f.age+" velas)";}).join(" | "):"ninguna cercana";
+      mdContext="\n\n=== DATOS DE MERCADO EN TIEMPO REAL ("+md.asset+" "+md.tf+") ===\n"+
+        "Precio actual: $"+md.price+" | Cambio 24h: "+md.change24h+"%\n"+
+        "RSI 14: "+md.rsi+" → "+rsiStatus+"\n"+
+        "EMA7: $"+md.ema7+" | EMA25: $"+md.ema25+" | EMA50: $"+md.ema50+"\n"+
+        "Relacion EMAs: "+md.emaRelation+"\n"+
+        "Estructura: "+md.trend+" | Volumen: "+md.volRatio+"x media\n"+
+        "SOPORTES cercanos (debajo del precio): "+supStr+"\n"+
+        "RESISTENCIAS cercanas (encima del precio): "+resStr+"\n"+
+        "INEFICIENCIAS FVG cercanas (±5%): "+fvgStr;
     }
 
     // Analisis de cierres para el chat
@@ -1550,29 +1576,22 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       return "["+ct+"/"+j.type+"] "+j.text.slice(0,80);
     }).join(" | ");
 
-    return "Eres analista de trading y coach personal de Miguel Garcia Parrado (Quantfury, desde nov 2024).\n\n"+
-      "=== PERFIL TRADER ===\n"+
-      "Nivel: "+sc+"/100\n"+
-      "Operaciones totales: "+allHist.length+" | Ganadoras: "+wins+" | Perdedoras: "+losses+" | Tasa: "+winRate+"%\n"+
-      "P&L acumulado: $"+totalPnl+"\n"+
-      "SL respetados: "+ps.slOk+"/"+slTotal+" ("+slRate+"%) | SL eliminados: "+ps.slBroken+"\n"+
-      "Trading de revancha: "+(ps.revenge||0)+" veces\n"+
-      "Patron de cierres: TP "+tpPctC+"% | Cierre anticipado "+earlyPctC+"% de "+totCloseC+" cierres\n"+
-      (recentCloseDocsC?"Ultimas reflexiones post-cierre: "+recentCloseDocsC+"\n":"")+
-      "Activo mas rentable: "+(bestAsset||"--")+" | Activo con mas perdidas: "+(worstAsset||"--")+"\n"+
-      "Ultimas 5 operaciones: "+recentTrades+"\n"+
-      "Estrategia: FVG (Fair Value Gaps) + patrones chartistas (cunas, banderines, canales)\n"+
-      "Patrones confirmados: "+confirmedPats+"\n"+
-      "Posiciones abiertas: "+openPositions+"\n"+
-      "Diario reciente: "+recentJournal+"\n"+
+    return "Eres analista tecnico de trading. Tu mision es dar analisis puros de mercado.\n\n"+
       mdContext+"\n\n"+
-      "=== INSTRUCCIONES ===\n"+
-      "- Responde en espanol, directo y tecnico, max 250 palabras\n"+
-      "- Analiza el setup con RSI, EMAs y estructura de precio del activo seleccionado\n"+
-      "- Relaciona el analisis con su historial de cierres (tiende a cerrar antes del TP)\n"+
-      "- Si el setup es arriesgado para su perfil, dilo claramente\n"+
-      "- Si hay confluencia (RSI + EMA + patron), destacalo como oportunidad\n"+
-      "- Termina SIEMPRE con: EVALUACION_TRADER:[positivo|negativo|neutro]:[descripcion breve de max 15 palabras]";
+      "=== REGLAS DE RESPUESTA ===\n"+
+      "1. Tu analisis se basa EXCLUSIVAMENTE en los datos de mercado arriba (RSI, EMAs, soportes, resistencias, FVGs)\n"+
+      "2. Si el usuario adjunta un grafico/imagen, analiza visualmente la estructura, patrones y niveles que ves\n"+
+      "3. Combina el grafico (si hay) con los datos en tiempo real\n"+
+      "4. NO menciones el historial de operaciones del trader ni sus patrones en el analisis tecnico\n"+
+      "5. Responde en espanol, directo y tecnico, max 200 palabras\n"+
+      "6. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
+      "7. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n"+
+      "=== PERFIL (SOLO para EVALUACION_TRADER al final) ===\n"+
+      "Nivel trader: "+sc+"/100 | Tasa ganadora: "+winRate+"% | P&L: $"+totalPnl+"\n"+
+      "SL respetados: "+slRate+"% | Cierre anticipado: "+earlyPctC+"% | Revancha: "+(ps.revenge||0)+"x\n"+
+      "Posiciones abiertas: "+openPositions+"\n\n"+
+      "Termina SIEMPRE con (en linea aparte, sin mostrarla al usuario):\n"+
+      "EVALUACION_TRADER:[positivo|negativo|neutro]:[max 15 palabras sobre estado psicologico]";
   }
 
   function clearChat(){
@@ -1588,11 +1607,13 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       setMessages(function(prev){return [...prev,{role:"assistant",content:"Configura tu clave API de Anthropic con el boton (🔑) arriba.",time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}];});
       return;
     }
-    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
+    const img=pendingImage;
+    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),image:img||null};
     const newMessages=[...messages,userMsg];
     setMessages(newMessages);
     var currentInput=input;
     setInput("");
+    setPendingImage(null);
     setLoading(true);
 
     try{
@@ -1612,7 +1633,16 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       }
 
       const systemPrompt=buildSystemPrompt(md);
-      const apiMessages=newMessages.map(function(m){return{role:m.role==="assistant"?"assistant":"user",content:m.content};});
+      const hasImage=newMessages.some(function(m){return m.image;});
+      const apiMessages=newMessages.map(function(m){
+        if(m.role==="user"&&m.image){
+          return{role:"user",content:[
+            {type:"image",source:{type:"base64",media_type:m.image.mediaType,data:m.image.base64}},
+            {type:"text",text:m.content||"Analiza este grafico"}
+          ]};
+        }
+        return{role:m.role==="assistant"?"assistant":"user",content:m.content};
+      });
 
       const response=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
@@ -1623,7 +1653,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
           "anthropic-dangerous-direct-browser-access":"true"
         },
         body:JSON.stringify({
-          model:"claude-haiku-4-5-20251001",
+          model:hasImage?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",
           max_tokens:1024,
           system:systemPrompt,
           messages:apiMessages,
@@ -1731,16 +1761,14 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
         {messages.map(function(m,i){return(
           <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}}>
             <div style={{
-              maxWidth:"85%",
+              maxWidth:"88%",
               padding:"10px 12px",
               borderRadius:m.role==="user"?"12px 12px 2px 12px":"12px 12px 12px 2px",
               background:m.role==="user"?"rgba(240,180,41,.15)":"#111118",
               border:"1px solid "+(m.role==="user"?"rgba(240,180,41,.3)":"#1e1e2e"),
-              fontSize:11,
-              color:"#e0e0e0",
-              lineHeight:1.7,
-              whiteSpace:"pre-wrap",
+              fontSize:11,color:"#e0e0e0",lineHeight:1.7,whiteSpace:"pre-wrap",
             }}>
+              {m.image&&<img src={"data:"+m.image.mediaType+";base64,"+m.image.base64} style={{display:"block",maxWidth:"100%",maxHeight:220,borderRadius:6,marginBottom:8,objectFit:"contain"}}/>}
               {m.content}
             </div>
             <span style={{fontSize:8,color:"#333",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
@@ -1758,7 +1786,20 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       </div>
 
       {/* Input */}
+      <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImageFile}/>
+      {pendingImage&&(
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",background:"rgba(240,180,41,.08)",border:"1px solid rgba(240,180,41,.2)",borderRadius:6,marginBottom:4}}>
+          <img src={"data:"+pendingImage.mediaType+";base64,"+pendingImage.base64} style={{width:40,height:40,objectFit:"cover",borderRadius:4}}/>
+          <span style={{fontSize:9,color:"#f0b429",flex:1}}>{pendingImage.name}</span>
+          <button onClick={function(){setPendingImage(null);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:14}}>✕</button>
+        </div>
+      )}
       <div style={{display:"flex",gap:6,paddingTop:8,borderTop:"1px solid #1a1a2a"}}>
+        <button
+          onClick={function(){fileInputRef.current&&fileInputRef.current.click();}}
+          title="Adjuntar grafico"
+          style={{background:"rgba(136,170,255,.1)",border:"1px solid rgba(136,170,255,.3)",color:"#88aaff",padding:"10px 12px",borderRadius:6,fontSize:16,cursor:"pointer"}}
+        >📷</button>
         <input
           style={{...S.inp,flex:1,fontSize:12,padding:"10px 12px"}}
           placeholder="Ej: en 4H en LINK veo una ineficiencia FVG, puedo entrar?"
@@ -3837,10 +3878,49 @@ function PhotoBtn({patId,hasPhoto,onFile}){
   );
 }
 
+function calcSRLevels(highs,lows,price){
+  var range=5;
+  var supports=[],resistances=[];
+  for(var i=range;i<highs.length-range;i++){
+    var isR=true,iS=true;
+    for(var j=i-range;j<=i+range;j++){
+      if(j===i)continue;
+      if(highs[j]>=highs[i])isR=false;
+      if(lows[j]<=lows[i])iS=false;
+    }
+    if(isR)resistances.push(parseFloat(highs[i].toFixed(4)));
+    if(iS)supports.push(parseFloat(lows[i].toFixed(4)));
+  }
+  return{
+    supports:supports.filter(function(s){return s<price;}).sort(function(a,b){return b-a;}).slice(0,3),
+    resistances:resistances.filter(function(r){return r>price;}).sort(function(a,b){return a-b;}).slice(0,3)
+  };
+}
+
+function detectFVGs(klines,price){
+  var fvgs=[];
+  for(var i=2;i<klines.length;i++){
+    var h0=parseFloat(klines[i-2][2]),l0=parseFloat(klines[i-2][3]);
+    var h2=parseFloat(klines[i][2]),l2=parseFloat(klines[i][3]);
+    var ageCandels=klines.length-i;
+    if(l2>h0){
+      var mid=(l2+h0)/2;
+      if(Math.abs(mid-price)/price<0.05)
+        fvgs.push({type:"alcista",top:l2.toFixed(4),bot:h0.toFixed(4),age:ageCandels});
+    }
+    if(h2<l0){
+      var mid2=(h2+l0)/2;
+      if(Math.abs(mid2-price)/price<0.05)
+        fvgs.push({type:"bajista",top:l0.toFixed(4),bot:h2.toFixed(4),age:ageCandels});
+    }
+  }
+  return fvgs.sort(function(a,b){return a.age-b.age;}).slice(0,4);
+}
+
 async function getBinanceData(selAsset,selTF,ASSETS,TFS){
   var klines=[],ticker={};
   try{
-    var r1=await fetch("https://api.binance.com/api/v3/klines?symbol="+selAsset+"&interval="+selTF+"&limit=100");
+    var r1=await fetch("https://api.binance.com/api/v3/klines?symbol="+selAsset+"&interval="+selTF+"&limit=150");
     var r2=await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol="+selAsset);
     klines=await r1.json();
     ticker=await r2.json();
@@ -3870,7 +3950,10 @@ async function getBinanceData(selAsset,selTF,ASSETS,TFS){
   var assetLabel=(ASSETS.find(function(a){return a.v===selAsset;})||{l:selAsset}).l;
   var tfLabel=(TFS.find(function(t){return t.v===selTF;})||{l:selTF}).l;
   var emaRel=ema7&&ema25?(ema7>ema25?"EMA7 sobre EMA25 (alcista)":"EMA7 bajo EMA25 (bajista)"):"--";
-  return{asset:assetLabel,tf:tfLabel,price:price.toFixed(2),change24h:ticker.priceChangePercent,
-    rsi:rsi,ema7:ema7?ema7.toFixed(2):null,ema25:ema25?ema25.toFixed(2):null,ema50:ema50?ema50.toFixed(2):null,
-    emaRelation:emaRel,trend:trend,volRatio:volRatio,high24h:ticker.highPrice,low24h:ticker.lowPrice};
+  var sr=calcSRLevels(highs,lows,price);
+  var fvgs=detectFVGs(klines,price);
+  return{asset:assetLabel,tf:tfLabel,price:price.toFixed(4),change24h:ticker.priceChangePercent,
+    rsi:rsi,ema7:ema7?ema7.toFixed(4):null,ema25:ema25?ema25.toFixed(4):null,ema50:ema50?ema50.toFixed(4):null,
+    emaRelation:emaRel,trend:trend,volRatio:volRatio,high24h:ticker.highPrice,low24h:ticker.lowPrice,
+    supports:sr.supports,resistances:sr.resistances,fvgs:fvgs};
 }
