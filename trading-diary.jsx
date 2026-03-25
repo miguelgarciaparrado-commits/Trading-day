@@ -849,6 +849,17 @@ export default function App(){
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ACTIVAS</div>
                 <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""},editPosId:null}))} style={{...S.btn(true),padding:"4px 10px",fontSize:9}}>+ NUEVA OPERACION</button>
               </div>
+              {!ethClosed&&(
+                <div style={S.row}>
+                  <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                    <span style={{width:5,height:5,borderRadius:"50%",background:ethU>=0?"#00ff88":"#ff4444",display:"inline-block"}}/>
+                    <span>ETH/USD</span>
+                    <span style={S.bdg("#00ff88")}>Long</span>
+                    <span style={{fontSize:8,color:"#888",background:"rgba(255,68,68,.1)",padding:"1px 5px",borderRadius:3,border:"1px solid rgba(255,68,68,.2)"}}>LEGADO</span>
+                  </div>
+                  <span style={{fontWeight:700,color:ethU>=0?"#00ff88":"#ff4444"}}>{fmtNum(ethU)}</span>
+                </div>
+              )}
               {pos.map(p=>{
                 const g=getPnL(p);
                 return(
@@ -877,6 +888,14 @@ export default function App(){
               <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ABIERTAS</div>
               <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
             </div>
+            {/* ETH legado - restaurar si fue cerrado */}
+            {ethClosed&&(
+              <div style={{textAlign:"center",padding:"10px",marginBottom:10,background:"rgba(136,170,255,.05)",border:"1px solid rgba(136,170,255,.15)",borderRadius:8,fontSize:9,color:"#555"}}>
+                ETH legado marcada como cerrada.{" "}
+                <button onClick={function(){setEthClosed(false);D.current.ethClosed=false;save();}}
+                  style={{background:"transparent",border:"none",color:"#88aaff",cursor:"pointer",fontSize:9,textDecoration:"underline"}}>Restaurar posición</button>
+              </div>
+            )}
             {/* ETH legado */}
             {!ethClosed&&(
               <div style={{...S.card,border:"1px solid rgba(255,68,68,.3)",marginBottom:10}}>
@@ -3877,6 +3896,29 @@ function HorariosTab({horarios,SH,S,fmtNum}){
 
 function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
   const[f,setF]=useState(form);
+  const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {price,name} | "error"
+  const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
+  async function checkLivePrice(){
+    if(!f.asset)return;
+    const base=f.asset.replace(/\/.*$/,"").toUpperCase();
+    setLiveCheck("loading");
+    try{
+      if(CRYPTO_BINANCE[base]){
+        const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+CRYPTO_BINANCE[base]);
+        if(!r.ok)throw new Error("not found");
+        const d=await r.json();
+        setLiveCheck({price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});
+      }else{
+        const r=await fetch("https://query2.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d");
+        if(!r.ok)throw new Error("not found");
+        const d=await r.json();
+        const meta=d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
+        if(meta&&meta.regularMarketPrice){
+          setLiveCheck({price:meta.regularMarketPrice.toFixed(2),name:(meta.shortName||meta.symbol||base)+" (Yahoo)"});
+        }else{throw new Error("no price");}
+      }
+    }catch(e){setLiveCheck("error");}
+  }
   function doSavePosForm(){
     if(!f.asset||!f.capital||!f.entry)return;
     const obj={...f,id:editId||Date.now(),capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,be:false};
@@ -3894,7 +3936,23 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
       <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>{editId?"EDITAR OPERACION":"NUEVA OPERACION"}</div>
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>ACTIVO</div>
-        <input style={S.inp} placeholder="BTC/USDT, AAPL, SOL/USD..." value={f.asset} onChange={e=>setF({...f,asset:e.target.value.toUpperCase()})}/>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <input style={{...S.inp,flex:1}} placeholder="BTC/USDT, TLT, AAPL, SOL..." value={f.asset} onChange={function(e){setF({...f,asset:e.target.value.toUpperCase()});setLiveCheck(null);}}/>
+          <button onClick={checkLivePrice} disabled={!f.asset||liveCheck==="loading"}
+            style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {liveCheck==="loading"?"...":"⚡ Check"}
+          </button>
+        </div>
+        {liveCheck&&liveCheck!=="loading"&&liveCheck!=="error"&&(
+          <div style={{marginTop:5,padding:"5px 8px",background:"rgba(0,255,136,.08)",border:"1px solid rgba(0,255,136,.25)",borderRadius:4,fontSize:9,color:"#00ff88"}}>
+            ✓ Encontrado: <strong>{liveCheck.name}</strong> — precio actual <strong>${liveCheck.price}</strong>
+          </div>
+        )}
+        {liveCheck==="error"&&(
+          <div style={{marginTop:5,padding:"5px 8px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.25)",borderRadius:4,fontSize:9,color:"#ff4444"}}>
+            ✗ Símbolo no encontrado. Prueba con el ticker exacto (ej: TLT, AAPL, BTC)
+          </div>
+        )}
       </div>
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>DIRECCION</div>
