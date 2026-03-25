@@ -4159,9 +4159,13 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
   }
   const e2=+f.entry,sl=+f.sl,tp2=+f.tp,cap=+f.capital;
   const hasCalc=f.entry&&f.sl&&f.tp&&f.capital;
+  const isShort=f.dir==="Short";
+  // Direction-aware validation: for SHORT, SL must be above entry and TP below; for LONG, reversed
+  const slValid=(!f.sl||!f.entry)||(isShort?(sl>e2):(sl<e2));
+  const tpValid=(!f.tp||!f.entry)||(isShort?(tp2<e2):(tp2>e2));
   const risk=hasCalc?cap*Math.abs(e2-sl)/e2:0;
-  const reward=hasCalc?cap*Math.abs(tp2-e2)/e2:0;
-  const ratio=risk>0?reward/risk:0;
+  const reward=hasCalc&&tpValid?cap*Math.abs(tp2-e2)/e2:0;
+  const ratio=risk>0&&tpValid?reward/risk:0;
   return(
     <div style={S.modal}><div style={S.mc}>
       <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>{editId?"EDITAR OPERACION":"NUEVA OPERACION"}</div>
@@ -4216,18 +4220,27 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
       ))}
       {hasCalc&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-          <div style={{background:"rgba(255,68,68,.06)",borderRadius:4,padding:"8px 10px"}}>
-            <div style={{fontSize:8,color:"#555",marginBottom:2}}>SL - PÉRDIDA MÁXIMA</div>
+          <div style={{background:slValid?"rgba(255,68,68,.06)":"rgba(255,136,68,.1)",border:slValid?"none":"1px solid rgba(255,136,68,.4)",borderRadius:4,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:slValid?"#555":"#ff8844",marginBottom:2}}>
+              SL - PÉRDIDA MÁXIMA
+              {!slValid&&<span> ⚠ {isShort?"debe ser MAYOR que entrada":"debe ser MENOR que entrada"}</span>}
+            </div>
             {risk===0
               ? <div style={{fontSize:10,fontWeight:700,color:"#00ff88"}}>RIESGO CERO<br/><span style={{fontSize:8,color:"#555",fontWeight:400}}>SL en precio de entrada</span></div>
               : <div style={{fontSize:11,fontWeight:700,color:"#ff4444"}}>{fmtNum(-risk)}</div>
             }
           </div>
-          <div style={{background:"rgba(0,255,136,.06)",borderRadius:4,padding:"8px 10px"}}>
-            <div style={{fontSize:8,color:"#555",marginBottom:2}}>TP - GANANCIA MÁXIMA</div>
-            <div style={{fontSize:11,fontWeight:700,color:"#00ff88"}}>{fmtNum(reward)}</div>
+          <div style={{background:tpValid?"rgba(0,255,136,.06)":"rgba(255,136,68,.1)",border:tpValid?"none":"1px solid rgba(255,136,68,.4)",borderRadius:4,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:tpValid?"#555":"#ff8844",marginBottom:2}}>
+              TP - GANANCIA MÁXIMA
+              {!tpValid&&<span> ⚠ {isShort?"debe ser MENOR que entrada":"debe ser MAYOR que entrada"}</span>}
+            </div>
+            {tpValid
+              ? <div style={{fontSize:11,fontWeight:700,color:"#00ff88"}}>{fmtNum(reward)}</div>
+              : <div style={{fontSize:10,fontWeight:700,color:"#ff8844"}}>—</div>
+            }
           </div>
-          {risk>0&&(
+          {risk>0&&tpValid&&(
             <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:ratio>=3?"#00ff88":ratio>=2?"#f0b429":"#ff4444",fontWeight:700}}>
               {"Ratio R:B 1:"+ratio.toFixed(1)+" "+(ratio>=3?"Sólido":ratio>=2?"Aceptable":"Insuficiente")}
             </div>
