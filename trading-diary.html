@@ -434,6 +434,7 @@ function App() {
         D.current.pr = newPr;
         setPr(newPr);
         SPr(newPr);
+        autoCheckPositions(newPr);
         setLastPriceTime(new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }));
         setFetchingPrices(false);
     }
@@ -587,7 +588,10 @@ function App() {
     }, []);
     // - SETTERS (sync D ref then React state) -
     const SP = v => { D.current.pats = v; setPats(v); save(); };
-    const SPos = v => { D.current.pos = v; setPos(v); save(); };
+    const SPos = v => { D.current.pos = v; setPos(v); try {
+        localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: v, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: D.current.xhist || [], horarios: D.current.horarios || [], ethClosed: D.current.ethClosed || false }));
+    }
+    catch (e) { } save(); };
     const SJ = v => { D.current.jnl = v; setJnl(v); save(); };
     const SPs = v => { D.current.ps = v; setPs(v); save(); };
     const SPr = v => { D.current.pr = v; setPr(v); save(); };
@@ -806,6 +810,108 @@ function App() {
         save();
         setModal(m => ({ ...m, close: null, postData: { asset: p.asset, type: type, result: parseFloat(result.toFixed(2)), isBE: isBE } }));
     }
+    function notifyAutoClose(asset, dir, type, price, result) {
+        const isGain = result >= 0;
+        const title = (isGain ? "🎯 " : "🛑 ") + type + " — " + asset;
+        const body = dir + " " + (isGain ? "+" : "") + fmtNum(result) + " @ $" + parseFloat(price).toLocaleString();
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            try {
+                new Notification(title, { body, requireInteraction: true });
+            }
+            catch (e) { }
+        }
+        var tk = localStorage.getItem("td-tg-token");
+        var cid = localStorage.getItem("td-tg-chatid");
+        if (tk && cid) {
+            var txt = encodeURIComponent(title + "\n" + body + "\n⏰ " + new Date().toLocaleTimeString("es-ES"));
+            fetch("https://api.telegram.org/bot" + tk + "/sendMessage?chat_id=" + cid + "&text=" + txt).catch(function () { });
+        }
+    }
+    function autoCheckPositions(newPr) {
+        if (!D.current.pos || !D.current.pos.length)
+            return;
+        var changed = false;
+        var entries = [];
+        var psU = { ...D.current.ps };
+        var newPos = [];
+        for (var pi = 0; pi < D.current.pos.length; pi++) {
+            var p = D.current.pos[pi];
+            var base = p.asset.replace(/\/.*$/, "").toUpperCase();
+            var price = newPr[base];
+            if (!price || price <= 0) {
+                newPos.push(p);
+                continue;
+            }
+            var isShort = p.dir === "Short";
+            var kept = true;
+            // SL check
+            if (p.sl) {
+                var slHit = isShort ? (price >= p.sl) : (price <= p.sl);
+                if (slHit) {
+                    var isBE = p.be || p.sl === p.entry;
+                    var slResult = isBE ? 0 : -(p.capital * Math.abs(p.entry - p.sl) / p.entry);
+                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(slResult.toFixed(2)), date: today(), note: "🛑 SL auto @ $" + price.toLocaleString() });
+                    psU.slOk = (psU.slOk || 0) + 1;
+                    changed = true;
+                    notifyAutoClose(p.asset, p.dir, "SL ejecutado", price, slResult);
+                    kept = false;
+                }
+            }
+            if (!kept)
+                continue;
+            // Partial TP levels
+            if (p.tpLevels && p.tpLevels.length) {
+                var updLevels = p.tpLevels.map(function (lvl) {
+                    if (lvl.hit)
+                        return lvl;
+                    var hit = isShort ? (price <= lvl.price) : (price >= lvl.price);
+                    if (!hit)
+                        return lvl;
+                    var partCap = p.capital * lvl.pct / 100;
+                    var partResult = isShort ? (partCap * (p.entry - lvl.price) / p.entry) : (partCap * (lvl.price - p.entry) / p.entry);
+                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: partCap, result: parseFloat(partResult.toFixed(2)), date: today(), note: "🎯 TP parcial " + lvl.pct + "% @ $" + price.toLocaleString() });
+                    psU.tpAuto = (psU.tpAuto || 0) + 1;
+                    changed = true;
+                    notifyAutoClose(p.asset, p.dir, "TP " + lvl.pct + "%", price, partResult);
+                    return { ...lvl, hit: true };
+                });
+                var allHit = updLevels.every(function (l) { return l.hit; });
+                if (allHit) {
+                    changed = true;
+                    continue;
+                }
+                var someNew = updLevels.some(function (l, i) { return l.hit && !p.tpLevels[i].hit; });
+                if (someNew) {
+                    var remPct = updLevels.filter(function (l) { return !l.hit; }).reduce(function (a, l) { return a + l.pct; }, 0);
+                    newPos.push({ ...p, tpLevels: updLevels, capitalRemaining: p.capital * remPct / 100 });
+                    continue;
+                }
+            }
+            else if (p.tp) {
+                // Single TP
+                var tpHit = isShort ? (price <= p.tp) : (price >= p.tp);
+                if (tpHit) {
+                    var tpResult = p.capital * Math.abs(p.tp - p.entry) / p.entry;
+                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(tpResult.toFixed(2)), date: today(), note: "🎯 TP auto @ $" + price.toLocaleString() });
+                    psU.tpAuto = (psU.tpAuto || 0) + 1;
+                    changed = true;
+                    notifyAutoClose(p.asset, p.dir, "TP alcanzado", price, tpResult);
+                    continue;
+                }
+            }
+            newPos.push(p);
+        }
+        if (!changed)
+            return;
+        var newX = [...entries, ...(D.current.xhist || [])];
+        D.current.xhist = newX;
+        D.current.pos = newPos;
+        D.current.ps = psU;
+        setXhist(newX);
+        setPos(newPos);
+        setPs(psU);
+        save();
+    }
     function closeEthLegacy(closePrice) {
         const cp = parseFloat(closePrice);
         if (isNaN(cp) || cp <= 0)
@@ -1015,7 +1121,7 @@ function App() {
                 React.createElement("div", { style: S.card },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
                         React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700 } }, "POSICIONES ACTIVAS"),
-                        React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "" }, editPosId: null })), style: { ...S.btn(true), padding: "4px 10px", fontSize: 9 } }, "+ NUEVA OPERACION")),
+                        React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [] }, editPosId: null })), style: { ...S.btn(true), padding: "4px 10px", fontSize: 9 } }, "+ NUEVA OPERACION")),
                     !ethClosed && (React.createElement("div", { style: S.row },
                         React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
                             React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: ethU >= 0 ? "#00ff88" : "#ff4444", display: "inline-block" } }),
@@ -1040,7 +1146,7 @@ function App() {
             tab === "Posiciones" && (React.createElement("div", null,
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
                     React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700 } }, "POSICIONES ABIERTAS"),
-                    React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "" }, editPosId: null })), style: S.btn(true) }, "+ NUEVA OPERACION")),
+                    React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [] }, editPosId: null })), style: S.btn(true) }, "+ NUEVA OPERACION")),
                 ethClosed && (React.createElement("div", { style: { textAlign: "center", padding: "10px", marginBottom: 10, background: "rgba(136,170,255,.05)", border: "1px solid rgba(136,170,255,.15)", borderRadius: 8, fontSize: 9, color: "#555" } },
                     "ETH legado marcada como cerrada.",
                     " ",
@@ -1086,7 +1192,7 @@ function App() {
                                 noLivePrice && React.createElement("span", { style: { fontSize: 7, color: "#ff8844", background: "rgba(255,136,68,.1)", padding: "2px 6px", borderRadius: 3, border: "1px solid rgba(255,136,68,.3)" } }, "\u26A0 Editar ticker")),
                             React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
                                 React.createElement("span", { style: { fontSize: 19, fontWeight: 700, color: noLivePrice ? "#ff8844" : g >= 0 ? "#00ff88" : "#ff4444" } }, noLivePrice ? "sin precio" : fmtNum(g)),
-                                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "" }, editPosId: p.id })), style: { background: noLivePrice ? "rgba(255,136,68,.15)" : "transparent", border: "1px solid " + (noLivePrice ? "#ff8844" : "#2a2a3a"), color: noLivePrice ? "#ff8844" : "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
+                                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "", tpLevels: p.tpLevels || [] }, editPosId: p.id })), style: { background: noLivePrice ? "rgba(255,136,68,.15)" : "transparent", border: "1px solid " + (noLivePrice ? "#ff8844" : "#2a2a3a"), color: noLivePrice ? "#ff8844" : "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
                                 React.createElement("button", { onClick: () => setModal(m => ({ ...m, close: p })), style: { background: "rgba(240,180,41,.15)", border: "1px solid #f0b429", color: "#f0b429", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "CERRAR"))),
                         React.createElement("div", { style: S.grid(105) }, [
                             { l: "CAPITAL", v: "$" + p.capital.toLocaleString() },
@@ -1101,13 +1207,28 @@ function App() {
                                 React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#ff6600" } }, p.sl ? fmtP(p.sl) : "--"),
                                 React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#ff4444" } }, isBE ? "$0.00" : fmtNum(-mL)),
                                 isBE && React.createElement("div", { style: { fontSize: 8, color: "#00ff88", marginTop: 2 } }, "RIESGO CERO")),
-                            React.createElement("div", { style: { background: "rgba(0,255,136,.06)", border: "1px solid rgba(0,255,136,.2)", borderRadius: 6, padding: "9px 11px" } },
+                            p.tpLevels && p.tpLevels.length > 0 ? (React.createElement("div", { style: { background: "rgba(0,255,136,.04)", border: "1px solid rgba(0,255,136,.2)", borderRadius: 6, padding: "9px 11px" } },
+                                React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 5 } }, "VENTAS PARCIALES"),
+                                p.tpLevels.map(function (lvl) {
+                                    var lvlG = p.capital * lvl.pct / 100 * Math.abs(lvl.price - p.entry) / p.entry;
+                                    return (React.createElement("div", { key: lvl.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3, opacity: lvl.hit ? 0.45 : 1 } },
+                                        React.createElement("div", null,
+                                            React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: lvl.hit ? "#444" : "#00cc66" } }, fmtP(lvl.price)),
+                                            React.createElement("span", { style: { fontSize: 8, color: "#555", marginLeft: 4 } },
+                                                lvl.pct,
+                                                "%"),
+                                            lvl.hit && React.createElement("span", { style: { fontSize: 8, color: "#00ff88", marginLeft: 4 } }, "\u2713 cerrado")),
+                                        React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: lvl.hit ? "#444" : "#00ff88" } }, fmtNum(lvlG))));
+                                }),
+                                p.capitalRemaining !== undefined && p.capitalRemaining < p.capital && (React.createElement("div", { style: { fontSize: 8, color: "#f0b429", borderTop: "1px solid #1a1a2a", paddingTop: 4, marginTop: 4 } },
+                                    "Capital restante: $",
+                                    Math.round(p.capitalRemaining).toLocaleString())))) : (React.createElement("div", { style: { background: "rgba(0,255,136,.06)", border: "1px solid rgba(0,255,136,.2)", borderRadius: 6, padding: "9px 11px" } },
                                 React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "TAKE PROFIT"),
                                 React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: "#00cc66" } }, p.tp ? fmtP(p.tp) : "--"),
                                 React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#00ff88" } }, mG ? fmtNum(mG) : "--"),
                                 mG && mL && !isBE && React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 2 } },
                                     "Ratio 1:",
-                                    Math.round(mG / mL))))));
+                                    Math.round(mG / mL)))))));
                 }),
                 pos.length > 0 && React.createElement(PositionAdvisor, { pos: pos, PM: PM, getPnL: getPnL, fmtNum: fmtNum, S: S }))),
             tab === "Historial" && (React.createElement("div", null,
@@ -1454,7 +1575,7 @@ function App() {
                 React.createElement("div", { style: { display: "flex", gap: 7, marginTop: 12 } },
                     React.createElement("button", { onClick: () => { SPr({ ...pr, ...modal.tmpPr }); setModal(m => ({ ...m, prices: false, tmpPr: null })); }, style: { ...S.btn(true), flex: 1, padding: 8 } }, "GUARDAR"),
                     React.createElement("button", { onClick: () => setModal(m => ({ ...m, prices: false, tmpPr: null })), style: { ...S.btn(false), flex: 1 } }, "CANCELAR"))))),
-        modal.pos && (React.createElement(ModalPos, { form: modal.posForm || { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "" }, editId: modal.editPosId, currentPos: D.current.pos, PM: PM, pr: pr, SPr: SPr, SPos: SPos, setModal: setModal, fmtNum: fmtNum, S: S })),
+        modal.pos && (React.createElement(ModalPos, { form: modal.posForm || { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [] }, editId: modal.editPosId, currentPos: D.current.pos, PM: PM, pr: pr, SPr: SPr, SPos: SPos, setModal: setModal, fmtNum: fmtNum, S: S })),
         modal.pat && (React.createElement("div", { style: S.modal },
             React.createElement("div", { style: S.mc },
                 React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, modal.editPatId ? "EDITAR PATRON" : "NUEVO PATRON"),
@@ -2253,13 +2374,14 @@ function AlertasTab({ S }) {
     const [alerts, setAlerts] = useState([]);
     const alertsRef = useRef([]);
     const [showForm, setShowForm] = useState(false);
-    const [draft, setDraft] = useState({ selectedSymbols: ["BTCUSDT"], interval: "4h", rsiEnabled: true, rsiThreshold: 30, rsiCondition: "below", emaGoldenEnabled: false, emaDeathEnabled: false, ema200GoldenEnabled: false, ema200DeathEnabled: false });
+    const [draft, setDraft] = useState({ selectedSymbols: ["BTCUSDT"], interval: "4h", rsiEnabled: true, rsiThreshold: 30, rsiCondition: "below", emaGoldenEnabled: false, emaDeathEnabled: false, ema200GoldenEnabled: false, ema200DeathEnabled: false, channelEnabled: false, fvgEnabled: false });
     const [logs, setLogs] = useState([]);
     const [notifPerm, setNotifPerm] = useState("default");
     const [lastAlert, setLastAlert] = useState(null);
     const reconnectCountRef = useRef({});
     const wsRefs = useRef({});
     const closesRef = useRef({});
+    const ohlcRef = useRef({});
     const lastTrigRef = useRef({});
     const [emaData, setEmaData] = useState({});
     const [showImport, setShowImport] = useState(false);
@@ -2430,6 +2552,18 @@ function AlertasTab({ S }) {
             title = "Precio Objetivo";
             body = customDesc || label + " — PRECIO ALCANZADO $" + parseFloat(price).toFixed(2);
         }
+        else if (type === "patron_combo") {
+            title = "🔥 PATRÓN COMBINADO";
+            body = label + " " + tf + " — " + (customDesc || "") + priceStr;
+        }
+        else if (type === "patron_canal") {
+            title = "📐 Canal Detectado";
+            body = label + " " + tf + " — " + (customDesc || "") + priceStr;
+        }
+        else if (type === "patron_fvg") {
+            title = "⚡ FVG Cubierta";
+            body = label + " " + tf + " — " + (customDesc || "") + priceStr;
+        }
         else if (customDesc) {
             title = "Alerta";
             body = label + " " + tf + " — " + customDesc + priceStr;
@@ -2501,6 +2635,7 @@ function AlertasTab({ S }) {
             .then(function (r) { return r.json(); })
             .then(function (data) {
             closesRef.current[key] = data.map(function (k) { return parseFloat(k[4]); });
+            ohlcRef.current[key] = data.map(function (k) { return { o: parseFloat(k[1]), h: parseFloat(k[2]), l: parseFloat(k[3]), c: parseFloat(k[4]) }; });
             const ws = new WebSocket("wss://stream.binance.com:9443/ws/" + alert.symbol.toLowerCase() + "@kline_" + alert.interval);
             ws.onmessage = function (e) {
                 const d = JSON.parse(e.data);
@@ -2517,6 +2652,18 @@ function AlertasTab({ S }) {
                         closes[closes.length - 1] = closePrice;
                 }
                 closesRef.current[key] = closes;
+                const ohlc = [...(ohlcRef.current[key] || [])];
+                const newCandle = { o: parseFloat(k.o), h: parseFloat(k.h), l: parseFloat(k.l), c: closePrice };
+                if (k.x) {
+                    ohlc.push(newCandle);
+                    if (ohlc.length > 300)
+                        ohlc.shift();
+                }
+                else {
+                    if (ohlc.length > 0)
+                        ohlc[ohlc.length - 1] = newCandle;
+                }
+                ohlcRef.current[key] = ohlc;
                 const rsi = calcRSI(closes, 14);
                 const ema7 = calcEMA(closes, 7);
                 const ema25 = calcEMA(closes, 25);
@@ -2584,6 +2731,42 @@ function AlertasTab({ S }) {
                 else if (cross50_200 !== "death") {
                     lastTrigRef.current[ak + "d200"] = false;
                 }
+                // Channel detection (only on closed candles to avoid noise)
+                if (k.x && (alert.channelEnabled || alert.fvgEnabled)) {
+                    var channelResult = alert.channelEnabled ? detectChannelAlert(ohlc) : null;
+                    var fvgResult = alert.fvgEnabled ? checkFVGCovered(ohlc, closePrice) : null;
+                    // After every closed candle, reset channel trigger so new touches re-fire
+                    // (FVG trigger stays locked per age to avoid repeated fires on same gap)
+                    lastTrigRef.current[ak + "chan_prev"] = lastTrigRef.current[ak + "chan_cur"] || "";
+                    var chanTypeNow = channelResult ? channelResult.type : "";
+                    if (chanTypeNow !== lastTrigRef.current[ak + "chan_prev"]) {
+                        lastTrigRef.current[ak + "chan_cur"] = chanTypeNow;
+                    }
+                    // Combo: channel boundary + FVG covered at same time (highest quality signal)
+                    if (channelResult && fvgResult) {
+                        var comboKey = ak + "combo_" + channelResult.type + "_" + fvgResult.age;
+                        if (!lastTrigRef.current[comboKey]) {
+                            lastTrigRef.current[comboKey] = true;
+                            sendAlert(alert.label, alert.interval, rsi, "patron_combo", null, null, "PATRÓN: " + channelResult.desc + " + FVG " + fvgResult.subtype + " cubierta ($" + fvgResult.bot.toFixed(2) + "–$" + fvgResult.top.toFixed(2) + ")", closePrice);
+                        }
+                    }
+                    else {
+                        if (channelResult) {
+                            var chanKey = ak + "chan_" + channelResult.type + "_" + Math.round(closePrice / 10);
+                            if (!lastTrigRef.current[chanKey]) {
+                                lastTrigRef.current[chanKey] = true;
+                                sendAlert(alert.label, alert.interval, rsi, "patron_canal", null, null, channelResult.desc, closePrice);
+                            }
+                        }
+                        if (fvgResult) {
+                            var fvgKey = ak + "fvg_" + fvgResult.subtype + "_" + fvgResult.age;
+                            if (!lastTrigRef.current[fvgKey]) {
+                                lastTrigRef.current[fvgKey] = true;
+                                sendAlert(alert.label, alert.interval, rsi, "patron_fvg", null, null, "FVG " + fvgResult.subtype + " cubierta — zona $" + fvgResult.bot.toFixed(2) + "–$" + fvgResult.top.toFixed(2) + " (hace " + fvgResult.age + " velas)", closePrice);
+                            }
+                        }
+                    }
+                }
             };
             ws.onerror = function () {
                 // will be followed by onclose, handle reconnect there
@@ -2637,6 +2820,7 @@ function AlertasTab({ S }) {
                 rsiEnabled: draft.rsiEnabled, rsiThreshold: draft.rsiThreshold, rsiCondition: draft.rsiCondition,
                 emaGoldenEnabled: draft.emaGoldenEnabled, emaDeathEnabled: draft.emaDeathEnabled,
                 ema200GoldenEnabled: draft.ema200GoldenEnabled, ema200DeathEnabled: draft.ema200DeathEnabled,
+                channelEnabled: draft.channelEnabled, fvgEnabled: draft.fvgEnabled,
                 active: false, currentRsi: null, currentPrice: null, error: false
             };
         });
@@ -2809,7 +2993,7 @@ function AlertasTab({ S }) {
                     React.createElement("button", { onClick: function () { setDraft({ ...draft, emaDeathEnabled: !draft.emaDeathEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.emaDeathEnabled ? "#cc44cc" : "#333"), background: draft.emaDeathEnabled ? "rgba(204,68,204,.08)" : "transparent", color: draft.emaDeathEnabled ? "#cc44cc" : "#555", fontSize: 8, fontWeight: draft.emaDeathEnabled ? 700 : 400, cursor: "pointer" } },
                         draft.emaDeathEnabled ? "🔔" : "🔕",
                         " Cruce Muerte"))),
-            React.createElement("div", { style: { background: "rgba(255,200,100,.04)", border: "1px solid rgba(255,200,100,.2)", borderRadius: 6, padding: 10, marginBottom: 12 } },
+            React.createElement("div", { style: { background: "rgba(255,200,100,.04)", border: "1px solid rgba(255,200,100,.2)", borderRadius: 6, padding: 10, marginBottom: 8 } },
                 React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#ffc864", marginBottom: 8 } }, "EMA 50 / 200"),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 } },
                     React.createElement("button", { onClick: function () { setDraft({ ...draft, ema200GoldenEnabled: !draft.ema200GoldenEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.ema200GoldenEnabled ? "#ffd700" : "#333"), background: draft.ema200GoldenEnabled ? "rgba(255,215,0,.08)" : "transparent", color: draft.ema200GoldenEnabled ? "#ffd700" : "#555", fontSize: 8, fontWeight: draft.ema200GoldenEnabled ? 700 : 400, cursor: "pointer" } },
@@ -2818,6 +3002,19 @@ function AlertasTab({ S }) {
                     React.createElement("button", { onClick: function () { setDraft({ ...draft, ema200DeathEnabled: !draft.ema200DeathEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.ema200DeathEnabled ? "#cc44cc" : "#333"), background: draft.ema200DeathEnabled ? "rgba(204,68,204,.08)" : "transparent", color: draft.ema200DeathEnabled ? "#cc44cc" : "#555", fontSize: 8, fontWeight: draft.ema200DeathEnabled ? 700 : 400, cursor: "pointer" } },
                         draft.ema200DeathEnabled ? "🔔" : "🔕",
                         " Cruce Muerte"))),
+            React.createElement("div", { style: { background: "rgba(255,100,200,.04)", border: "1px solid rgba(255,100,200,.2)", borderRadius: 6, padding: 10, marginBottom: 12 } },
+                React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#ff88dd", marginBottom: 4 } }, "PATRONES CHARTISTAS"),
+                React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 8, lineHeight: 1.5 } },
+                    "Detecta canales alcistas/bajistas y FVGs cubiertas en tiempo real.",
+                    React.createElement("br", null),
+                    "La alerta m\u00E1s potente es cuando ambas coinciden en la misma vela."),
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 } },
+                    React.createElement("button", { onClick: function () { setDraft({ ...draft, channelEnabled: !draft.channelEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.channelEnabled ? "#ff88dd" : "#333"), background: draft.channelEnabled ? "rgba(255,136,221,.08)" : "transparent", color: draft.channelEnabled ? "#ff88dd" : "#555", fontSize: 8, fontWeight: draft.channelEnabled ? 700 : 400, cursor: "pointer" } },
+                        draft.channelEnabled ? "🔔" : "🔕",
+                        " Canal (soporte/resistencia)"),
+                    React.createElement("button", { onClick: function () { setDraft({ ...draft, fvgEnabled: !draft.fvgEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.fvgEnabled ? "#ffaa44" : "#333"), background: draft.fvgEnabled ? "rgba(255,170,68,.08)" : "transparent", color: draft.fvgEnabled ? "#ffaa44" : "#555", fontSize: 8, fontWeight: draft.fvgEnabled ? 700 : 400, cursor: "pointer" } },
+                        draft.fvgEnabled ? "🔔" : "🔕",
+                        " FVG cubierta (ineficiencia)"))),
             React.createElement("div", { style: { display: "flex", gap: 6 } },
                 React.createElement("button", { onClick: addAlert, disabled: draft.selectedSymbols.length === 0, style: { flex: 2, padding: "10px", background: draft.selectedSymbols.length === 0 ? "#2a2a3a" : "#f0b429", color: draft.selectedSymbols.length === 0 ? "#444" : "#0a0a0f", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: draft.selectedSymbols.length === 0 ? "not-allowed" : "pointer" } }, draft.selectedSymbols.length <= 1 ? "CREAR Y MONITORIZAR" : "CREAR " + draft.selectedSymbols.length + " ALERTAS"),
                 React.createElement("button", { onClick: function () { setShowForm(false); }, style: { flex: 1, padding: "10px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
@@ -2849,7 +3046,9 @@ function AlertasTab({ S }) {
                     alert.emaDeathEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(204,68,204,.08)", color: "#cc44cc", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(204,68,204,.25)" } }, "Muerte 7/25"),
                     alert.ema200GoldenEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,215,0,.08)", color: "#ffd700", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,215,0,.25)" } }, "Dorado 50/200"),
                     alert.ema200DeathEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(204,68,204,.08)", color: "#cc44cc", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(204,68,204,.25)" } }, "Muerte 50/200"),
-                    !alert.rsiEnabled && !alert.emaGoldenEnabled && !alert.emaDeathEnabled && !alert.ema200GoldenEnabled && !alert.ema200DeathEnabled && (React.createElement("span", { style: { fontSize: 8, color: "#333" } }, "Sin notificaciones"))),
+                    alert.channelEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,136,221,.08)", color: "#ff88dd", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,136,221,.25)" } }, "\uD83D\uDCD0 Canal"),
+                    alert.fvgEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,170,68,.08)", color: "#ffaa44", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,170,68,.25)" } }, "\u26A1 FVG"),
+                    !alert.rsiEnabled && !alert.emaGoldenEnabled && !alert.emaDeathEnabled && !alert.ema200GoldenEnabled && !alert.ema200DeathEnabled && !alert.channelEnabled && !alert.fvgEnabled && (React.createElement("span", { style: { fontSize: 8, color: "#333" } }, "Sin notificaciones"))),
                 rsi !== null && (React.createElement("div", { style: { marginBottom: 8 } },
                     React.createElement("div", { style: { height: 6, borderRadius: 3, background: "#1e1e2e", position: "relative", overflow: "hidden" } },
                         React.createElement("div", { style: { position: "absolute", left: 0, width: "30%", height: "100%", background: "rgba(0,255,136,.08)" } }),
@@ -3582,6 +3781,9 @@ function HorariosTab({ horarios, SH, S, fmtNum }) {
 function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNum, S }) {
     const [f, setF] = useState(form);
     const [liveCheck, setLiveCheck] = useState(null); // null | "loading" | {ticker,price,name} | "error"
+    function addTpLevel() { setF(function (prev) { return { ...prev, tpLevels: [...(prev.tpLevels || []), { id: Date.now(), price: "", pct: "" }] }; }); }
+    function removeTpLevel(id) { setF(function (prev) { return { ...prev, tpLevels: (prev.tpLevels || []).filter(function (l) { return l.id !== id; }) }; }); }
+    function updateTpLevel(id, key, val) { setF(function (prev) { return { ...prev, tpLevels: (prev.tpLevels || []).map(function (l) { return l.id === id ? { ...l, [key]: val } : l; }) }; }); }
     const CRYPTO_BINANCE = { "BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT", "LINK": "LINKUSDT", "MARA": "MARAUSDT", "RGTI": "RGTIUSDT", "BNB": "BNBUSDT", "ADA": "ADAUSDT", "DOGE": "DOGEUSDT", "AVAX": "AVAXUSDT", "DOT": "DOTUSDT", "MATIC": "MATICUSDT", "RENDER": "RENDERUSDT", "MANA": "MANAUSDT", "URA": "URAUSDT" };
     // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
     async function fetchStockPrice(base) {
@@ -3691,16 +3893,21 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
     function doSavePosForm() {
         if (!f.asset || !f.capital || !f.entry)
             return;
-        const obj = { ...f, id: editId || Date.now(), capital: +f.capital, entry: +f.entry, sl: +f.sl, tp: +f.tp, be: false };
+        var tpLvls = (f.tpLevels || []).filter(function (l) { return l.price && l.pct; }).map(function (l) { return { id: l.id, price: +l.price, pct: +l.pct, hit: l.hit || false }; });
+        const obj = { ...f, id: editId || Date.now(), capital: +f.capital, entry: +f.entry, sl: +f.sl, tp: +f.tp, tpLevels: tpLvls, capitalRemaining: +f.capital, be: false };
         const nv = editId ? currentPos.map(x => x.id === editId ? obj : x) : [...currentPos, obj];
         SPos(nv);
         setModal(m => ({ ...m, pos: false, posForm: null, editPosId: null }));
     }
     const e2 = +f.entry, sl = +f.sl, tp2 = +f.tp, cap = +f.capital;
     const hasCalc = f.entry && f.sl && f.tp && f.capital;
+    const isShort = f.dir === "Short";
+    // Direction-aware validation: for SHORT, SL must be above entry and TP below; for LONG, reversed
+    const slValid = (!f.sl || !f.entry) || (isShort ? (sl > e2) : (sl < e2));
+    const tpValid = (!f.tp || !f.entry) || (isShort ? (tp2 < e2) : (tp2 > e2));
     const risk = hasCalc ? cap * Math.abs(e2 - sl) / e2 : 0;
-    const reward = hasCalc ? cap * Math.abs(tp2 - e2) / e2 : 0;
-    const ratio = risk > 0 ? reward / risk : 0;
+    const reward = hasCalc && tpValid ? cap * Math.abs(tp2 - e2) / e2 : 0;
+    const ratio = risk > 0 && tpValid ? reward / risk : 0;
     return (React.createElement("div", { style: S.modal },
         React.createElement("div", { style: S.mc },
             React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, editId ? "EDITAR OPERACION" : "NUEVA OPERACION"),
@@ -3742,19 +3949,58 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
             [["CAPITAL ($)", "capital", "2000"], ["PRECIO ENTRADA", "entry", "70800"], ["PRECIO STOP LOSS", "sl", "71775"], ["PRECIO TAKE PROFIT", "tp", "44000"]].map(([l, k, ph]) => (React.createElement("div", { key: k, style: { marginBottom: 9 } },
                 React.createElement("div", { style: S.lbl }, l),
                 React.createElement("input", { style: S.inp, type: "number", placeholder: ph, value: f[k] || "", onChange: e => setF({ ...f, [k]: e.target.value }) })))),
+            React.createElement("div", { style: { marginBottom: 9 } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
+                    React.createElement("div", { style: S.lbl }, "VENTAS PARCIALES"),
+                    React.createElement("button", { type: "button", onClick: addTpLevel, style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "+ A\u00F1adir nivel")),
+                (f.tpLevels || []).length === 0 && (React.createElement("div", { style: { fontSize: 8, color: "#333", padding: "4px 0" } }, "Sin ventas parciales \u2014 el TP \u00FAnico cierra toda la posici\u00F3n.")),
+                (f.tpLevels || []).map(function (lvl, i) {
+                    var totalPct = (f.tpLevels || []).reduce(function (a, l) { return a + (+l.pct || 0); }, 0);
+                    return (React.createElement("div", { key: lvl.id, style: { display: "grid", gridTemplateColumns: "1fr 80px auto", gap: 5, marginBottom: 6, alignItems: "end" } },
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontSize: 7, color: "#555", marginBottom: 2 } },
+                                "PRECIO NIVEL ",
+                                i + 1,
+                                " (",
+                                isShort ? "↓ por debajo" : "↑ por encima",
+                                ")"),
+                            React.createElement("input", { type: "number", value: lvl.price || "", onChange: function (e) { updateTpLevel(lvl.id, "price", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10 }, placeholder: isShort ? "ej: 69000" : "ej: 72000" })),
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontSize: 7, color: totalPct > 100 ? "#ff4444" : "#555", marginBottom: 2 } }, "% POSICI\u00D3N"),
+                            React.createElement("input", { type: "number", min: "1", max: "100", value: lvl.pct || "", onChange: function (e) { updateTpLevel(lvl.id, "pct", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10, color: totalPct > 100 ? "#ff4444" : "#e0e0e0" }, placeholder: "50" })),
+                        React.createElement("button", { type: "button", onClick: function () { removeTpLevel(lvl.id); }, style: { background: "transparent", border: "1px solid #333", color: "#555", padding: "7px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer", lineHeight: 1 } }, "\u00D7")));
+                }),
+                (f.tpLevels || []).length > 0 && (function () {
+                    var tot = (f.tpLevels || []).reduce(function (a, l) { return a + (+l.pct || 0); }, 0);
+                    return React.createElement("div", { style: { fontSize: 8, color: tot > 100 ? "#ff4444" : tot === 100 ? "#00ff88" : "#f0b429", textAlign: "right", marginTop: 2 } },
+                        "Total: ",
+                        tot,
+                        "%",
+                        tot > 100 ? " ⚠ supera 100%" : tot === 100 ? " ✓" : "");
+                })()),
             hasCalc && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
-                React.createElement("div", { style: { background: "rgba(255,68,68,.06)", borderRadius: 4, padding: "8px 10px" } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 2 } }, "SL - P\u00C9RDIDA M\u00C1XIMA"),
+                React.createElement("div", { style: { background: slValid ? "rgba(255,68,68,.06)" : "rgba(255,136,68,.1)", border: slValid ? "none" : "1px solid rgba(255,136,68,.4)", borderRadius: 4, padding: "8px 10px" } },
+                    React.createElement("div", { style: { fontSize: 8, color: slValid ? "#555" : "#ff8844", marginBottom: 2 } },
+                        "SL - P\u00C9RDIDA M\u00C1XIMA",
+                        !slValid && React.createElement("span", null,
+                            " \u26A0 ",
+                            isShort ? "debe ser MAYOR que entrada" : "debe ser MENOR que entrada")),
                     risk === 0
                         ? React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#00ff88" } },
                             "RIESGO CERO",
                             React.createElement("br", null),
                             React.createElement("span", { style: { fontSize: 8, color: "#555", fontWeight: 400 } }, "SL en precio de entrada"))
                         : React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#ff4444" } }, fmtNum(-risk))),
-                React.createElement("div", { style: { background: "rgba(0,255,136,.06)", borderRadius: 4, padding: "8px 10px" } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 2 } }, "TP - GANANCIA M\u00C1XIMA"),
-                    React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#00ff88" } }, fmtNum(reward))),
-                risk > 0 && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: ratio >= 3 ? "#00ff88" : ratio >= 2 ? "#f0b429" : "#ff4444", fontWeight: 700 } }, "Ratio R:B 1:" + ratio.toFixed(1) + " " + (ratio >= 3 ? "Sólido" : ratio >= 2 ? "Aceptable" : "Insuficiente"))),
+                React.createElement("div", { style: { background: tpValid ? "rgba(0,255,136,.06)" : "rgba(255,136,68,.1)", border: tpValid ? "none" : "1px solid rgba(255,136,68,.4)", borderRadius: 4, padding: "8px 10px" } },
+                    React.createElement("div", { style: { fontSize: 8, color: tpValid ? "#555" : "#ff8844", marginBottom: 2 } },
+                        "TP - GANANCIA M\u00C1XIMA",
+                        !tpValid && React.createElement("span", null,
+                            " \u26A0 ",
+                            isShort ? "debe ser MENOR que entrada" : "debe ser MAYOR que entrada")),
+                    tpValid
+                        ? React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#00ff88" } }, fmtNum(reward))
+                        : React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#ff8844" } }, "\u2014")),
+                risk > 0 && tpValid && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: ratio >= 3 ? "#00ff88" : ratio >= 2 ? "#f0b429" : "#ff4444", fontWeight: 700 } }, "Ratio R:B 1:" + ratio.toFixed(1) + " " + (ratio >= 3 ? "Sólido" : ratio >= 2 ? "Aceptable" : "Insuficiente"))),
                 risk === 0 && reward > 0 && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: "#00ff88", fontWeight: 700 } },
                     "Posici\u00F3n protegida \u2014 ganancia potencial ",
                     fmtNum(reward))))),
@@ -3812,6 +4058,107 @@ function calcSRLevels(highs, lows, price) {
         supports: supports.filter(function (s) { return s < price; }).sort(function (a, b) { return b - a; }).slice(0, 3),
         resistances: resistances.filter(function (r) { return r > price; }).sort(function (a, b) { return a - b; }).slice(0, 3)
     };
+}
+// --- Channel & FVG pattern detection (for real-time alerts) ---
+function detectPivots(highs, lows, win) {
+    win = win || 3;
+    var pH = [], pL = [];
+    for (var i = win; i < highs.length - win; i++) {
+        var isH = true, isL = true;
+        for (var j = 1; j <= win; j++) {
+            if (highs[i] <= highs[i - j] || highs[i] <= highs[i + j])
+                isH = false;
+            if (lows[i] >= lows[i - j] || lows[i] >= lows[i + j])
+                isL = false;
+        }
+        if (isH)
+            pH.push({ x: i, y: highs[i] });
+        if (isL)
+            pL.push({ x: i, y: lows[i] });
+    }
+    return { pH: pH, pL: pL };
+}
+function linReg(pts) {
+    var n = pts.length;
+    if (n < 2)
+        return null;
+    var sx = 0, sy = 0, sxy = 0, sx2 = 0;
+    for (var i = 0; i < n; i++) {
+        sx += pts[i].x;
+        sy += pts[i].y;
+        sxy += pts[i].x * pts[i].y;
+        sx2 += pts[i].x * pts[i].x;
+    }
+    var denom = n * sx2 - sx * sx;
+    if (denom === 0)
+        return null;
+    var m = (n * sxy - sx * sy) / denom;
+    var b = (sy - m * sx) / n;
+    return { slope: m, intercept: b };
+}
+function detectChannelAlert(ohlc) {
+    if (!ohlc || ohlc.length < 60)
+        return null;
+    var recent = ohlc.slice(-80);
+    var highs = recent.map(function (c) { return c.h; });
+    var lows = recent.map(function (c) { return c.l; });
+    var price = recent[recent.length - 1].c;
+    var pivs = detectPivots(highs, lows, 3);
+    if (pivs.pH.length < 3 || pivs.pL.length < 3)
+        return null;
+    var rH = linReg(pivs.pH);
+    var rL = linReg(pivs.pL);
+    if (!rH || !rL)
+        return null;
+    var n = recent.length - 1;
+    var topLine = rH.slope * n + rH.intercept;
+    var botLine = rL.slope * n + rL.intercept;
+    var ch = topLine - botLine;
+    if (ch <= 0 || price <= 0)
+        return null;
+    var pos = (price - botLine) / ch; // 0=bottom 1=top
+    // Slopes must have same sign (parallel) and ratio between 0.25–4
+    var sameSign = (rH.slope < 0 && rL.slope < 0) || (rH.slope > 0 && rL.slope > 0);
+    if (!sameSign)
+        return null;
+    var sRatio = Math.abs(rH.slope) / Math.abs(rL.slope);
+    if (sRatio < 0.25 || sRatio > 4)
+        return null;
+    // Price must be near a boundary (within 20% of channel height)
+    var isDescending = rH.slope < 0;
+    if (pos < 0.2) {
+        return isDescending
+            ? { type: "bajista_soporte", desc: "Canal bajista — precio en soporte (posible rebote/ruptura alcista)" }
+            : { type: "alcista_soporte", desc: "Canal alcista — precio en soporte (zona de compra)" };
+    }
+    if (pos > 0.8) {
+        return isDescending
+            ? { type: "bajista_resistencia", desc: "Canal bajista — precio en resistencia (zona de venta)" }
+            : { type: "alcista_resistencia", desc: "Canal alcista — precio en resistencia (posible ruptura)" };
+    }
+    return null;
+}
+function checkFVGCovered(ohlc, price) {
+    if (!ohlc || ohlc.length < 10)
+        return null;
+    var n = ohlc.length;
+    // Scan from index 2 up to last-2 (avoid most recent partial candle)
+    for (var i = 2; i < n - 2; i++) {
+        var h0 = ohlc[i - 2].h, l0 = ohlc[i - 2].l;
+        var h2 = ohlc[i].h, l2 = ohlc[i].l;
+        var age = n - 1 - i;
+        if (age < 3)
+            continue; // skip very recent, need some gap
+        // Bullish FVG: low[i] > high[i-2] → gap above h0 up to l2
+        if (l2 > h0 && price >= h0 && price <= l2) {
+            return { subtype: "alcista", top: l2, bot: h0, age: age };
+        }
+        // Bearish FVG: high[i] < low[i-2] → gap below l0 down to h2
+        if (h2 < l0 && price <= l0 && price >= h2) {
+            return { subtype: "bajista", top: l0, bot: h2, age: age };
+        }
+    }
+    return null;
 }
 function detectFVGs(klines, price) {
     var fvgs = [];
