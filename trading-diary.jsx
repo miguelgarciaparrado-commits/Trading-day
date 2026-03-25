@@ -2416,13 +2416,14 @@ function AlertasTab({S}){
   const[alerts,setAlerts]=useState([]);
   const alertsRef=useRef([]);
   const[showForm,setShowForm]=useState(false);
-  const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiEnabled:true,rsiThreshold:30,rsiCondition:"below",emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false});
+  const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiEnabled:true,rsiThreshold:30,rsiCondition:"below",emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false,channelEnabled:false,fvgEnabled:false});
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
   const[lastAlert,setLastAlert]=useState(null);
   const reconnectCountRef=useRef({});
   const wsRefs=useRef({});
   const closesRef=useRef({});
+  const ohlcRef=useRef({});
   const lastTrigRef=useRef({});
   const[emaData,setEmaData]=useState({});
   const[showImport,setShowImport]=useState(false);
@@ -2549,6 +2550,9 @@ function AlertasTab({S}){
     else if(type==="ema200_golden"){title="Cruce Dorado EMA 50/200";body=label+" "+tf+" — EMA50 cruza EMA200 al alza"+priceStr;}
     else if(type==="ema200_death"){title="Cruce Muerte EMA 50/200";body=label+" "+tf+" — EMA50 cruza EMA200 a la baja"+priceStr;}
     else if(type==="price_target"){title="Precio Objetivo";body=customDesc||label+" — PRECIO ALCANZADO $"+parseFloat(price).toFixed(2);}
+    else if(type==="patron_combo"){title="🔥 PATRÓN COMBINADO";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
+    else if(type==="patron_canal"){title="📐 Canal Detectado";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
+    else if(type==="patron_fvg"){title="⚡ FVG Cubierta";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
     else if(customDesc){title="Alerta";body=label+" "+tf+" — "+customDesc+priceStr;}
     else{title="Alerta";body=label+" "+tf+" — "+type+priceStr;}
     const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,price:price!=null?parseFloat(price).toFixed(2):null,body,time:new Date().toLocaleTimeString("es-ES")};
@@ -2589,6 +2593,7 @@ function AlertasTab({S}){
       .then(function(r){return r.json();})
       .then(function(data){
         closesRef.current[key]=data.map(function(k){return parseFloat(k[4]);});
+        ohlcRef.current[key]=data.map(function(k){return{o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4])};});
         const ws=new WebSocket("wss://stream.binance.com:9443/ws/"+alert.symbol.toLowerCase()+"@kline_"+alert.interval);
         ws.onmessage=function(e){
           const d=JSON.parse(e.data);
@@ -2598,6 +2603,11 @@ function AlertasTab({S}){
           if(k.x){closes.push(closePrice);if(closes.length>300)closes.shift();}
           else{if(closes.length>0)closes[closes.length-1]=closePrice;}
           closesRef.current[key]=closes;
+          const ohlc=[...(ohlcRef.current[key]||[])];
+          const newCandle={o:parseFloat(k.o),h:parseFloat(k.h),l:parseFloat(k.l),c:closePrice};
+          if(k.x){ohlc.push(newCandle);if(ohlc.length>300)ohlc.shift();}
+          else{if(ohlc.length>0)ohlc[ohlc.length-1]=newCandle;}
+          ohlcRef.current[key]=ohlc;
 
           const rsi=calcRSI(closes,14);
           const ema7=calcEMA(closes,7);
@@ -2643,6 +2653,43 @@ function AlertasTab({S}){
           if(cross50_200==="death"&&alert.ema200DeathEnabled){
             if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice);}
           }else if(cross50_200!=="death"){lastTrigRef.current[ak+"d200"]=false;}
+          // Channel detection (only on closed candles to avoid noise)
+          if(k.x&&(alert.channelEnabled||alert.fvgEnabled)){
+            var channelResult=alert.channelEnabled?detectChannelAlert(ohlc):null;
+            var fvgResult=alert.fvgEnabled?checkFVGCovered(ohlc,closePrice):null;
+            // After every closed candle, reset channel trigger so new touches re-fire
+            // (FVG trigger stays locked per age to avoid repeated fires on same gap)
+            lastTrigRef.current[ak+"chan_prev"]=lastTrigRef.current[ak+"chan_cur"]||"";
+            var chanTypeNow=channelResult?channelResult.type:"";
+            if(chanTypeNow!==lastTrigRef.current[ak+"chan_prev"]){
+              lastTrigRef.current[ak+"chan_cur"]=chanTypeNow;
+            }
+            // Combo: channel boundary + FVG covered at same time (highest quality signal)
+            if(channelResult&&fvgResult){
+              var comboKey=ak+"combo_"+channelResult.type+"_"+fvgResult.age;
+              if(!lastTrigRef.current[comboKey]){
+                lastTrigRef.current[comboKey]=true;
+                sendAlert(alert.label,alert.interval,rsi,"patron_combo",null,null,
+                  "PATRÓN: "+channelResult.desc+" + FVG "+fvgResult.subtype+" cubierta ($"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+")",closePrice);
+              }
+            }else{
+              if(channelResult){
+                var chanKey=ak+"chan_"+channelResult.type+"_"+Math.round(closePrice/10);
+                if(!lastTrigRef.current[chanKey]){
+                  lastTrigRef.current[chanKey]=true;
+                  sendAlert(alert.label,alert.interval,rsi,"patron_canal",null,null,channelResult.desc,closePrice);
+                }
+              }
+              if(fvgResult){
+                var fvgKey=ak+"fvg_"+fvgResult.subtype+"_"+fvgResult.age;
+                if(!lastTrigRef.current[fvgKey]){
+                  lastTrigRef.current[fvgKey]=true;
+                  sendAlert(alert.label,alert.interval,rsi,"patron_fvg",null,null,
+                    "FVG "+fvgResult.subtype+" cubierta — zona $"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+" (hace "+fvgResult.age+" velas)",closePrice);
+                }
+              }
+            }
+          }
         };
         ws.onerror=function(){
           // will be followed by onclose, handle reconnect there
@@ -2691,6 +2738,7 @@ function AlertasTab({S}){
         rsiEnabled:draft.rsiEnabled,rsiThreshold:draft.rsiThreshold,rsiCondition:draft.rsiCondition,
         emaGoldenEnabled:draft.emaGoldenEnabled,emaDeathEnabled:draft.emaDeathEnabled,
         ema200GoldenEnabled:draft.ema200GoldenEnabled,ema200DeathEnabled:draft.ema200DeathEnabled,
+        channelEnabled:draft.channelEnabled,fvgEnabled:draft.fvgEnabled,
         active:false,currentRsi:null,currentPrice:null,error:false
       };
     });
@@ -2930,7 +2978,7 @@ function AlertasTab({S}){
             </div>
           </div>
           {/* EMA 50/200 section */}
-          <div style={{background:"rgba(255,200,100,.04)",border:"1px solid rgba(255,200,100,.2)",borderRadius:6,padding:10,marginBottom:12}}>
+          <div style={{background:"rgba(255,200,100,.04)",border:"1px solid rgba(255,200,100,.2)",borderRadius:6,padding:10,marginBottom:8}}>
             <div style={{fontSize:9,fontWeight:700,color:"#ffc864",marginBottom:8}}>EMA 50 / 200</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
               <button onClick={function(){setDraft({...draft,ema200GoldenEnabled:!draft.ema200GoldenEnabled});}}
@@ -2940,6 +2988,24 @@ function AlertasTab({S}){
               <button onClick={function(){setDraft({...draft,ema200DeathEnabled:!draft.ema200DeathEnabled});}}
                 style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.ema200DeathEnabled?"#cc44cc":"#333"),background:draft.ema200DeathEnabled?"rgba(204,68,204,.08)":"transparent",color:draft.ema200DeathEnabled?"#cc44cc":"#555",fontSize:8,fontWeight:draft.ema200DeathEnabled?700:400,cursor:"pointer"}}>
                 {draft.ema200DeathEnabled?"🔔":"🔕"} Cruce Muerte
+              </button>
+            </div>
+          </div>
+          {/* Patrones chartistas */}
+          <div style={{background:"rgba(255,100,200,.04)",border:"1px solid rgba(255,100,200,.2)",borderRadius:6,padding:10,marginBottom:12}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#ff88dd",marginBottom:4}}>PATRONES CHARTISTAS</div>
+            <div style={{fontSize:8,color:"#555",marginBottom:8,lineHeight:1.5}}>
+              Detecta canales alcistas/bajistas y FVGs cubiertas en tiempo real.<br/>
+              La alerta más potente es cuando ambas coinciden en la misma vela.
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+              <button onClick={function(){setDraft({...draft,channelEnabled:!draft.channelEnabled});}}
+                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.channelEnabled?"#ff88dd":"#333"),background:draft.channelEnabled?"rgba(255,136,221,.08)":"transparent",color:draft.channelEnabled?"#ff88dd":"#555",fontSize:8,fontWeight:draft.channelEnabled?700:400,cursor:"pointer"}}>
+                {draft.channelEnabled?"🔔":"🔕"} Canal (soporte/resistencia)
+              </button>
+              <button onClick={function(){setDraft({...draft,fvgEnabled:!draft.fvgEnabled});}}
+                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.fvgEnabled?"#ffaa44":"#333"),background:draft.fvgEnabled?"rgba(255,170,68,.08)":"transparent",color:draft.fvgEnabled?"#ffaa44":"#555",fontSize:8,fontWeight:draft.fvgEnabled?700:400,cursor:"pointer"}}>
+                {draft.fvgEnabled?"🔔":"🔕"} FVG cubierta (ineficiencia)
               </button>
             </div>
           </div>
@@ -2990,7 +3056,9 @@ function AlertasTab({S}){
               {alert.emaDeathEnabled&&<span style={{fontSize:8,background:"rgba(204,68,204,.08)",color:"#cc44cc",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(204,68,204,.25)"}}>Muerte 7/25</span>}
               {alert.ema200GoldenEnabled&&<span style={{fontSize:8,background:"rgba(255,215,0,.08)",color:"#ffd700",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,215,0,.25)"}}>Dorado 50/200</span>}
               {alert.ema200DeathEnabled&&<span style={{fontSize:8,background:"rgba(204,68,204,.08)",color:"#cc44cc",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(204,68,204,.25)"}}>Muerte 50/200</span>}
-              {!alert.rsiEnabled&&!alert.emaGoldenEnabled&&!alert.emaDeathEnabled&&!alert.ema200GoldenEnabled&&!alert.ema200DeathEnabled&&(
+              {alert.channelEnabled&&<span style={{fontSize:8,background:"rgba(255,136,221,.08)",color:"#ff88dd",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,136,221,.25)"}}>📐 Canal</span>}
+              {alert.fvgEnabled&&<span style={{fontSize:8,background:"rgba(255,170,68,.08)",color:"#ffaa44",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,170,68,.25)"}}>⚡ FVG</span>}
+              {!alert.rsiEnabled&&!alert.emaGoldenEnabled&&!alert.emaDeathEnabled&&!alert.ema200GoldenEnabled&&!alert.ema200DeathEnabled&&!alert.channelEnabled&&!alert.fvgEnabled&&(
                 <span style={{fontSize:8,color:"#333"}}>Sin notificaciones</span>
               )}
             </div>
@@ -4240,6 +4308,93 @@ function calcSRLevels(highs,lows,price){
     supports:supports.filter(function(s){return s<price;}).sort(function(a,b){return b-a;}).slice(0,3),
     resistances:resistances.filter(function(r){return r>price;}).sort(function(a,b){return a-b;}).slice(0,3)
   };
+}
+
+// --- Channel & FVG pattern detection (for real-time alerts) ---
+
+function detectPivots(highs,lows,win){
+  win=win||3;
+  var pH=[],pL=[];
+  for(var i=win;i<highs.length-win;i++){
+    var isH=true,isL=true;
+    for(var j=1;j<=win;j++){
+      if(highs[i]<=highs[i-j]||highs[i]<=highs[i+j])isH=false;
+      if(lows[i]>=lows[i-j]||lows[i]>=lows[i+j])isL=false;
+    }
+    if(isH)pH.push({x:i,y:highs[i]});
+    if(isL)pL.push({x:i,y:lows[i]});
+  }
+  return{pH:pH,pL:pL};
+}
+
+function linReg(pts){
+  var n=pts.length;
+  if(n<2)return null;
+  var sx=0,sy=0,sxy=0,sx2=0;
+  for(var i=0;i<n;i++){sx+=pts[i].x;sy+=pts[i].y;sxy+=pts[i].x*pts[i].y;sx2+=pts[i].x*pts[i].x;}
+  var denom=n*sx2-sx*sx;
+  if(denom===0)return null;
+  var m=(n*sxy-sx*sy)/denom;
+  var b=(sy-m*sx)/n;
+  return{slope:m,intercept:b};
+}
+
+function detectChannelAlert(ohlc){
+  if(!ohlc||ohlc.length<60)return null;
+  var recent=ohlc.slice(-80);
+  var highs=recent.map(function(c){return c.h;});
+  var lows=recent.map(function(c){return c.l;});
+  var price=recent[recent.length-1].c;
+  var pivs=detectPivots(highs,lows,3);
+  if(pivs.pH.length<3||pivs.pL.length<3)return null;
+  var rH=linReg(pivs.pH);
+  var rL=linReg(pivs.pL);
+  if(!rH||!rL)return null;
+  var n=recent.length-1;
+  var topLine=rH.slope*n+rH.intercept;
+  var botLine=rL.slope*n+rL.intercept;
+  var ch=topLine-botLine;
+  if(ch<=0||price<=0)return null;
+  var pos=(price-botLine)/ch; // 0=bottom 1=top
+  // Slopes must have same sign (parallel) and ratio between 0.25–4
+  var sameSign=(rH.slope<0&&rL.slope<0)||(rH.slope>0&&rL.slope>0);
+  if(!sameSign)return null;
+  var sRatio=Math.abs(rH.slope)/Math.abs(rL.slope);
+  if(sRatio<0.25||sRatio>4)return null;
+  // Price must be near a boundary (within 20% of channel height)
+  var isDescending=rH.slope<0;
+  if(pos<0.2){
+    return isDescending
+      ?{type:"bajista_soporte",desc:"Canal bajista — precio en soporte (posible rebote/ruptura alcista)"}
+      :{type:"alcista_soporte",desc:"Canal alcista — precio en soporte (zona de compra)"};
+  }
+  if(pos>0.8){
+    return isDescending
+      ?{type:"bajista_resistencia",desc:"Canal bajista — precio en resistencia (zona de venta)"}
+      :{type:"alcista_resistencia",desc:"Canal alcista — precio en resistencia (posible ruptura)"};
+  }
+  return null;
+}
+
+function checkFVGCovered(ohlc,price){
+  if(!ohlc||ohlc.length<10)return null;
+  var n=ohlc.length;
+  // Scan from index 2 up to last-2 (avoid most recent partial candle)
+  for(var i=2;i<n-2;i++){
+    var h0=ohlc[i-2].h,l0=ohlc[i-2].l;
+    var h2=ohlc[i].h,l2=ohlc[i].l;
+    var age=n-1-i;
+    if(age<3)continue; // skip very recent, need some gap
+    // Bullish FVG: low[i] > high[i-2] → gap above h0 up to l2
+    if(l2>h0&&price>=h0&&price<=l2){
+      return{subtype:"alcista",top:l2,bot:h0,age:age};
+    }
+    // Bearish FVG: high[i] < low[i-2] → gap below l0 down to h2
+    if(h2<l0&&price<=l0&&price>=h2){
+      return{subtype:"bajista",top:l0,bot:h2,age:age};
+    }
+  }
+  return null;
 }
 
 function detectFVGs(klines,price){
