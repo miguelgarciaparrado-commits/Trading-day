@@ -1163,8 +1163,8 @@ export default function App(){
                 {l:"ETH HOY",v:"$"+pr.ETH.toLocaleString(),c:"#f0b429"},
                 {l:"PERD. NO REAL. ETH",v:fmtNum(ethU),c:"#ff4444"},
                 {l:"PERD. TOTAL ETH",v:fmtNum(ethT),c:"#ff4444"},
-                {l:"PERD. HISTORICA",v:fmtNum(-7608.69),c:"#ff4444"},
-                {l:"PERDIDA GLOBAL",v:fmtNum(-7608.69+ethT),c:"#ff4444"},
+                {l:"PERD. HISTORICA",v:fmtNum(h0Total),c:"#ff4444"},
+                {l:"PERDIDA GLOBAL",v:fmtNum(h0Total+ethT),c:"#ff4444"},
                 {l:"BREAKEVEN ETH",v:"$4,029",c:"#f0b429"},
               ].map(k=><div key={k.l} style={S.card}><div style={S.lbl}>{k.l}</div><div style={S.val(k.c)}>{k.v}</div></div>)}
             </div>
@@ -1172,7 +1172,7 @@ export default function App(){
               <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:10}}>ESCENARIOS POR PRECIO ETH</div>
               {[2000,2500,3000,3621,4029,5000,6000,7000,7390,9000].map(price=>{
                 const ethG=(price-3621.58)*1.95209253-796.09;
-                const tot=ethG-7608.69;
+                const tot=ethG+h0Total;
                 const isCur=Math.abs(price-pr.ETH)<300;
                 const isBE=Math.abs(price-4029)<100;
                 const isRec=Math.abs(price-7390)<100;
@@ -1914,6 +1914,15 @@ function detectCross50_200(closes){
 function AlertasTab({S}){
   const SYMBOLS=[
     {symbol:"BTCUSDT",label:"BTC/USD"},
+    {symbol:"ETHUSDT",label:"ETH/USD"},
+    {symbol:"SOLUSDT",label:"SOL/USD"},
+    {symbol:"LINKUSDT",label:"LINK/USD"},
+    {symbol:"BNBUSDT",label:"BNB/USD"},
+    {symbol:"XRPUSDT",label:"XRP/USD"},
+    {symbol:"APEUSDT",label:"APE/USD"},
+    {symbol:"AVAXUSDT",label:"AVAX/USD"},
+    {symbol:"DOTUSDT",label:"DOT/USD"},
+    {symbol:"ADAUSDT",label:"ADA/USD"},
   ];
   const INTERVALS=[
     {value:"1h",label:"1 hora"},
@@ -1934,6 +1943,13 @@ function AlertasTab({S}){
   const lastCrossRef=useRef({});
   const lastCustomRef=useRef({});
   const[emaData,setEmaData]=useState({});
+  const[priceAlerts,setPriceAlerts]=useState([]);
+  const priceAlertsRef=useRef([]);
+  const priceWsRefs=useRef({});
+  const pricePollRefs=useRef({});
+  const lastPriceTrigRef=useRef({});
+  const[showPriceForm,setShowPriceForm]=useState(false);
+  const[priceForm,setPriceForm]=useState({symbol:"BTCUSDT",displayName:"BTC/USD",isCrypto:true,targetPrice:"",condition:"below",description:""});
 
   useEffect(()=>{
     if("Notification" in window)setNotifPerm(Notification.permission);
@@ -1941,6 +1957,15 @@ function AlertasTab({S}){
     try{
       const savedCustom=localStorage.getItem("td-custom-alerts");
       if(savedCustom){const ca=JSON.parse(savedCustom);customAlertsRef.current=ca;setCustomAlerts(ca);}
+    }catch(e){}
+    try{
+      const savedPA=localStorage.getItem("td-price-alerts");
+      if(savedPA){
+        const pa=JSON.parse(savedPA);
+        const paReset=pa.map(function(p){return{id:p.id,symbol:p.symbol,displayName:p.displayName,isCrypto:p.isCrypto,targetPrice:parseFloat(p.targetPrice),condition:p.condition,description:p.description||"",active:false,currentPrice:null,error:false};});
+        priceAlertsRef.current=paReset;
+        setPriceAlerts(paReset);
+      }
     }catch(e){}
     try{
       const saved=localStorage.getItem("td-rsi-alerts");
@@ -1996,7 +2021,8 @@ function AlertasTab({S}){
   }
 
   function sendAlert(label,interval,rsi,type,e1,e2,customDesc,price){
-    const tf=interval==="1h"?"1H":interval==="4h"?"4H":interval==="1d"?"Diario":"Semanal";
+    const isPriceAlert=type==="price_target";
+    const tf=isPriceAlert?"Precio":interval==="1h"?"1H":interval==="4h"?"4H":interval==="1d"?"Diario":"Semanal";
     const priceStr=price!=null?" | $"+parseFloat(price).toFixed(2):"";
     var title="Alerta Trading";
     var body="";
@@ -2006,6 +2032,7 @@ function AlertasTab({S}){
     else if(type==="death"){title="Cruce EMA 7/25";body=label+" "+tf+" — CRUCE MUERTE EMA7 < EMA25"+priceStr;}
     else if(type==="ema200_golden"){title="Cruce EMA 50/200";body=label+" "+tf+" — CRUCE DORADO EMA50 > EMA200"+priceStr;}
     else if(type==="ema200_death"){title="Cruce EMA 50/200";body=label+" "+tf+" — CRUCE MUERTE EMA50 < EMA200"+priceStr;}
+    else if(type==="price_target"){title="Precio Objetivo";body=customDesc||label+" — PRECIO ALCANZADO $"+parseFloat(price).toFixed(2);}
     else if(customDesc){title="Alerta Personalizada";body=label+" "+tf+" — "+customDesc+priceStr;}
     else{title="Alerta";body=label+" "+tf+" — "+type+priceStr;}
     const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,price:price!=null?parseFloat(price).toFixed(2):null,body,time:new Date().toLocaleTimeString("es-ES")};
@@ -2169,6 +2196,74 @@ function AlertasTab({S}){
   function removeAlert(alert){
     stopAlert(alert);
     saveAlerts(alerts.filter(a=>a.id!==alert.id));
+  }
+
+  function savePriceAlerts(arr){
+    priceAlertsRef.current=arr;
+    setPriceAlerts(arr);
+    localStorage.setItem("td-price-alerts",JSON.stringify(arr));
+  }
+
+  function addPriceAlert(){
+    if(!priceForm.targetPrice)return;
+    var na={
+      id:Date.now(),symbol:priceForm.symbol,displayName:priceForm.displayName,
+      isCrypto:priceForm.isCrypto,targetPrice:parseFloat(priceForm.targetPrice),
+      condition:priceForm.condition,description:priceForm.description,
+      active:false,currentPrice:null,error:false
+    };
+    savePriceAlerts([...priceAlertsRef.current,na]);
+    setShowPriceForm(false);
+    setPriceForm({symbol:"BTCUSDT",displayName:"BTC/USD",isCrypto:true,targetPrice:"",condition:"below",description:""});
+  }
+
+  function startPriceAlert(pa){
+    var sid=pa.id.toString();
+    if(priceWsRefs.current[sid]){priceWsRefs.current[sid].close();delete priceWsRefs.current[sid];}
+    if(pricePollRefs.current[sid]){clearInterval(pricePollRefs.current[sid]);delete pricePollRefs.current[sid];}
+    savePriceAlerts(priceAlertsRef.current.map(function(p){return p.id===pa.id?{...p,active:true,error:false}:p;}));
+
+    function checkPrice(price){
+      setPriceAlerts(function(prev){return prev.map(function(p){return p.id===pa.id?{...p,currentPrice:price.toFixed(2)}:p;});});
+      var met=(pa.condition==="above"&&price>=pa.targetPrice)||(pa.condition==="below"&&price<=pa.targetPrice);
+      if(met&&!lastPriceTrigRef.current[sid]){
+        lastPriceTrigRef.current[sid]=true;
+        var condStr=pa.condition==="above"?"sube a":"baja a";
+        var desc=(pa.description?pa.description+" — ":"")+pa.displayName+" "+condStr+" $"+pa.targetPrice.toFixed(2)+" ($"+price.toFixed(2)+" actual)";
+        sendAlert(pa.displayName,"precio",null,"price_target",null,null,desc,price);
+      }
+      if(!met)lastPriceTrigRef.current[sid]=false;
+    }
+
+    if(pa.isCrypto){
+      var ws=new WebSocket("wss://stream.binance.com:9443/ws/"+pa.symbol.toLowerCase()+"@miniTicker");
+      ws.onmessage=function(e){
+        var d=JSON.parse(e.data);
+        checkPrice(parseFloat(d.c));
+      };
+      ws.onerror=function(){savePriceAlerts(priceAlertsRef.current.map(function(p){return p.id===pa.id?{...p,active:false,error:true}:p;}));};
+      priceWsRefs.current[sid]=ws;
+    }else{
+      function pollStock(){
+        getStockData(pa.symbol,"1d").then(function(data){
+          if(data)checkPrice(parseFloat(data.price));
+        });
+      }
+      pollStock();
+      pricePollRefs.current[sid]=setInterval(pollStock,60000);
+    }
+  }
+
+  function stopPriceAlert(pa){
+    var sid=pa.id.toString();
+    if(priceWsRefs.current[sid]){priceWsRefs.current[sid].close();delete priceWsRefs.current[sid];}
+    if(pricePollRefs.current[sid]){clearInterval(pricePollRefs.current[sid]);delete pricePollRefs.current[sid];}
+    savePriceAlerts(priceAlertsRef.current.map(function(p){return p.id===pa.id?{...p,active:false,currentPrice:null}:p;}));
+  }
+
+  function removePriceAlert(pa){
+    stopPriceAlert(pa);
+    savePriceAlerts(priceAlertsRef.current.filter(function(p){return p.id!==pa.id;}));
   }
 
   return(
@@ -2449,6 +2544,133 @@ function AlertasTab({S}){
         )}
       </div>
 
+      {/* ── ALERTAS DE PRECIO ── */}
+      <div style={{background:"#111118",border:"1px solid rgba(240,180,41,.3)",borderRadius:8,padding:12,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div>
+            <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>ALERTAS DE PRECIO</div>
+            <div style={{fontSize:8,color:"#555",marginTop:2}}>Notificacion cuando el activo alcance tu precio objetivo</div>
+          </div>
+          <button onClick={function(){setShowPriceForm(!showPriceForm);}} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"6px 10px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva</button>
+        </div>
+
+        {showPriceForm&&(
+          <div style={{background:"#0d0d16",borderRadius:6,padding:12,marginBottom:10,border:"1px solid rgba(240,180,41,.2)"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+              <div>
+                <div style={{fontSize:8,color:"#555",marginBottom:3}}>ACTIVO</div>
+                <select value={priceForm.symbol} onChange={function(e){
+                  var opts={
+                    "BTCUSDT":{d:"BTC/USD",c:true},"ETHUSDT":{d:"ETH/USD",c:true},"SOLUSDT":{d:"SOL/USD",c:true},
+                    "LINKUSDT":{d:"LINK/USD",c:true},"BNBUSDT":{d:"BNB/USD",c:true},"XRPUSDT":{d:"XRP/USD",c:true},
+                    "NVDA":{d:"NVDA",c:false},"MSTR":{d:"MSTR",c:false},"GOOGL":{d:"GOOGL",c:false},
+                    "AAPL":{d:"AAPL",c:false},"AMD":{d:"AMD",c:false},"TSLA":{d:"TSLA",c:false},
+                    "META":{d:"META",c:false},"MARA":{d:"MARA",c:false},"SPY":{d:"SPY",c:false},
+                  };
+                  var o=opts[e.target.value]||{d:e.target.value,c:true};
+                  setPriceForm({...priceForm,symbol:e.target.value,displayName:o.d,isCrypto:o.c});
+                }} style={{...S.inp,padding:"5px",fontSize:9}}>
+                  <optgroup label="Crypto (tiempo real)">
+                    <option value="BTCUSDT">BTC/USD</option>
+                    <option value="ETHUSDT">ETH/USD</option>
+                    <option value="SOLUSDT">SOL/USD</option>
+                    <option value="LINKUSDT">LINK/USD</option>
+                    <option value="BNBUSDT">BNB/USD</option>
+                    <option value="XRPUSDT">XRP/USD</option>
+                  </optgroup>
+                  <optgroup label="Acciones (cada 60s)">
+                    <option value="NVDA">NVDA</option>
+                    <option value="MSTR">MSTR</option>
+                    <option value="GOOGL">GOOGL</option>
+                    <option value="AAPL">AAPL</option>
+                    <option value="AMD">AMD</option>
+                    <option value="TSLA">TSLA</option>
+                    <option value="META">META</option>
+                    <option value="MARA">MARA</option>
+                    <option value="SPY">SPY</option>
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:8,color:"#555",marginBottom:3}}>CONDICION</div>
+                <select value={priceForm.condition} onChange={function(e){setPriceForm({...priceForm,condition:e.target.value});}} style={{...S.inp,padding:"5px",fontSize:9}}>
+                  <option value="below">Precio baja hasta (≤)</option>
+                  <option value="above">Precio sube hasta (≥)</option>
+                </select>
+              </div>
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,color:"#f0b429",marginBottom:3}}>PRECIO OBJETIVO (USD)</div>
+              <input type="number" min="0" step="any" placeholder="ej: 84000"
+                value={priceForm.targetPrice}
+                onChange={function(e){setPriceForm({...priceForm,targetPrice:e.target.value});}}
+                style={{...S.inp,padding:"8px",fontSize:18,textAlign:"center",fontWeight:700,color:"#f0b429"}}/>
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,color:"#555",marginBottom:3}}>NOTA (opcional)</div>
+              <input style={S.inp} placeholder="Ej: Soporte BTC zona de entrada"
+                value={priceForm.description}
+                onChange={function(e){setPriceForm({...priceForm,description:e.target.value});}}/>
+            </div>
+            {priceForm.targetPrice&&(
+              <div style={{background:"rgba(240,180,41,.08)",border:"1px solid rgba(240,180,41,.2)",borderRadius:5,padding:"8px 10px",marginBottom:8,fontSize:9,color:"#f0b429"}}>
+                Notificar cuando {priceForm.displayName} {priceForm.condition==="below"?"baje a":"suba a"} ${parseFloat(priceForm.targetPrice).toFixed(2)}
+                {priceForm.isCrypto?" · Binance WebSocket (tiempo real)":" · Yahoo Finance (cada 60s)"}
+              </div>
+            )}
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={addPriceAlert} style={{flex:2,padding:"8px",background:"#f0b429",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>GUARDAR ALERTA</button>
+              <button onClick={function(){setShowPriceForm(false);}} style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {priceAlerts.length===0&&!showPriceForm&&(
+          <div style={{fontSize:9,color:"#333",textAlign:"center",padding:"10px 0"}}>
+            Sin alertas de precio. Pulsa + Nueva para configurar una.
+          </div>
+        )}
+
+        {priceAlerts.map(function(pa){
+          var condColor=pa.condition==="below"?"#00ff88":"#f0b429";
+          var condLabel=pa.condition==="below"?"BAJE A":"SUBA A";
+          var priceReached=pa.currentPrice&&((pa.condition==="above"&&parseFloat(pa.currentPrice)>=pa.targetPrice)||(pa.condition==="below"&&parseFloat(pa.currentPrice)<=pa.targetPrice));
+          return(
+            <div key={pa.id} style={{background:"#0d0d16",border:"1px solid "+(pa.active?"rgba(240,180,41,.35)":pa.error?"rgba(255,68,68,.2)":"rgba(240,180,41,.15)"),borderRadius:6,padding:"10px 12px",marginBottom:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:pa.active?"#f0b429":"#333"}}/>
+                    <span style={{fontSize:11,fontWeight:700,color:condColor}}>{pa.displayName}</span>
+                    <span style={{fontSize:8,color:"#444"}}>{pa.isCrypto?"WS Binance":"Yahoo 60s"}</span>
+                  </div>
+                  {pa.description&&<div style={{fontSize:9,color:"#555",marginTop:3,marginLeft:13}}>{pa.description}</div>}
+                </div>
+                <div style={{textAlign:"right"}}>
+                  {pa.currentPrice&&(
+                    <div style={{fontSize:13,fontWeight:700,color:priceReached?"#00ff88":"#888"}}>${pa.currentPrice}</div>
+                  )}
+                  {pa.active&&!pa.currentPrice&&<div style={{fontSize:9,color:"#555"}}>...</div>}
+                </div>
+              </div>
+              <div style={{background:"rgba(240,180,41,.06)",borderRadius:4,padding:"6px 10px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:9,color:"#555"}}>Notificar cuando {condLabel}:</span>
+                <span style={{fontSize:18,fontWeight:700,color:condColor}}>${pa.targetPrice.toFixed(2)}</span>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                {!pa.active?(
+                  <button onClick={function(){startPriceAlert(pa);}} style={{flex:2,padding:"7px",background:"rgba(240,180,41,.1)",border:"1px solid #f0b429",color:"#f0b429",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>INICIAR MONITOR</button>
+                ):(
+                  <button onClick={function(){stopPriceAlert(pa);}} style={{flex:2,padding:"7px",background:"rgba(255,68,68,.1)",border:"1px solid #ff4444",color:"#ff4444",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>DETENER</button>
+                )}
+                <button onClick={function(){removePriceAlert(pa);}} style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#444",borderRadius:5,fontSize:9,cursor:"pointer"}}>Eliminar</button>
+              </div>
+              {pa.error&&<div style={{fontSize:8,color:"#ff4444",marginTop:4}}>Error de conexion.</div>}
+            </div>
+          );
+        })}
+      </div>
+
       {/* Log de alertas disparadas */}
       {logs.length>0&&(
         <div style={{background:"#111118",border:"1px solid #1e1e2e",borderRadius:8,padding:12,marginTop:4}}>
@@ -2465,6 +2687,7 @@ function AlertasTab({S}){
             else if(log.type==="death"||log.type.indexOf("death")>-1){icon="💀";color="#cc44cc";}
             else if(log.type==="ema200_golden"){icon="🌟";color="#ffd700";}
             else if(log.type==="ema200_death"){icon="💀";color="#cc44cc";}
+            else if(log.type==="price_target"){icon="🎯";color="#f0b429";}
             return(
               <div key={log.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"6px 0",borderBottom:"1px solid #1a1a2a",fontSize:9}}>
                 <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
@@ -2487,14 +2710,15 @@ function AlertasTab({S}){
 
 // - GOAL TRACKER -
 function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
-  const GOAL=7641; // euros = approx USD (close enough for tracking)
-  // Total recovered = positive results from xhist (new closes via app)
-  const recovered=xhist.reduce((a,h)=>a+(h.result>0?h.result:0),0);
+  // GOAL = total a recuperar (perdida historica total absoluta, dinamica)
+  const GOAL=parseFloat(Math.abs(h0Total).toFixed(2));
+  // Net P&L from all closes done via the app (wins + losses)
+  const recovered=parseFloat(xhist.reduce((a,h)=>a+(h.result||0),0).toFixed(2));
   // Also count actPnl if positive (open positions in profit)
   const potentialExtra=actPnl>0?actPnl:0;
-  const totalRecovered=parseFloat((recovered).toFixed(2));
-  const pct=Math.min(100,Math.round(totalRecovered/GOAL*100));
-  const remaining=parseFloat((GOAL-totalRecovered).toFixed(2));
+  const totalRecovered=recovered;
+  const pct=GOAL>0?Math.min(100,Math.round(Math.max(0,totalRecovered)/GOAL*100)):0;
+  const remaining=parseFloat(Math.max(0,GOAL-totalRecovered).toFixed(2));
 
   // Milestone messages
   let milestone="";
@@ -2512,8 +2736,8 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
     <div style={{...S.card,border:"1px solid rgba(240,180,41,.4)",marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
         <div>
-          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,letterSpacing:1}}>OBJETIVO: RECUPERAR $7.641</div>
-          <div style={{fontSize:9,color:"#555",marginTop:2}}>Perdidas de octubre 2025</div>
+          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,letterSpacing:1}}>OBJETIVO: RECUPERAR ${GOAL.toLocaleString()}</div>
+          <div style={{fontSize:9,color:"#555",marginTop:2}}>Perdidas acumuladas (actualizado con cierres)</div>
         </div>
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:28,fontWeight:700,color:pct>=100?"#00ff88":pct>=50?"#f0b429":"#e0e0e0"}}>{pct}%</div>
