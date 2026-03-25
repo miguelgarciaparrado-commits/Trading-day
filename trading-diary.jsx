@@ -253,6 +253,7 @@ export default function App(){
   const[sv,setSv]=useState("saved");
   const[pr,setPr]=useState({SOL:91.33,BTC:84000,ETH:2000,MSTR:300,GOOGL:170,LINK:9.20});
   const[fetchingPrices,setFetchingPrices]=useState(false);
+  const[lastPriceTime,setLastPriceTime]=useState(null);
 
   // Obtener precios en tiempo real: Binance para crypto, Yahoo Finance para acciones/ETFs
   async function fetchPrices(){
@@ -310,6 +311,7 @@ export default function App(){
     D.current.pr=newPr;
     setPr(newPr);
     SPr(newPr);
+    setLastPriceTime(new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
     setFetchingPrices(false);
   }
   const[pos,setPos]=useState(P0);
@@ -374,15 +376,15 @@ export default function App(){
         }
       }catch(e){console.warn("Load error:",e);}
       setReady(true);
-      // Mostrar recordatorio de precios si hay posiciones abiertas
-      // Solo una vez al dia
-      const todayKey="pr-reminder-"+new Date().toDateString();
-      const shown=localStorage.getItem(todayKey);
-      if(!shown){
-        localStorage.setItem(todayKey,"1");
-        setTimeout(()=>setModal(m=>({...m,priceReminder:true})),1500);
-      }
+      // Auto-fetch precios al cargar
+      setTimeout(fetchPrices, 800);
     })();
+  },[]);
+
+  // Auto-refresh de precios cada 60 segundos
+  useEffect(function(){
+    var iv=setInterval(fetchPrices,60000);
+    return function(){clearInterval(iv);};
   },[]);
 
   // - SAVE -
@@ -721,9 +723,10 @@ export default function App(){
       {(tab==="Resumen"||tab==="Posiciones")&&(
         <div style={{background:"#080810",borderBottom:"1px solid #1a1a2a",padding:"5px 14px",display:"flex",justifyContent:"flex-end"}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <button onClick={fetchPrices} style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",padding:"3px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
-            {fetchingPrices?"⏳ cargando...":"⚡ Precios en tiempo real"}
+          <button onClick={fetchPrices} disabled={fetchingPrices} style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",padding:"3px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
+            {fetchingPrices?"⏳ actualizando...":"⚡ Refrescar"}
           </button>
+          {lastPriceTime&&!fetchingPrices&&<span style={{fontSize:8,color:"#444"}}>actualizado {lastPriceTime} · auto cada 60s</span>}
           <button onClick={()=>setModal(m=>({...m,prices:true,tmpPr:{...pr}}))} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#f0b429",padding:"3px 10px",borderRadius:4,fontSize:9,cursor:"pointer"}}>✏ Manual</button>
         </div>
         </div>
@@ -1564,28 +1567,6 @@ export default function App(){
         </div></div>
       )}
 
-      {/* ═══ RECORDATORIO DE PRECIOS (una vez al dia) ═══ */}
-      {modal.priceReminder&&(
-        <div style={S.modal}><div style={S.mc}>
-          <div style={{textAlign:"center",marginBottom:16}}>
-            <div style={{fontSize:28,marginBottom:8}}>⏰</div>
-            <div style={{fontSize:13,fontWeight:700,color:"#f0b429"}}>Actualizacion de precios</div>
-            <div style={{fontSize:10,color:"#555",marginTop:4}}>Tienes posiciones abiertas. Actualiza los precios para ver el P&L real.</div>
-          </div>
-          <div style={{marginBottom:14}}>
-            {pos.map(p=>(
-              <div key={p.id} style={{display:"flex",justifyContent:"space-between",fontSize:10,padding:"5px 0",borderBottom:"1px solid #1a1a2a"}}>
-                <span style={{color:"#e0e0e0"}}>{p.asset}</span>
-                <span style={{color:"#f0b429",fontWeight:700}}>precio actual: ${(PM[p.asset]||p.entry).toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>{setModal(m=>({...m,priceReminder:false,prices:true,tmpPr:{...pr}}));}} style={{...S.btn(true),flex:2,padding:8}}>ACTUALIZAR PRECIOS</button>
-            <button onClick={()=>setModal(m=>({...m,priceReminder:false}))} style={{...S.btn(false),flex:1}}>Luego</button>
-          </div>
-        </div></div>
-      )}
 
     </div>
   );
