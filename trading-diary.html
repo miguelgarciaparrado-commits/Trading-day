@@ -318,6 +318,18 @@ function generateProfileSummary(ps, pats, jnl, hist, xhist, sc) {
         lines.push("Tasa de acierto del " + winRate + "%. Por encima de la media del mercado.");
     else if (winRate < 40)
         lines.push("Solo ganas el " + winRate + "% de las operaciones. Revisa tus criterios de entrada.");
+    // Ratio R:R medio (calculado al cerrar posiciones)
+    const rCount = ps.ratioCount || 0;
+    const rSum = ps.ratioSum || 0;
+    if (rCount > 0) {
+        const avgR = rSum / rCount;
+        if (avgR >= 3)
+            lines.push("Tu ratio R:R medio es " + avgR.toFixed(1) + ":1 en " + rCount + " operaciones. Excelente seleccion de niveles.");
+        else if (avgR >= 2)
+            lines.push("Ratio R:R medio de " + avgR.toFixed(1) + ":1. Solido. Mantener TPs ambiciosos y SLs ajustados.");
+        else
+            lines.push("Ratio R:R medio de " + avgR.toFixed(1) + ":1. Por debajo de 2:1. Mejora la seleccion de TP o ajusta el SL mas cerca de la entrada.");
+    }
     return lines;
 }
 const TABS = ["Resumen", "Posiciones", "Historial", "Patrones", "Perfil", "Recuperacion", "Calendario", "Horarios", "Alertas", "Chat"];
@@ -798,7 +810,30 @@ function App() {
             else
                 newPs.manualClose = (newPs.manualClose || 0) + 1;
         }
-        const entry = { id: Date.now(), asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(result.toFixed(2)), date: today(), note: note };
+        // Calcular y guardar ratio R:R de esta operacion al cerrarla
+        let closedRatio = null;
+        if (p.sl && p.entry) {
+            let effTp = p.tp || 0;
+            if (!effTp && p.tpLevels && p.tpLevels.length > 0) {
+                const acts = p.tpLevels.filter(function (l) { return !l.hit; });
+                const all = p.tpLevels;
+                const src = acts.length > 0 ? acts : all;
+                const tot = src.reduce(function (a, l) { return a + l.pct; }, 0);
+                if (tot > 0)
+                    effTp = src.reduce(function (a, l) { return a + l.price * (l.pct / tot); }, 0);
+            }
+            if (effTp) {
+                const rsk = Math.abs(p.entry - p.sl);
+                const rwd = Math.abs(effTp - p.entry);
+                if (rsk > 0)
+                    closedRatio = parseFloat((rwd / rsk).toFixed(2));
+            }
+        }
+        if (closedRatio !== null) {
+            newPs.ratioSum = (newPs.ratioSum || 0) + closedRatio;
+            newPs.ratioCount = (newPs.ratioCount || 0) + 1;
+        }
+        const entry = { id: Date.now(), asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(result.toFixed(2)), date: today(), note: note, ...(closedRatio !== null ? { ratio: closedRatio } : {}) };
         const newX = [entry, ...(D.current.xhist || [])];
         const newPos2 = D.current.pos.filter(x => x.id !== p.id);
         D.current.xhist = newX;
@@ -844,13 +879,36 @@ function App() {
             }
             var isShort = p.dir === "Short";
             var kept = true;
+            // Helper: calcular ratio R:R de la posicion
+            function calcPosRatio(pos) {
+                if (!pos.sl || !pos.entry)
+                    return null;
+                var effTp = pos.tp || 0;
+                if (!effTp && pos.tpLevels && pos.tpLevels.length > 0) {
+                    var acts = pos.tpLevels.filter(function (l) { return !l.hit; });
+                    var src = acts.length > 0 ? acts : pos.tpLevels;
+                    var tot = src.reduce(function (a, l) { return a + l.pct; }, 0);
+                    if (tot > 0)
+                        effTp = src.reduce(function (a, l) { return a + l.price * (l.pct / tot); }, 0);
+                }
+                if (!effTp)
+                    return null;
+                var rsk = Math.abs(pos.entry - pos.sl);
+                var rwd = Math.abs(effTp - pos.entry);
+                return rsk > 0 ? parseFloat((rwd / rsk).toFixed(2)) : null;
+            }
             // SL check
             if (p.sl) {
                 var slHit = isShort ? (price >= p.sl) : (price <= p.sl);
                 if (slHit) {
                     var isBE = p.be || p.sl === p.entry;
                     var slResult = isBE ? 0 : -(p.capital * Math.abs(p.entry - p.sl) / p.entry);
-                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(slResult.toFixed(2)), date: today(), note: "🛑 SL auto @ $" + price.toLocaleString() });
+                    var slRatio = calcPosRatio(p);
+                    if (slRatio !== null) {
+                        psU.ratioSum = (psU.ratioSum || 0) + slRatio;
+                        psU.ratioCount = (psU.ratioCount || 0) + 1;
+                    }
+                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(slResult.toFixed(2)), date: today(), note: "🛑 SL auto @ $" + price.toLocaleString(), ...(slRatio !== null ? { ratio: slRatio } : {}) });
                     psU.slOk = (psU.slOk || 0) + 1;
                     changed = true;
                     notifyAutoClose(p.asset, p.dir, "SL ejecutado", price, slResult);
@@ -877,6 +935,12 @@ function App() {
                 });
                 var allHit = updLevels.every(function (l) { return l.hit; });
                 if (allHit) {
+                    // Todos los niveles alcanzados — guardar ratio de la operacion completa
+                    var fullRatio = calcPosRatio(p);
+                    if (fullRatio !== null) {
+                        psU.ratioSum = (psU.ratioSum || 0) + fullRatio;
+                        psU.ratioCount = (psU.ratioCount || 0) + 1;
+                    }
                     changed = true;
                     continue;
                 }
@@ -892,7 +956,12 @@ function App() {
                 var tpHit = isShort ? (price <= p.tp) : (price >= p.tp);
                 if (tpHit) {
                     var tpResult = p.capital * Math.abs(p.tp - p.entry) / p.entry;
-                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(tpResult.toFixed(2)), date: today(), note: "🎯 TP auto @ $" + price.toLocaleString() });
+                    var tpRatio = calcPosRatio(p);
+                    if (tpRatio !== null) {
+                        psU.ratioSum = (psU.ratioSum || 0) + tpRatio;
+                        psU.ratioCount = (psU.ratioCount || 0) + 1;
+                    }
+                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(tpResult.toFixed(2)), date: today(), note: "🎯 TP auto @ $" + price.toLocaleString(), ...(tpRatio !== null ? { ratio: tpRatio } : {}) });
                     psU.tpAuto = (psU.tpAuto || 0) + 1;
                     changed = true;
                     notifyAutoClose(p.asset, p.dir, "TP alcanzado", price, tpResult);
@@ -1011,7 +1080,7 @@ function App() {
                     { l: "PERDIDA TOTAL", v: fmtNum(h0Total + ethT), c: h0Total + ethT >= 0 ? "#00ff88" : "#ff4444" },
                     { l: "OPS TOTALES", v: hist.length, c: "#e0e0e0" },
                     { l: "TASA GANADORA", v: Math.round(wins / hist.length * 100) + "%", c: "#f0b429" },
-                    { l: "RATIO MEDIO", v: (() => { const w = hist.filter(h => h.result > 0); const l = hist.filter(h => h.result < 0); const aw = w.length ? w.reduce((a, h) => a + h.result, 0) / w.length : 0; const al = l.length ? Math.abs(l.reduce((a, h) => a + h.result, 0) / l.length) : 0; return al > 0 ? "1 : " + (aw / al).toFixed(2) : "--"; })(), c: "#88aaff" },
+                    { l: "RATIO R:R MEDIO", v: (() => { const cnt = ps.ratioCount || 0; const sum = ps.ratioSum || 0; return cnt > 0 ? "1 : " + (sum / cnt).toFixed(2) + " (" + cnt + "ops)" : "--"; })(), c: "#88aaff" },
                     { l: "ROI HISTORICO", v: (() => { const inv = hist.reduce((a, h) => a + (h.cap || 0), 0); return inv > 0 ? (h0Total / inv * 100).toFixed(1) + "%" : "--"; })(), c: h0Total >= 0 ? "#00ff88" : "#ff4444" },
                     { l: "ROI ETH LEGADO", v: ((pr.ETH - 3621.58) / 3621.58 * 100).toFixed(1) + "%", c: pr.ETH >= 3621.58 ? "#00ff88" : "#ff4444" },
                     { l: "ROI ACTIVAS", v: (() => { const inv = pos.reduce((a, p) => a + p.capital, 0); return inv > 0 ? (actPnl / inv * 100).toFixed(1) + "%" : "--"; })(), c: actPnl >= 0 ? "#00ff88" : "#ff4444" },
@@ -3209,34 +3278,37 @@ function PositionAdvisor({ pos, PM, getPnL, fmtNum, S }) {
         const currentPrice = PM[p.asset] || p.entry;
         const pnl = getPnL(p);
         const isBE = p.be || p.sl === p.entry;
-        // Calcular ratio riesgo/beneficio
+        // Calcular ratio riesgo/beneficio — si hay tpLevels usar media ponderada de los activos
+        let effectiveTp = p.tp || 0;
+        if ((!effectiveTp) && p.tpLevels && p.tpLevels.length > 0) {
+            const activeLvls = p.tpLevels.filter(function (l) { return !l.hit; });
+            if (activeLvls.length > 0) {
+                const totPct = activeLvls.reduce(function (a, l) { return a + l.pct; }, 0);
+                effectiveTp = activeLvls.reduce(function (a, l) { return a + l.price * (l.pct / totPct); }, 0);
+            }
+        }
         const risk = p.sl ? Math.abs(p.entry - p.sl) / p.entry * 100 : null;
-        const reward = p.tp ? Math.abs(p.tp - p.entry) / p.entry * 100 : null;
+        const reward = effectiveTp ? Math.abs(effectiveTp - p.entry) / p.entry * 100 : null;
         const ratio = risk && reward ? reward / risk : null;
         // Distancia al TP en %
-        const distToTP = p.tp ? Math.abs(currentPrice - p.tp) / Math.abs(p.tp - p.entry) * 100 : null;
+        const distToTP = effectiveTp ? Math.abs(currentPrice - effectiveTp) / Math.abs(effectiveTp - p.entry) * 100 : null;
         const pnlPct = p.capital > 0 ? pnl / p.capital * 100 : 0;
         const tips = [];
-        // Ratio extremo
-        if (ratio && ratio > 20) {
-            tips.push({
-                type: "warn",
-                icon: "⚠",
-                text: "Ratio " + ratio.toFixed(0) + ":1 es muy alto. Considera tomar beneficio parcial (25-50%) en niveles intermedios en lugar de esperar al TP completo."
-            });
-        }
-        else if (ratio && ratio > 10) {
-            tips.push({
-                type: "info",
-                icon: "💡",
-                text: "Ratio " + ratio.toFixed(1) + ":1 es excelente. Cuando llegues al 50% del recorrido, mueve el SL a breakeven para asegurar la operacion."
-            });
-        }
-        else if (ratio && ratio < 2 && !isBE) {
+        // Solo mostrar consejos cuando hay algo que mejorar o requiere accion
+        // Ratio insuficiente
+        if (ratio && ratio < 2 && !isBE) {
             tips.push({
                 type: "danger",
                 icon: "🔴",
                 text: "Ratio " + ratio.toFixed(1) + ":1 es insuficiente. El riesgo no justifica el beneficio potencial. Considera ajustar el TP o cerrar."
+            });
+        }
+        // Ratio extremadamente alto (poco realista)
+        if (ratio && ratio > 20) {
+            tips.push({
+                type: "warn",
+                icon: "⚠",
+                text: "Ratio " + ratio.toFixed(0) + ":1 es muy alto. Revisa si el TP es realista. Considera tomar beneficio parcial en niveles intermedios."
             });
         }
         // SL muy alejado
@@ -3244,10 +3316,10 @@ function PositionAdvisor({ pos, PM, getPnL, fmtNum, S }) {
             tips.push({
                 type: "warn",
                 icon: "⚠",
-                text: "SL al " + risk.toFixed(1) + "% de la entrada. Esto representa un riesgo alto. Asegurate de que el nivel tiene justificacion tecnica (soporte/resistencia clave)."
+                text: "SL al " + risk.toFixed(1) + "% de la entrada. Riesgo elevado. Asegurate de que el nivel tiene justificacion tecnica (soporte/resistencia clave)."
             });
         }
-        // Cerca del TP - sugerir parciales
+        // Cerca del TP — accion concreta: tomar parciales
         if (distToTP !== null && distToTP < 30 && pnl > 0) {
             const partialProfit = pnl * 0.5;
             tips.push({
@@ -3256,20 +3328,12 @@ function PositionAdvisor({ pos, PM, getPnL, fmtNum, S }) {
                 text: "Estas al " + Math.round(100 - distToTP) + "% del recorrido al TP. Considera cerrar el 30-50% ahora (" + fmtNum(partialProfit) + ") y dejar correr el resto con SL en BE."
             });
         }
-        // Beneficio flotante importante
+        // Beneficio flotante importante sin BE — accion: mover SL
         if (pnlPct > 15 && !isBE) {
             tips.push({
                 type: "good",
                 icon: "💰",
                 text: "Llevas +" + pnlPct.toFixed(1) + "% sobre el capital. Mueve el SL a breakeven ahora para proteger la ganancia y operar sin riesgo."
-            });
-        }
-        // En BE con TP lejano
-        if (isBE && p.tp && distToTP !== null && distToTP > 50) {
-            tips.push({
-                type: "info",
-                icon: "🧘",
-                text: "SL en breakeven. Riesgo cero. Deja trabajar la posicion sin intervenir. La paciencia es tu ventaja ahora."
             });
         }
         // Sin TP definido (tpLevels parciales también cuentan)
