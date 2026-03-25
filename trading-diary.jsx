@@ -736,6 +736,83 @@ export default function App(){
               </button>
             </div>}
 
+            {/* Stats del diario */}
+            {(()=>{
+              const allH=[...xhist,...H0];
+              // Racha actual
+              let streak=0,streakType="";
+              for(let i=0;i<allH.length;i++){
+                const w=allH[i].result>0;
+                if(i===0){streak=1;streakType=w?"win":"loss";}
+                else if((w&&streakType==="win")||(!w&&streakType==="loss"))streak++;
+                else break;
+              }
+              const bestTrade=allH.length?allH.reduce((b,h)=>h.result>b.result?h:b,allH[0]):null;
+              const worstTrade=allH.length?allH.reduce((b,h)=>h.result<b.result?h:b,allH[0]):null;
+              const assetCount={};
+              allH.forEach(h=>{assetCount[h.asset]=(assetCount[h.asset]||0)+1;});
+              const topAsset=Object.entries(assetCount).sort((a,b)=>b[1]-a[1])[0];
+              const longs=allH.filter(h=>h.dir==="Long");
+              const shorts=allH.filter(h=>h.dir==="Short");
+              const longWR=longs.length?Math.round(longs.filter(h=>h.result>0).length/longs.length*100):null;
+              const shortWR=shorts.length?Math.round(shorts.filter(h=>h.result>0).length/shorts.length*100):null;
+              const slPct=ps.slOk+ps.slBroken>0?Math.round(ps.slOk/(ps.slOk+ps.slBroken)*100):null;
+              return(
+                <div style={{...S.card,marginBottom:10}}>
+                  <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:10}}>ESTADISTICAS DEL DIARIO</div>
+                  <div style={S.grid(130)}>
+                    <div style={S.card}>
+                      <div style={S.lbl}>RACHA ACTUAL</div>
+                      <div style={S.val(streakType==="win"?"#00ff88":"#ff4444")}>
+                        {streak} {streakType==="win"?"✓":"✗"}
+                      </div>
+                      <div style={{fontSize:8,color:"#555"}}>{streakType==="win"?"consecutivas ganadas":"consecutivas perdidas"}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>MEJOR TRADE</div>
+                      <div style={S.val("#00ff88")}>{bestTrade?fmtNum(bestTrade.result):"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{bestTrade?bestTrade.asset:""}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>PEOR TRADE</div>
+                      <div style={S.val("#ff4444")}>{worstTrade?fmtNum(worstTrade.result):"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{worstTrade?worstTrade.asset:""}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>ACTIVO TOP</div>
+                      <div style={S.val("#e0e0e0")}>{topAsset?topAsset[0]:"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{topAsset?topAsset[1]+" ops":""}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>WIN RATE LONG</div>
+                      <div style={S.val(longWR>=50?"#00ff88":"#ff4444")}>{longWR!=null?longWR+"%":"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{longs.length} ops long</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>WIN RATE SHORT</div>
+                      <div style={S.val(shortWR>=50?"#00ff88":"#ff4444")}>{shortWR!=null?shortWR+"%":"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{shorts.length} ops short</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>DISCIPLINA SL</div>
+                      <div style={S.val(slPct>=80?"#00ff88":slPct>=60?"#f0b429":"#ff4444")}>{slPct!=null?slPct+"%":"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{ps.slBroken} SL rotos</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>SCORE TRADER</div>
+                      <div style={S.val(lvColor)}>{sc}</div>
+                      <div style={{fontSize:8,color:lvColor}}>{lvLabel}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>ENTRADAS DIARIO</div>
+                      <div style={S.val("#88aaff")}>{jnl.length}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{jnl.filter(j=>j.type==="win").length}V · {jnl.filter(j=>j.type==="lesson").length}L · {jnl.filter(j=>j.type==="mistake").length}E</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Posiciones activas */}
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -770,6 +847,43 @@ export default function App(){
               <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ABIERTAS</div>
               <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
             </div>
+            {/* ETH legado */}
+            {!ethClosed&&(
+              <div style={{...S.card,border:"1px solid rgba(255,68,68,.3)",marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{fontSize:15,fontWeight:700}}>ETH/USD</span>
+                    <span style={S.bdg("#00ff88")}>Long</span>
+                    <span style={{fontSize:8,color:"#888",background:"rgba(255,68,68,.1)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(255,68,68,.2)"}}>LEGADO</span>
+                  </div>
+                  <span style={{fontSize:19,fontWeight:700,color:ethU>=0?"#00ff88":"#ff4444"}}>{fmtNum(ethU)}</span>
+                </div>
+                <div style={S.grid(105)}>
+                  {[
+                    {l:"CANTIDAD",v:"1.9521 ETH"},
+                    {l:"ENTRADA",v:"$3,621.58"},
+                    {l:"ACTUAL",v:"$"+pr.ETH.toLocaleString(),c:pr.ETH>=3621.58?"#00ff88":"#ff4444"},
+                  ].map(i=><div key={i.l}><div style={S.lbl}>{i.l}</div><div style={{fontSize:11,fontWeight:600,color:i.c||"#e0e0e0"}}>{i.v}</div></div>)}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+                  <div style={{background:"rgba(255,68,68,.06)",border:"1px solid rgba(255,68,68,.2)",borderRadius:6,padding:"9px 11px"}}>
+                    <div style={{fontSize:8,color:"#555",marginBottom:3}}>STOP LOSS / LIQUIDACION</div>
+                    <div style={{fontSize:14,fontWeight:700,color:"#ff6600"}}>~$1,080</div>
+                    <div style={{fontSize:9,color:"#ff4444"}}>Perdida real: -$796.09</div>
+                  </div>
+                  <div style={{background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"9px 11px"}}>
+                    <div style={{fontSize:8,color:"#555",marginBottom:3}}>TAKE PROFIT / BREAKEVEN</div>
+                    <div style={{fontSize:14,fontWeight:700,color:"#00cc66"}}>$9,000</div>
+                    <div style={{fontSize:9,color:"#f0b429"}}>BE: $4,029</div>
+                  </div>
+                </div>
+                <div style={S.bar}><div style={S.fill(Math.min(pr.ETH/9000*100,100),"linear-gradient(90deg,#ff4444,#f0b429,#00ff88)")}/></div>
+                <button onClick={()=>setModal(m=>({...m,closeEth:true}))}
+                  style={{marginTop:8,width:"100%",padding:"7px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.4)",color:"#ff6666",borderRadius:6,fontSize:9,fontWeight:700,cursor:"pointer"}}>
+                  CERRAR POSICION ETH LEGADO
+                </button>
+              </div>
+            )}
             {pos.map(p=>{
               const g=getPnL(p);
               const isBE=p.be||p.sl===p.entry;
@@ -1074,19 +1188,37 @@ export default function App(){
                 ].map(x=><div key={x.l} style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:6}}><span style={{color:"#555"}}>{x.l}</span><span style={{color:x.c,fontWeight:700}}>{x.v}</span></div>)}
               </div>
               <div style={S.card}>
-                <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>COMO SUBE EL SCORE</div>
+                <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>SCORE: SUBE / BAJA</div>
                 {[
-                  {l:"VICTORIA",c:"#00ff88",pts:"+2 pts"},
-                  {l:"LECCION",c:"#f0b429",pts:"+1.5 pts"},
-                  {l:"ANALISIS",c:"#888",pts:"+1 pt"},
-                  {l:"ERROR+LECCION",c:"#ff6600",pts:"+0.5 extra"},
+                  {l:"SL respetados",c:"#00ff88",pts:"+30 max"},
+                  {l:"TP / TP parcial",c:"#00ff88",pts:"+20 max"},
+                  {l:"Patron confirmado",c:"#88aaff",pts:"+7 c/u"},
+                  {l:"Victoria diario",c:"#f0b429",pts:"+2"},
+                  {l:"Leccion",c:"#f0b429",pts:"+1.5"},
                 ].map(x=>(
-                  <div key={x.l} style={{background:"#0d0d16",borderRadius:5,padding:"6px 8px",border:"1px solid "+x.c+"22",marginBottom:5,display:"flex",justifyContent:"space-between"}}>
-                    <span style={{fontSize:9,color:x.c,fontWeight:700}}>{x.l}</span>
-                    <span style={{fontSize:9,color:x.c}}>{x.pts}</span>
+                  <div key={x.l} style={{background:"#0d0d16",borderRadius:4,padding:"5px 8px",border:"1px solid "+x.c+"22",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontSize:8,color:x.c,fontWeight:700}}>{x.l}</span>
+                    <span style={{fontSize:8,color:x.c}}>{x.pts}</span>
                   </div>
                 ))}
-                <div style={{fontSize:8,color:"#555",marginTop:4}}>Cierres documentados +1.5 bonus</div>
+                <div style={{fontSize:8,color:"#ff4444",fontWeight:700,marginTop:7,marginBottom:4}}>PENALIZACIONES ACTUALES</div>
+                {(()=>{
+                  const slT=ps.slOk+ps.slBroken;
+                  const slLost=slT>0?parseFloat(((ps.slBroken/slT)*30).toFixed(1)):0;
+                  const totC=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0);
+                  const earlyLost=totC>0?parseFloat(((ps.earlyClose||0)/totC*20).toFixed(1)):0;
+                  const revLost=Math.min(20,ps.revenge*5);
+                  return[
+                    {l:"SL roto x"+ps.slBroken,pts:"-"+slLost+" pts",c:"#ff4444",v:slLost},
+                    {l:"Cierre anticipado x"+(ps.earlyClose||0),pts:"-"+earlyLost+" pts",c:"#ff6600",v:earlyLost},
+                    {l:"Revenge trade x"+ps.revenge,pts:"-"+revLost+" pts",c:"#ff4444",v:revLost},
+                  ].map(x=>(
+                    <div key={x.l} style={{background:"rgba(255,68,68,.05)",borderRadius:4,padding:"5px 8px",border:"1px solid rgba(255,68,68,.15)",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
+                      <span style={{fontSize:8,color:x.v>0?x.c:"#555",fontWeight:x.v>0?700:400}}>{x.l}</span>
+                      <span style={{fontSize:8,color:x.v>0?"#ff4444":"#444"}}>{x.pts}</span>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
             <ProfileAnalysis ps={ps} pats={pats} jnl={jnl} hist={hist} xhist={xhist} sc={sc} S={S}/>
@@ -2032,11 +2164,25 @@ function AlertasTab({S}){
   },[]);
 
   function requestNotif(){
-    if(!("Notification" in window)){alert("Tu navegador no soporta notificaciones");return;}
-    Notification.requestPermission().then(p=>{
+    const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+    if(!("Notification" in window)){
+      if(isIOS){
+        alert("iOS Safari no soporta notificaciones web.\n\nPara recibirlas en iPhone:\n1. Pulsa el boton Compartir (cuadrado con flecha)\n2. Selecciona \"Añadir a pantalla de inicio\"\n3. Abre la app desde el icono que se crea\n4. Vuelve a pulsar ACTIVAR");
+      }else{
+        alert("Tu navegador no soporta notificaciones. Usa Chrome en Android.");
+      }
+      return;
+    }
+    const req=Notification.requestPermission(function(p){
       setNotifPerm(p);
       if(p==="granted")sendTestNotif();
     });
+    if(req&&typeof req.then==="function"){
+      req.then(function(p){
+        setNotifPerm(p);
+        if(p==="granted")sendTestNotif();
+      });
+    }
   }
 
   function sendTestNotif(){
@@ -2355,8 +2501,10 @@ function AlertasTab({S}){
             </div>
             <div style={{fontSize:9,color:"#555",marginTop:2}}>
               {notifPerm==="granted"
-                ?"Los monitores activos se reanudan al abrir la app"
-                :"Activa para recibir alertas RSI y EMA en el movil"}
+                ?"Recibiras alertas RSI y cruces EMA con precio incluido"
+                :/iPad|iPhone|iPod/.test(navigator.userAgent)
+                  ?"iOS: Añade a pantalla inicio para activar notificaciones"
+                  :"Android Chrome: pulsa ACTIVAR y acepta el permiso"}
             </div>
           </div>
           {notifPerm!=="granted"&&(
