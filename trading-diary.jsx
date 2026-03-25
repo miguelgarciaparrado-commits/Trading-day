@@ -569,7 +569,7 @@ export default function App(){
   const h0Total=QUANTFURY_BASE+xhistTotal;
   const ethU=(pr.ETH-3621.58)*1.95209253;
   const ethT=ethU-796.09;
-  const actPnl=pos.reduce((a,p)=>a+getPnL(p),0);
+  const actPnl=pos.reduce((a,p)=>a+getPnL(p),0)+(!ethClosed?ethU:0);
   const wins=hist.filter(h=>h.result>0).length;
   const sc=calcScore(ps,pats,jnl);
   const lvColor=sc<30?"#ff4444":sc<50?"#ff8844":sc<65?"#f0b429":sc<80?"#88cc44":"#00ff88";
@@ -872,15 +872,17 @@ export default function App(){
               )}
               {pos.map(p=>{
                 const g=getPnL(p);
+                const noLivePrice=PM[p.asset]===undefined||PM[p.asset]===p.entry;
                 return(
                   <div key={p.id} style={S.row}>
-                    <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                    <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
                       <span style={{width:5,height:5,borderRadius:"50%",background:g>=0?"#00ff88":"#ff4444",display:"inline-block"}}/>
                       <span>{p.asset}</span>
                       <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
                       {(p.be||p.sl===p.entry)&&<span style={S.bdg("#00ff88")}>BE</span>}
+                      {noLivePrice&&<span style={{fontSize:7,color:"#ff8844",background:"rgba(255,136,68,.1)",padding:"1px 5px",borderRadius:3,border:"1px solid rgba(255,136,68,.3)"}}>sin precio · editar ticker</span>}
                     </div>
-                    <span style={{fontWeight:700,color:g>=0?"#00ff88":"#ff4444"}}>{fmtNum(g)}</span>
+                    <span style={{fontWeight:700,color:noLivePrice?"#555":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"$0.00":fmtNum(g)}</span>
                   </div>
                 );
               })}
@@ -948,17 +950,19 @@ export default function App(){
               const isBE=p.be||p.sl===p.entry;
               const mL=p.sl?p.capital*Math.abs(p.entry-p.sl)/p.entry:0;
               const mG=p.tp?p.capital*Math.abs(p.tp-p.entry)/p.entry:null;
+              const noLivePrice=PM[p.asset]===undefined||PM[p.asset]===p.entry;
               return(
-                <div key={p.id} style={{...S.card,border:"1px solid "+(g>=0?"rgba(0,255,136,.25)":"rgba(255,68,68,.15)")}}>
+                <div key={p.id} style={{...S.card,border:"1px solid "+(noLivePrice?"rgba(255,136,68,.3)":g>=0?"rgba(0,255,136,.25)":"rgba(255,68,68,.15)")}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                    <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
                       <span style={{fontSize:15,fontWeight:700}}>{p.asset}</span>
                       <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
                       {isBE&&<span style={S.bdg("#00ff88")}>BE</span>}
+                      {noLivePrice&&<span style={{fontSize:7,color:"#ff8844",background:"rgba(255,136,68,.1)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(255,136,68,.3)"}}>⚠ Editar ticker</span>}
                     </div>
                     <div style={{display:"flex",gap:7,alignItems:"center"}}>
-                      <span style={{fontSize:19,fontWeight:700,color:g>=0?"#00ff88":"#ff4444"}}>{fmtNum(g)}</span>
-                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||""},editPosId:p.id}))} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
+                      <span style={{fontSize:19,fontWeight:700,color:noLivePrice?"#ff8844":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"sin precio":fmtNum(g)}</span>
+                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||""},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
                       <button onClick={()=>setModal(m=>({...m,close:p}))} style={{background:"rgba(240,180,41,.15)",border:"1px solid #f0b429",color:"#f0b429",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>CERRAR</button>
                     </div>
                   </div>
@@ -966,7 +970,7 @@ export default function App(){
                     {[
                       {l:"CAPITAL",v:"$"+p.capital.toLocaleString()},
                       {l:"ENTRADA",v:fmtP(p.entry)},
-                      {l:"ACTUAL",v:fmtP(PM[p.asset]||p.entry),c:g>=0?"#00ff88":"#ff4444"},
+                      {l:"ACTUAL",v:noLivePrice?"ticker incorrecto":fmtP(PM[p.asset]),c:noLivePrice?"#ff8844":g>=0?"#00ff88":"#ff4444"},
                     ].map(i=><div key={i.l}><div style={S.lbl}>{i.l}</div><div style={{fontSize:11,fontWeight:600,color:i.c||"#e0e0e0"}}>{i.v}</div></div>)}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>

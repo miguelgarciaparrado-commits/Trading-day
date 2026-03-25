@@ -720,7 +720,7 @@ function App() {
     const h0Total = QUANTFURY_BASE + xhistTotal;
     const ethU = (pr.ETH - 3621.58) * 1.95209253;
     const ethT = ethU - 796.09;
-    const actPnl = pos.reduce((a, p) => a + getPnL(p), 0);
+    const actPnl = pos.reduce((a, p) => a + getPnL(p), 0) + (!ethClosed ? ethU : 0);
     const wins = hist.filter(h => h.result > 0).length;
     const sc = calcScore(ps, pats, jnl);
     const lvColor = sc < 30 ? "#ff4444" : sc < 50 ? "#ff8844" : sc < 65 ? "#f0b429" : sc < 80 ? "#88cc44" : "#00ff88";
@@ -1006,13 +1006,15 @@ function App() {
                         React.createElement("span", { style: { fontWeight: 700, color: ethU >= 0 ? "#00ff88" : "#ff4444" } }, fmtNum(ethU)))),
                     pos.map(p => {
                         const g = getPnL(p);
+                        const noLivePrice = PM[p.asset] === undefined || PM[p.asset] === p.entry;
                         return (React.createElement("div", { key: p.id, style: S.row },
-                            React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
+                            React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" } },
                                 React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: g >= 0 ? "#00ff88" : "#ff4444", display: "inline-block" } }),
                                 React.createElement("span", null, p.asset),
                                 React.createElement("span", { style: S.bdg(p.dir === "Short" ? "#ff4444" : "#00ff88") }, p.dir),
-                                (p.be || p.sl === p.entry) && React.createElement("span", { style: S.bdg("#00ff88") }, "BE")),
-                            React.createElement("span", { style: { fontWeight: 700, color: g >= 0 ? "#00ff88" : "#ff4444" } }, fmtNum(g))));
+                                (p.be || p.sl === p.entry) && React.createElement("span", { style: S.bdg("#00ff88") }, "BE"),
+                                noLivePrice && React.createElement("span", { style: { fontSize: 7, color: "#ff8844", background: "rgba(255,136,68,.1)", padding: "1px 5px", borderRadius: 3, border: "1px solid rgba(255,136,68,.3)" } }, "sin precio \u00B7 editar ticker")),
+                            React.createElement("span", { style: { fontWeight: 700, color: noLivePrice ? "#555" : g >= 0 ? "#00ff88" : "#ff4444" } }, noLivePrice ? "$0.00" : fmtNum(g))));
                     }),
                     React.createElement("div", { style: { textAlign: "right", marginTop: 8, paddingTop: 8, borderTop: "1px solid #1a1a2a" } },
                         React.createElement("span", { style: { fontSize: 16, fontWeight: 700, color: actPnl >= 0 ? "#00ff88" : "#ff4444" } }, fmtNum(actPnl)))))),
@@ -1055,20 +1057,22 @@ function App() {
                     const isBE = p.be || p.sl === p.entry;
                     const mL = p.sl ? p.capital * Math.abs(p.entry - p.sl) / p.entry : 0;
                     const mG = p.tp ? p.capital * Math.abs(p.tp - p.entry) / p.entry : null;
-                    return (React.createElement("div", { key: p.id, style: { ...S.card, border: "1px solid " + (g >= 0 ? "rgba(0,255,136,.25)" : "rgba(255,68,68,.15)") } },
+                    const noLivePrice = PM[p.asset] === undefined || PM[p.asset] === p.entry;
+                    return (React.createElement("div", { key: p.id, style: { ...S.card, border: "1px solid " + (noLivePrice ? "rgba(255,136,68,.3)" : g >= 0 ? "rgba(0,255,136,.25)" : "rgba(255,68,68,.15)") } },
                         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-                            React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
+                            React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" } },
                                 React.createElement("span", { style: { fontSize: 15, fontWeight: 700 } }, p.asset),
                                 React.createElement("span", { style: S.bdg(p.dir === "Short" ? "#ff4444" : "#00ff88") }, p.dir),
-                                isBE && React.createElement("span", { style: S.bdg("#00ff88") }, "BE")),
+                                isBE && React.createElement("span", { style: S.bdg("#00ff88") }, "BE"),
+                                noLivePrice && React.createElement("span", { style: { fontSize: 7, color: "#ff8844", background: "rgba(255,136,68,.1)", padding: "2px 6px", borderRadius: 3, border: "1px solid rgba(255,136,68,.3)" } }, "\u26A0 Editar ticker")),
                             React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
-                                React.createElement("span", { style: { fontSize: 19, fontWeight: 700, color: g >= 0 ? "#00ff88" : "#ff4444" } }, fmtNum(g)),
-                                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "" }, editPosId: p.id })), style: { background: "transparent", border: "1px solid #2a2a3a", color: "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
+                                React.createElement("span", { style: { fontSize: 19, fontWeight: 700, color: noLivePrice ? "#ff8844" : g >= 0 ? "#00ff88" : "#ff4444" } }, noLivePrice ? "sin precio" : fmtNum(g)),
+                                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "" }, editPosId: p.id })), style: { background: noLivePrice ? "rgba(255,136,68,.15)" : "transparent", border: "1px solid " + (noLivePrice ? "#ff8844" : "#2a2a3a"), color: noLivePrice ? "#ff8844" : "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
                                 React.createElement("button", { onClick: () => setModal(m => ({ ...m, close: p })), style: { background: "rgba(240,180,41,.15)", border: "1px solid #f0b429", color: "#f0b429", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "CERRAR"))),
                         React.createElement("div", { style: S.grid(105) }, [
                             { l: "CAPITAL", v: "$" + p.capital.toLocaleString() },
                             { l: "ENTRADA", v: fmtP(p.entry) },
-                            { l: "ACTUAL", v: fmtP(PM[p.asset] || p.entry), c: g >= 0 ? "#00ff88" : "#ff4444" },
+                            { l: "ACTUAL", v: noLivePrice ? "ticker incorrecto" : fmtP(PM[p.asset]), c: noLivePrice ? "#ff8844" : g >= 0 ? "#00ff88" : "#ff4444" },
                         ].map(i => React.createElement("div", { key: i.l },
                             React.createElement("div", { style: S.lbl }, i.l),
                             React.createElement("div", { style: { fontSize: 11, fontWeight: 600, color: i.c || "#e0e0e0" } }, i.v)))),
