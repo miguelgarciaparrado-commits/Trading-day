@@ -136,8 +136,8 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
   const lines=[];
   const allHist=[...xhist,...hist];
   const totalOps=allHist.length;
-  const wins=allHist.filter(h=>h.result>0).length;
-  const losses=allHist.filter(h=>h.result<0).length;
+  const wins=allHist.filter(function(h){return h.result>0;}).length;
+  const losses=allHist.filter(function(h){return h.result<0;}).length;
   const winRate=totalOps>0?Math.round(wins/totalOps*100):0;
 
   // Nivel general
@@ -155,13 +155,39 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
     else lines.push("Solo respetas el SL en el "+slRate+"% de casos. Esto es lo que mas dinero te cuesta.");
   }
 
-  // Close behavior
+  // Close behavior — tipos de cierre
   const totClose=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
   if(totClose>0){
+    const tpPct=Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totClose*100);
     const earlyPct=Math.round((ps.earlyClose||0)/totClose*100);
-    if(earlyPct>40)lines.push("Cierras prematuramente el "+earlyPct+"% de las veces. Dejas dinero sobre la mesa.");
-    else if(earlyPct>20)lines.push("Cierras antes de tiempo en el "+earlyPct+"% de casos. Trabaja la paciencia.");
-    else if((ps.tpAuto||0)>0)lines.push("Dejas correr las ganancias hasta el TP en el "+Math.round((ps.tpAuto||0)/totClose*100)+"% de las operaciones. Bien.");
+    if(earlyPct>40)lines.push("Cierras antes del objetivo el "+earlyPct+"% de las veces. Esto revela impaciencia o miedo a perder las ganancias.");
+    else if(earlyPct>20)lines.push("Cierras prematuramente en el "+earlyPct+"% de casos. Trabaja la confianza en tu propio plan.");
+    else if(tpPct>=60)lines.push("Alcanzas el objetivo en el "+tpPct+"% de los cierres. Buena ejecucion del plan.");
+  }
+
+  // Analisis de descripciones de cierre (jnl linkedClose)
+  const closeDocs=jnl.filter(function(j){return j.linkedClose;});
+  const tpDocs=jnl.filter(function(j){return j.linkedClose==="tp";});
+  const slDocs=jnl.filter(function(j){return j.linkedClose==="sl";});
+  const manualDocs=jnl.filter(function(j){return j.linkedClose==="manual";});
+  if(totClose>0){
+    const docRate=Math.round(closeDocs.length/Math.max(totClose,1)*100);
+    if(docRate===0)lines.push("No documentas tus cierres. Sin reflexion post-cierre no hay aprendizaje.");
+    else if(docRate>=70)lines.push("Documentas el "+docRate+"% de tus cierres. La reflexion constante es la base del progreso.");
+    else lines.push("Solo documentas el "+docRate+"% de tus cierres. Intenta escribir algo despues de cada operacion.");
+  }
+  // Calidad emocional en SL vs TP
+  if(slDocs.length>0){
+    const slLessons=slDocs.filter(function(j){return j.type==="lesson"||j.type==="analysis";}).length;
+    const slMistakes=slDocs.filter(function(j){return j.type==="mistake";}).length;
+    if(slLessons>slMistakes)lines.push("Conviertes los SL en aprendizaje ("+slLessons+" lecciones vs "+slMistakes+" errores). Mentalidad correcta.");
+    else if(slMistakes>slLessons)lines.push("Los SL te afectan mas emocionalmente de lo ideal ("+slMistakes+" entradas de error). Trabaja la aceptacion de perdidas.");
+  }
+  if(manualDocs.length>0){
+    const earlyWins=manualDocs.filter(function(j){return j.type==="win";}).length;
+    const earlyLessons=manualDocs.filter(function(j){return j.type==="lesson";}).length;
+    if(earlyWins>earlyLessons)lines.push("Clasificas tus cierres manuales como victorias. Asegurate de que realmente mejoran tu R/R.");
+    else if(earlyLessons>=earlyWins&&manualDocs.length>2)lines.push("Reconoces que los cierres anticipados son una area de mejora. Buen autoconocimiento.");
   }
 
   // Revenge trading
@@ -169,17 +195,17 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
   else if(ps.revenge===0)lines.push("Sin trading de revancha registrado. Muy buena senial de control emocional.");
 
   // Journal quality
-  const victories=jnl.filter(j=>j.type==="win").length;
-  const lessons=jnl.filter(j=>j.type==="lesson").length;
-  const mistakes=jnl.filter(j=>j.type==="mistake").length;
+  const victories=jnl.filter(function(j){return j.type==="win";}).length;
+  const lessons=jnl.filter(function(j){return j.type==="lesson";}).length;
+  const mistakes=jnl.filter(function(j){return j.type==="mistake";}).length;
   if(jnl.length===0)lines.push("El diario esta vacio. Documentar cada operacion es clave para mejorar.");
   else if(lessons>mistakes)lines.push("Conviertes los errores en lecciones. Eso es lo que diferencia a un trader profesional.");
-  else if(mistakes>lessons*2)lines.push("Tienes muchos errores documentados sin su leccion correspondiente. Reflexiona mas sobre cada uno.");
+  else if(mistakes>lessons*2)lines.push("Tienes muchos errores documentados sin su leccion correspondiente. Reflexiona mas.");
 
   // Patterns
-  const confPats=pats.filter(p=>p.conf>0);
+  const confPats=pats.filter(function(p){return p.conf>0;});
   if(confPats.length>0){
-    const bestPat=confPats.sort((a,b)=>{
+    const bestPat=confPats.sort(function(a,b){
       const ra=a.obs>0?(a.conf/a.obs):0;
       const rb=b.obs>0?(b.conf/b.obs):0;
       return rb-ra;
@@ -227,36 +253,82 @@ export default function App(){
   const[sv,setSv]=useState("saved");
   const[pr,setPr]=useState({SOL:91.33,BTC:84000,ETH:2000,MSTR:300,GOOGL:170,LINK:9.20});
   const[fetchingPrices,setFetchingPrices]=useState(false);
+  const[lastPriceTime,setLastPriceTime]=useState(null);
 
-  // Obtener precios en tiempo real desde Binance (sin CORS, sin API key)
+  // Obtener precios en tiempo real: Binance para crypto, Yahoo Finance para acciones/ETFs
   async function fetchPrices(){
     setFetchingPrices(true);
     const newPr={...D.current.pr};
-    // Detectar que cryptos necesitamos segun posiciones abiertas + ETH legado
-    const openAssets=D.current.pos.map(p=>p.asset);
-    const needsSOL=openAssets.some(a=>a.includes("SOL"));
-    const needsBTC=openAssets.some(a=>a.includes("BTC"));
-    try{
-      // Binance API publica - permite llamadas desde browser
-      const pairs=[];
-      if(needsSOL)pairs.push({symbol:"SOLUSDT",key:"SOL"});
-      if(needsBTC)pairs.push({symbol:"BTCUSDT",key:"BTC"});
-      const needsLINK=openAssets.some(a=>a.includes("LINK"));
-      if(needsLINK)pairs.push({symbol:"LINKUSDT",key:"LINK"});
-      // ETH siempre (posicion legado)
-      pairs.push({symbol:"ETHUSDT",key:"ETH"});
-      await Promise.all(pairs.map(async function(pair){
+    const openAssets=D.current.pos.map(function(p){return p.asset;});
+
+    // Separar crypto (Binance) de acciones/ETFs (Yahoo Finance)
+    const CRYPTO_BASE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT"};
+    const cryptoPairs=[];
+    const stockSymbols=new Set();
+
+    // ETH siempre (posicion legado)
+    cryptoPairs.push({symbol:"ETHUSDT",key:"ETH"});
+
+    openAssets.forEach(function(a){
+      const base=a.replace(/\/.*$/,"").toUpperCase();
+      if(CRYPTO_BASE[base]){
+        if(!cryptoPairs.some(function(p){return p.key===base;}))
+          cryptoPairs.push({symbol:CRYPTO_BASE[base],key:base});
+      }else{
+        stockSymbols.add(base);
+      }
+    });
+
+    await Promise.all([
+      // Crypto via Binance (sin CORS, sin API key)
+      ...cryptoPairs.map(async function(pair){
         try{
           const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+pair.symbol);
           if(r.ok){const d=await r.json();newPr[pair.key]=parseFloat(parseFloat(d.price).toFixed(2));}
         }catch(e){}
-      }));
-      D.current.pr=newPr;
-      setPr(newPr);
-      SPr(newPr);
-    }catch(e){
-      console.warn("Binance error:",e.message);
-    }
+      }),
+      // Acciones y ETFs: Stooq primero (CORS abierto), fallback Yahoo
+      ...[...stockSymbols].map(async function(sym){
+        // Stooq CSV — sufijo .us para bolsa americana
+        var found=false;
+        var stooqSuffixes=[".us",""];
+        for(var s=0;s<stooqSuffixes.length&&!found;s++){
+          try{
+            var su="https://stooq.com/q/l/?s="+sym.toLowerCase()+stooqSuffixes[s]+"&f=sd2t2ohlcvn&e=csv";
+            var rs=await fetch(su);
+            if(!rs.ok)continue;
+            var txt=await rs.text();
+            var lines=txt.trim().split("\n");
+            if(lines.length<2)continue;
+            var fields=lines[1].split(",");
+            var close=parseFloat(fields[6]);
+            if(!isNaN(close)&&close>0){newPr[sym]=close;found=true;}
+          }catch(e){}
+        }
+        // Fallback Yahoo si Stooq no dio resultado
+        if(!found){
+          var yahooUrls=[
+            "https://query1.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
+            "https://query2.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
+          ];
+          for(var y=0;y<yahooUrls.length&&!found;y++){
+            try{
+              var ry=await fetch(yahooUrls[y],{credentials:"omit"});
+              if(!ry.ok)continue;
+              var dy=await ry.json();
+              var meta=dy.chart&&dy.chart.result&&dy.chart.result[0]&&dy.chart.result[0].meta;
+              if(meta&&meta.regularMarketPrice){newPr[sym]=parseFloat(meta.regularMarketPrice.toFixed(2));found=true;}
+            }catch(e){}
+          }
+        }
+      })
+    ]);
+
+    D.current.pr=newPr;
+    setPr(newPr);
+    SPr(newPr);
+    autoCheckPositions(newPr);
+    setLastPriceTime(new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
     setFetchingPrices(false);
   }
   const[pos,setPos]=useState(P0);
@@ -270,6 +342,10 @@ export default function App(){
   const[xhist,setXhist]=useState(XHIST_DEFAULT);
   const[ethClosed,setEthClosed]=useState(false);
   const[horarios,setHorarios]=useState([]);
+  const[aiProfile,setAiProfile]=useState(function(){
+    try{const s=localStorage.getItem("td-ai-profile");return s?JSON.parse(s):null;}catch(e){return null;}
+  });
+  const[aiProfileLoading,setAiProfileLoading]=useState(false);
   // fotos eliminadas - se usan URLs externas
   const[tab,setTab]=useState("Resumen");
   const[modal,setModal]=useState({});
@@ -317,15 +393,15 @@ export default function App(){
         }
       }catch(e){console.warn("Load error:",e);}
       setReady(true);
-      // Mostrar recordatorio de precios si hay posiciones abiertas
-      // Solo una vez al dia
-      const todayKey="pr-reminder-"+new Date().toDateString();
-      const shown=localStorage.getItem(todayKey);
-      if(!shown){
-        localStorage.setItem(todayKey,"1");
-        setTimeout(()=>setModal(m=>({...m,priceReminder:true})),1500);
-      }
+      // Auto-fetch precios al cargar
+      setTimeout(fetchPrices, 800);
     })();
+  },[]);
+
+  // Auto-refresh de precios cada 60 segundos
+  useEffect(function(){
+    var iv=setInterval(fetchPrices,60000);
+    return function(){clearInterval(iv);};
   },[]);
 
   // - SAVE -
@@ -370,7 +446,7 @@ export default function App(){
 
   // - SETTERS (sync D ref then React state) -
   const SP=v=>{D.current.pats=v;setPats(v);save();};
-  const SPos=v=>{D.current.pos=v;setPos(v);save();};
+  const SPos=v=>{D.current.pos=v;setPos(v);try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:v,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:D.current.xhist||[],horarios:D.current.horarios||[],ethClosed:D.current.ethClosed||false}));}catch(e){}save();};
   const SJ=v=>{D.current.jnl=v;setJnl(v);save();};
   const SPs=v=>{D.current.ps=v;setPs(v);save();};
   const SPr=v=>{D.current.pr=v;setPr(v);save();};
@@ -378,8 +454,128 @@ export default function App(){
   const SX=v=>{D.current.xhist=v;setXhist(v);save();};
   const SH=v=>{D.current.horarios=v;setHorarios(v);save();};
 
+  async function generateAIProfile(){
+    const key=localStorage.getItem("td-anthropic-key")||"";
+    if(!key){alert("Configura tu clave API de Anthropic en el Chat (boton 🔑) primero.");return;}
+    setAiProfileLoading(true);
+    const allH=[...xhist,...hist];
+    const wins=allH.filter(function(h){return h.result>0;}).length;
+    const losses=allH.filter(function(h){return h.result<0;}).length;
+    const totalPnl=allH.reduce(function(s,h){return s+h.result;},0).toFixed(2);
+    const winRate=allH.length>0?Math.round(wins/allH.length*100):0;
+    const slTotal=ps.slOk+ps.slBroken;
+    const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
+    const recentTrades=allH.slice(-10).map(function(h){
+      return h.asset+" "+(h.result>0?"+":"")+h.result.toFixed(0)+"$";
+    }).join(", ");
+    const assetStats={};
+    allH.forEach(function(h){
+      if(!assetStats[h.asset])assetStats[h.asset]={w:0,l:0,pnl:0,n:0};
+      if(h.result>0)assetStats[h.asset].w++;else assetStats[h.asset].l++;
+      assetStats[h.asset].pnl+=h.result;assetStats[h.asset].n++;
+    });
+    const assetSummary=Object.keys(assetStats).map(function(a){
+      return a+": "+assetStats[a].n+" ops, P&L $"+assetStats[a].pnl.toFixed(0);
+    }).join(" | ");
+    const jnlTypes=["win","lesson","analysis","mistake"].map(function(t){
+      return t+": "+jnl.filter(function(j){return j.type===t;}).length;
+    }).join(", ");
+    const bestPat=pats.filter(function(p){return p.obs>0;}).sort(function(a,b){return(b.conf/b.obs)-(a.conf/a.obs);})[0];
+
+    // Analisis de cierres y sus descripciones
+    const totClose=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
+    const tpPct=totClose>0?Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totClose*100):0;
+    const earlyPct=totClose>0?Math.round((ps.earlyClose||0)/totClose*100):0;
+    // Entradas del diario vinculadas a cierres reales
+    const closeDocs=jnl.filter(function(j){return j.linkedClose;});
+    const closeDocRate=totClose>0?Math.round(closeDocs.length/totClose*100):0;
+    const tpDocs=jnl.filter(function(j){return j.linkedClose==="tp";});
+    const slDocs=jnl.filter(function(j){return j.linkedClose==="sl";});
+    const manualDocs=jnl.filter(function(j){return j.linkedClose==="manual";});
+    // Resumen emocional por tipo de cierre
+    function closeEmoSummary(docs){
+      if(!docs.length)return "sin documentar";
+      const byType={win:0,lesson:0,analysis:0,mistake:0};
+      docs.forEach(function(d){if(byType[d.type]!==undefined)byType[d.type]++;});
+      return Object.keys(byType).filter(function(k){return byType[k]>0;}).map(function(k){return k+":"+byType[k];}).join(", ");
+    }
+    // Ultimas 5 descripciones de cierre (texto real escrito por el trader)
+    const recentCloseDocs=closeDocs.slice(0,5).map(function(j){
+      const ct=j.linkedClose==="tp"?"TP":j.linkedClose==="sl"?"SL":"Manual";
+      return "["+ct+"] "+j.type.toUpperCase()+": "+j.text.slice(0,100);
+    }).join("\n");
+    // Ultimos 8 xhist con nota
+    const recentXhist=xhist.slice(0,8).map(function(h){
+      return h.asset+" "+(h.result>0?"+":"")+h.result.toFixed(0)+"$ ("+h.note+") "+h.date;
+    }).join(" | ");
+
+    const prompt="Eres coach de trading. Analiza el perfil completo de este trader y genera un informe detallado en espanol.\n\n"+
+      "DATOS DEL TRADER (Miguel Garcia Parrado, Quantfury desde nov 2024):\n"+
+      "Nivel score: "+sc+"/100\n"+
+      "Total operaciones: "+allH.length+" | Ganadoras: "+wins+" | Perdedoras: "+losses+" | Tasa exito: "+winRate+"%\n"+
+      "P&L total acumulado: $"+totalPnl+"\n"+
+      "Disciplina SL: "+ps.slOk+" respetados / "+slTotal+" totales ("+slRate+"% disciplina)\n"+
+      "Trading revancha: "+(ps.revenge||0)+" veces\n\n"+
+      "=== PATRON DE CIERRES ===\n"+
+      "Total cierres registrados: "+totClose+"\n"+
+      "TP alcanzados: "+((ps.tpAuto||0)+(ps.tpManual||0))+" ("+tpPct+"%) | Cierres prematuros: "+(ps.earlyClose||0)+" ("+earlyPct+"%)\n"+
+      "Cierres documentados en diario: "+closeDocs.length+"/"+totClose+" ("+closeDocRate+"%)\n"+
+      "Emociones al cerrar en TP: "+closeEmoSummary(tpDocs)+"\n"+
+      "Emociones al activarse SL: "+closeEmoSummary(slDocs)+"\n"+
+      "Emociones en cierres manuales: "+closeEmoSummary(manualDocs)+"\n"+
+      (recentCloseDocs?"Ultimas descripciones de cierre:\n"+recentCloseDocs+"\n":"")+
+      (recentXhist?"\nHistorial reciente de cierres via app: "+recentXhist+"\n":"")+"\n"+
+      "=== RESTO DEL PERFIL ===\n"+
+      "Ultimas 10 operaciones: "+recentTrades+"\n"+
+      "Por activo: "+assetSummary+"\n"+
+      "Diario psicologico: "+jnlTypes+" ("+jnl.length+" entradas totales)\n"+
+      "Mejor patron: "+(bestPat?bestPat.name+" "+Math.round(bestPat.conf/bestPat.obs*100)+"% exito":"sin datos")+"\n"+
+      "Posiciones abiertas: "+pos.map(function(p){return p.asset+" "+p.dir+" entrada $"+p.entry;}).join(", ")+"\n\n"+
+      "GENERA UN INFORME con estas secciones exactas (analiza especialmente el patron de cierres y lo que sus descripciones revelan sobre su psicologia):\n"+
+      "## RESUMEN EJECUTIVO\n(2-3 frases sobre el estado actual del trader)\n\n"+
+      "## PUNTOS FUERTES\n(lista de 3-4 puntos, con datos concretos de cierres y trading)\n\n"+
+      "## PUNTOS DEBILES\n(lista de 3-4 puntos, analiza el patron de cierres prematuros, emociones, descripciones)\n\n"+
+      "## PATRON PSICOLOGICO EN CIERRES\n(analisis de como cierra las operaciones, que revelan sus descripciones sobre su mentalidad)\n\n"+
+      "## RECOMENDACIONES PRIORITARIAS\n(lista de 3 acciones concretas para los proximos 30 dias)\n\n"+
+      "Se directo, usa datos reales del perfil, max 450 palabras total.";
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key":key,
+          "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-access":"true"
+        },
+        body:JSON.stringify({
+          model:"claude-haiku-4-5-20251001",
+          max_tokens:1200,
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      if(!r.ok){const e=await r.json().catch(function(){return{};});throw new Error("API "+r.status+(e.error?" — "+e.error.message:""));}
+      const d=await r.json();
+      const analysis={text:d.content[0].text,date:new Date().toLocaleDateString("es-ES"),score:sc};
+      setAiProfile(analysis);
+      localStorage.setItem("td-ai-profile",JSON.stringify(analysis));
+    }catch(e){
+      alert("Error generando analisis: "+e.message);
+    }
+    setAiProfileLoading(false);
+  }
+
   // - COMPUTED -
-  const PM={"BTC/USD":pr.BTC,"BTC/USDT":pr.BTC,"ETH/USDT":pr.ETH,"SOL/USD":pr.SOL,"SOL/USDT":pr.SOL,"LINK/USD":pr.LINK||9.20,"LINK/USDT":pr.LINK||9.20,"MSTR":pr.MSTR,"GOOGL":pr.GOOGL,"GOOGL/USD":pr.GOOGL};
+  const PM=(function(){
+    var m={"BTC/USD":pr.BTC,"BTC/USDT":pr.BTC,"ETH/USDT":pr.ETH,"ETH/USD":pr.ETH,"SOL/USD":pr.SOL,"SOL/USDT":pr.SOL,"LINK/USD":pr.LINK||9.20,"LINK/USDT":pr.LINK||9.20,"MSTR":pr.MSTR,"GOOGL":pr.GOOGL,"GOOGL/USD":pr.GOOGL};
+    // Incluir dinamicamente cualquier activo en pr (acciones, ETFs como TLT, etc.)
+    Object.keys(pr).forEach(function(k){
+      if(!m[k])m[k]=pr[k];
+      // Tambien mapear variantes con /USD y /USDT
+      if(!m[k+"/USD"])m[k+"/USD"]=pr[k];
+      if(!m[k+"/USDT"])m[k+"/USDT"]=pr[k];
+    });
+    return m;
+  })();
   const getPnL=p=>{const c=PM[p.asset]||p.entry;const r=p.dir==="Short"?(p.entry-c)/p.entry:(c-p.entry)/p.entry;return p.capital*r;};
   const hist=[...xhist,...H0];
   // Base exacta de Quantfury (244 ops cerradas al 23/03/2026) + nuevos cierres via app
@@ -390,7 +586,7 @@ export default function App(){
   const h0Total=QUANTFURY_BASE+xhistTotal;
   const ethU=(pr.ETH-3621.58)*1.95209253;
   const ethT=ethU-796.09;
-  const actPnl=pos.reduce((a,p)=>a+getPnL(p),0);
+  const actPnl=pos.reduce((a,p)=>a+getPnL(p),0)+(!ethClosed?ethU:0);
   const wins=hist.filter(h=>h.result>0).length;
   const sc=calcScore(ps,pats,jnl);
   const lvColor=sc<30?"#ff4444":sc<50?"#ff8844":sc<65?"#f0b429":sc<80?"#88cc44":"#00ff88";
@@ -447,6 +643,91 @@ export default function App(){
     D.current.xhist=newX;D.current.pos=newPos2;D.current.ps=newPs;
     setXhist(newX);setPos(newPos2);setPs(newPs);save();
     setModal(m=>({...m,close:null,postData:{asset:p.asset,type:type,result:parseFloat(result.toFixed(2)),isBE:isBE}}));
+  }
+
+  function notifyAutoClose(asset,dir,type,price,result){
+    const isGain=result>=0;
+    const title=(isGain?"🎯 ":"🛑 ")+type+" — "+asset;
+    const body=dir+" "+(isGain?"+":"")+fmtNum(result)+" @ $"+parseFloat(price).toLocaleString();
+    if(typeof Notification!=="undefined"&&Notification.permission==="granted"){
+      try{new Notification(title,{body,requireInteraction:true});}catch(e){}
+    }
+    var tk=localStorage.getItem("td-tg-token");
+    var cid=localStorage.getItem("td-tg-chatid");
+    if(tk&&cid){
+      var txt=encodeURIComponent(title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES"));
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+txt).catch(function(){});
+    }
+  }
+
+  function autoCheckPositions(newPr){
+    if(!D.current.pos||!D.current.pos.length)return;
+    var changed=false;
+    var entries=[];
+    var psU={...D.current.ps};
+    var newPos=[];
+    for(var pi=0;pi<D.current.pos.length;pi++){
+      var p=D.current.pos[pi];
+      var base=p.asset.replace(/\/.*$/,"").toUpperCase();
+      var price=newPr[base];
+      if(!price||price<=0){newPos.push(p);continue;}
+      var isShort=p.dir==="Short";
+      var kept=true;
+      // SL check
+      if(p.sl){
+        var slHit=isShort?(price>=p.sl):(price<=p.sl);
+        if(slHit){
+          var isBE=p.be||p.sl===p.entry;
+          var slResult=isBE?0:-(p.capital*Math.abs(p.entry-p.sl)/p.entry);
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(slResult.toFixed(2)),date:today(),note:"🛑 SL auto @ $"+price.toLocaleString()});
+          psU.slOk=(psU.slOk||0)+1;
+          changed=true;
+          notifyAutoClose(p.asset,p.dir,"SL ejecutado",price,slResult);
+          kept=false;
+        }
+      }
+      if(!kept)continue;
+      // Partial TP levels
+      if(p.tpLevels&&p.tpLevels.length){
+        var updLevels=p.tpLevels.map(function(lvl){
+          if(lvl.hit)return lvl;
+          var hit=isShort?(price<=lvl.price):(price>=lvl.price);
+          if(!hit)return lvl;
+          var partCap=p.capital*lvl.pct/100;
+          var partResult=isShort?(partCap*(p.entry-lvl.price)/p.entry):(partCap*(lvl.price-p.entry)/p.entry);
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:partCap,result:parseFloat(partResult.toFixed(2)),date:today(),note:"🎯 TP parcial "+lvl.pct+"% @ $"+price.toLocaleString()});
+          psU.tpAuto=(psU.tpAuto||0)+1;
+          changed=true;
+          notifyAutoClose(p.asset,p.dir,"TP "+lvl.pct+"%",price,partResult);
+          return{...lvl,hit:true};
+        });
+        var allHit=updLevels.every(function(l){return l.hit;});
+        if(allHit){changed=true;continue;}
+        var someNew=updLevels.some(function(l,i){return l.hit&&!p.tpLevels[i].hit;});
+        if(someNew){
+          var remPct=updLevels.filter(function(l){return!l.hit;}).reduce(function(a,l){return a+l.pct;},0);
+          newPos.push({...p,tpLevels:updLevels,capitalRemaining:p.capital*remPct/100});
+          continue;
+        }
+      } else if(p.tp){
+        // Single TP
+        var tpHit=isShort?(price<=p.tp):(price>=p.tp);
+        if(tpHit){
+          var tpResult=p.capital*Math.abs(p.tp-p.entry)/p.entry;
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(tpResult.toFixed(2)),date:today(),note:"🎯 TP auto @ $"+price.toLocaleString()});
+          psU.tpAuto=(psU.tpAuto||0)+1;
+          changed=true;
+          notifyAutoClose(p.asset,p.dir,"TP alcanzado",price,tpResult);
+          continue;
+        }
+      }
+      newPos.push(p);
+    }
+    if(!changed)return;
+    var newX=[...entries,...(D.current.xhist||[])];
+    D.current.xhist=newX;D.current.pos=newPos;D.current.ps=psU;
+    setXhist(newX);setPos(newPos);setPs(psU);
+    save();
   }
 
   function closeEthLegacy(closePrice){
@@ -544,9 +825,10 @@ export default function App(){
       {(tab==="Resumen"||tab==="Posiciones")&&(
         <div style={{background:"#080810",borderBottom:"1px solid #1a1a2a",padding:"5px 14px",display:"flex",justifyContent:"flex-end"}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <button onClick={fetchPrices} style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",padding:"3px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
-            {fetchingPrices?"⏳ cargando...":"⚡ Precios en tiempo real"}
+          <button onClick={fetchPrices} disabled={fetchingPrices} style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",padding:"3px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
+            {fetchingPrices?"⏳ actualizando...":"⚡ Refrescar"}
           </button>
+          {lastPriceTime&&!fetchingPrices&&<span style={{fontSize:8,color:"#444"}}>actualizado {lastPriceTime} · auto cada 60s</span>}
           <button onClick={()=>setModal(m=>({...m,prices:true,tmpPr:{...pr}}))} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#f0b429",padding:"3px 10px",borderRadius:4,fontSize:9,cursor:"pointer"}}>✏ Manual</button>
         </div>
         </div>
@@ -565,6 +847,7 @@ export default function App(){
                 {l:"PERDIDA TOTAL",v:fmtNum(h0Total+ethT),c:h0Total+ethT>=0?"#00ff88":"#ff4444"},
                 {l:"OPS TOTALES",v:hist.length,c:"#e0e0e0"},
                 {l:"TASA GANADORA",v:Math.round(wins/hist.length*100)+"%",c:"#f0b429"},
+                {l:"RATIO MEDIO",v:(()=>{const w=hist.filter(h=>h.result>0);const l=hist.filter(h=>h.result<0);const aw=w.length?w.reduce((a,h)=>a+h.result,0)/w.length:0;const al=l.length?Math.abs(l.reduce((a,h)=>a+h.result,0)/l.length):0;return al>0?"1 : "+(aw/al).toFixed(2):"--";})(),c:"#88aaff"},
                 {l:"ROI HISTORICO",v:(()=>{const inv=hist.reduce((a,h)=>a+(h.cap||0),0);return inv>0?(h0Total/inv*100).toFixed(1)+"%":"--";})(),c:h0Total>=0?"#00ff88":"#ff4444"},
                 {l:"ROI ETH LEGADO",v:((pr.ETH-3621.58)/3621.58*100).toFixed(1)+"%",c:pr.ETH>=3621.58?"#00ff88":"#ff4444"},
                 {l:"ROI ACTIVAS",v:(()=>{const inv=pos.reduce((a,p)=>a+p.capital,0);return inv>0?(actPnl/inv*100).toFixed(1)+"%":"--";})(),c:actPnl>=0?"#00ff88":"#ff4444"},
@@ -595,23 +878,113 @@ export default function App(){
               </button>
             </div>}
 
+            {/* Stats del diario */}
+            {(()=>{
+              const allH=[...xhist,...H0];
+              // Racha actual
+              let streak=0,streakType="";
+              for(let i=0;i<allH.length;i++){
+                const w=allH[i].result>0;
+                if(i===0){streak=1;streakType=w?"win":"loss";}
+                else if((w&&streakType==="win")||(!w&&streakType==="loss"))streak++;
+                else break;
+              }
+              const bestTrade=allH.length?allH.reduce((b,h)=>h.result>b.result?h:b,allH[0]):null;
+              const worstTrade=allH.length?allH.reduce((b,h)=>h.result<b.result?h:b,allH[0]):null;
+              const assetCount={};
+              allH.forEach(h=>{assetCount[h.asset]=(assetCount[h.asset]||0)+1;});
+              const topAsset=Object.entries(assetCount).sort((a,b)=>b[1]-a[1])[0];
+              const longs=allH.filter(h=>h.dir==="Long");
+              const shorts=allH.filter(h=>h.dir==="Short");
+              const longWR=longs.length?Math.round(longs.filter(h=>h.result>0).length/longs.length*100):null;
+              const shortWR=shorts.length?Math.round(shorts.filter(h=>h.result>0).length/shorts.length*100):null;
+              const slPct=ps.slOk+ps.slBroken>0?Math.round(ps.slOk/(ps.slOk+ps.slBroken)*100):null;
+              return(
+                <div style={{...S.card,marginBottom:10}}>
+                  <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:10}}>ESTADISTICAS DEL DIARIO</div>
+                  <div style={S.grid(130)}>
+                    <div style={S.card}>
+                      <div style={S.lbl}>RACHA ACTUAL</div>
+                      <div style={S.val(streakType==="win"?"#00ff88":"#ff4444")}>
+                        {streak} {streakType==="win"?"✓":"✗"}
+                      </div>
+                      <div style={{fontSize:8,color:"#555"}}>{streakType==="win"?"consecutivas ganadas":"consecutivas perdidas"}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>MEJOR TRADE</div>
+                      <div style={S.val("#00ff88")}>{bestTrade?fmtNum(bestTrade.result):"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{bestTrade?bestTrade.asset:""}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>PEOR TRADE</div>
+                      <div style={S.val("#ff4444")}>{worstTrade?fmtNum(worstTrade.result):"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{worstTrade?worstTrade.asset:""}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>ACTIVO TOP</div>
+                      <div style={S.val("#e0e0e0")}>{topAsset?topAsset[0]:"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{topAsset?topAsset[1]+" ops":""}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>WIN RATE LONG</div>
+                      <div style={S.val(longWR>=50?"#00ff88":"#ff4444")}>{longWR!=null?longWR+"%":"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{longs.length} ops long</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>WIN RATE SHORT</div>
+                      <div style={S.val(shortWR>=50?"#00ff88":"#ff4444")}>{shortWR!=null?shortWR+"%":"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{shorts.length} ops short</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>DISCIPLINA SL</div>
+                      <div style={S.val(slPct>=80?"#00ff88":slPct>=60?"#f0b429":"#ff4444")}>{slPct!=null?slPct+"%":"--"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{ps.slBroken} SL rotos</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>SCORE TRADER</div>
+                      <div style={S.val(lvColor)}>{sc}</div>
+                      <div style={{fontSize:8,color:lvColor}}>{lvLabel}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={S.lbl}>ENTRADAS DIARIO</div>
+                      <div style={S.val("#88aaff")}>{jnl.length}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{jnl.filter(j=>j.type==="win").length}V · {jnl.filter(j=>j.type==="lesson").length}L · {jnl.filter(j=>j.type==="mistake").length}E</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Posiciones activas */}
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ACTIVAS</div>
-                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""},editPosId:null}))} style={{...S.btn(true),padding:"4px 10px",fontSize:9}}>+ NUEVA OPERACION</button>
+                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]},editPosId:null}))} style={{...S.btn(true),padding:"4px 10px",fontSize:9}}>+ NUEVA OPERACION</button>
               </div>
+              {!ethClosed&&(
+                <div style={S.row}>
+                  <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                    <span style={{width:5,height:5,borderRadius:"50%",background:ethU>=0?"#00ff88":"#ff4444",display:"inline-block"}}/>
+                    <span>ETH/USD</span>
+                    <span style={S.bdg("#00ff88")}>Long</span>
+                    <span style={{fontSize:8,color:"#888",background:"rgba(255,68,68,.1)",padding:"1px 5px",borderRadius:3,border:"1px solid rgba(255,68,68,.2)"}}>LEGADO</span>
+                  </div>
+                  <span style={{fontWeight:700,color:ethU>=0?"#00ff88":"#ff4444"}}>{fmtNum(ethU)}</span>
+                </div>
+              )}
               {pos.map(p=>{
                 const g=getPnL(p);
+                const noLivePrice=PM[p.asset]===undefined||PM[p.asset]===p.entry;
                 return(
                   <div key={p.id} style={S.row}>
-                    <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                    <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
                       <span style={{width:5,height:5,borderRadius:"50%",background:g>=0?"#00ff88":"#ff4444",display:"inline-block"}}/>
                       <span>{p.asset}</span>
                       <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
                       {(p.be||p.sl===p.entry)&&<span style={S.bdg("#00ff88")}>BE</span>}
+                      {noLivePrice&&<span style={{fontSize:7,color:"#ff8844",background:"rgba(255,136,68,.1)",padding:"1px 5px",borderRadius:3,border:"1px solid rgba(255,136,68,.3)"}}>sin precio · editar ticker</span>}
                     </div>
-                    <span style={{fontWeight:700,color:g>=0?"#00ff88":"#ff4444"}}>{fmtNum(g)}</span>
+                    <span style={{fontWeight:700,color:noLivePrice?"#555":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"$0.00":fmtNum(g)}</span>
                   </div>
                 );
               })}
@@ -627,24 +1000,71 @@ export default function App(){
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ABIERTAS</div>
-              <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
+              <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
             </div>
+            {/* ETH legado - restaurar si fue cerrado */}
+            {ethClosed&&(
+              <div style={{textAlign:"center",padding:"10px",marginBottom:10,background:"rgba(136,170,255,.05)",border:"1px solid rgba(136,170,255,.15)",borderRadius:8,fontSize:9,color:"#555"}}>
+                ETH legado marcada como cerrada.{" "}
+                <button onClick={function(){setEthClosed(false);D.current.ethClosed=false;save();}}
+                  style={{background:"transparent",border:"none",color:"#88aaff",cursor:"pointer",fontSize:9,textDecoration:"underline"}}>Restaurar posición</button>
+              </div>
+            )}
+            {/* ETH legado */}
+            {!ethClosed&&(
+              <div style={{...S.card,border:"1px solid rgba(255,68,68,.3)",marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{fontSize:15,fontWeight:700}}>ETH/USD</span>
+                    <span style={S.bdg("#00ff88")}>Long</span>
+                    <span style={{fontSize:8,color:"#888",background:"rgba(255,68,68,.1)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(255,68,68,.2)"}}>LEGADO</span>
+                  </div>
+                  <span style={{fontSize:19,fontWeight:700,color:ethU>=0?"#00ff88":"#ff4444"}}>{fmtNum(ethU)}</span>
+                </div>
+                <div style={S.grid(105)}>
+                  {[
+                    {l:"CANTIDAD",v:"1.9521 ETH"},
+                    {l:"ENTRADA",v:"$3,621.58"},
+                    {l:"ACTUAL",v:"$"+pr.ETH.toLocaleString(),c:pr.ETH>=3621.58?"#00ff88":"#ff4444"},
+                  ].map(i=><div key={i.l}><div style={S.lbl}>{i.l}</div><div style={{fontSize:11,fontWeight:600,color:i.c||"#e0e0e0"}}>{i.v}</div></div>)}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+                  <div style={{background:"rgba(255,68,68,.06)",border:"1px solid rgba(255,68,68,.2)",borderRadius:6,padding:"9px 11px"}}>
+                    <div style={{fontSize:8,color:"#555",marginBottom:3}}>STOP LOSS / LIQUIDACION</div>
+                    <div style={{fontSize:14,fontWeight:700,color:"#ff6600"}}>~$1,080</div>
+                    <div style={{fontSize:9,color:"#ff4444"}}>Perdida real: -$796.09</div>
+                  </div>
+                  <div style={{background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"9px 11px"}}>
+                    <div style={{fontSize:8,color:"#555",marginBottom:3}}>TAKE PROFIT / BREAKEVEN</div>
+                    <div style={{fontSize:14,fontWeight:700,color:"#00cc66"}}>$9,000</div>
+                    <div style={{fontSize:9,color:"#f0b429"}}>BE: $4,029</div>
+                  </div>
+                </div>
+                <div style={S.bar}><div style={S.fill(Math.min(pr.ETH/9000*100,100),"linear-gradient(90deg,#ff4444,#f0b429,#00ff88)")}/></div>
+                <button onClick={()=>setModal(m=>({...m,closeEth:true}))}
+                  style={{marginTop:8,width:"100%",padding:"7px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.4)",color:"#ff6666",borderRadius:6,fontSize:9,fontWeight:700,cursor:"pointer"}}>
+                  CERRAR POSICION ETH LEGADO
+                </button>
+              </div>
+            )}
             {pos.map(p=>{
               const g=getPnL(p);
               const isBE=p.be||p.sl===p.entry;
               const mL=p.sl?p.capital*Math.abs(p.entry-p.sl)/p.entry:0;
               const mG=p.tp?p.capital*Math.abs(p.tp-p.entry)/p.entry:null;
+              const noLivePrice=PM[p.asset]===undefined||PM[p.asset]===p.entry;
               return(
-                <div key={p.id} style={{...S.card,border:"1px solid "+(g>=0?"rgba(0,255,136,.25)":"rgba(255,68,68,.15)")}}>
+                <div key={p.id} style={{...S.card,border:"1px solid "+(noLivePrice?"rgba(255,136,68,.3)":g>=0?"rgba(0,255,136,.25)":"rgba(255,68,68,.15)")}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                    <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
                       <span style={{fontSize:15,fontWeight:700}}>{p.asset}</span>
                       <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
                       {isBE&&<span style={S.bdg("#00ff88")}>BE</span>}
+                      {noLivePrice&&<span style={{fontSize:7,color:"#ff8844",background:"rgba(255,136,68,.1)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(255,136,68,.3)"}}>⚠ Editar ticker</span>}
                     </div>
                     <div style={{display:"flex",gap:7,alignItems:"center"}}>
-                      <span style={{fontSize:19,fontWeight:700,color:g>=0?"#00ff88":"#ff4444"}}>{fmtNum(g)}</span>
-                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||""},editPosId:p.id}))} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
+                      <span style={{fontSize:19,fontWeight:700,color:noLivePrice?"#ff8844":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"sin precio":fmtNum(g)}</span>
+                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[]},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
                       <button onClick={()=>setModal(m=>({...m,close:p}))} style={{background:"rgba(240,180,41,.15)",border:"1px solid #f0b429",color:"#f0b429",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>CERRAR</button>
                     </div>
                   </div>
@@ -652,7 +1072,7 @@ export default function App(){
                     {[
                       {l:"CAPITAL",v:"$"+p.capital.toLocaleString()},
                       {l:"ENTRADA",v:fmtP(p.entry)},
-                      {l:"ACTUAL",v:fmtP(PM[p.asset]||p.entry),c:g>=0?"#00ff88":"#ff4444"},
+                      {l:"ACTUAL",v:noLivePrice?"ticker incorrecto":fmtP(PM[p.asset]),c:noLivePrice?"#ff8844":g>=0?"#00ff88":"#ff4444"},
                     ].map(i=><div key={i.l}><div style={S.lbl}>{i.l}</div><div style={{fontSize:11,fontWeight:600,color:i.c||"#e0e0e0"}}>{i.v}</div></div>)}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
@@ -662,12 +1082,34 @@ export default function App(){
                       <div style={{fontSize:12,fontWeight:700,color:"#ff4444"}}>{isBE?"$0.00":fmtNum(-mL)}</div>
                       {isBE&&<div style={{fontSize:8,color:"#00ff88",marginTop:2}}>RIESGO CERO</div>}
                     </div>
-                    <div style={{background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"9px 11px"}}>
-                      <div style={{fontSize:8,color:"#555",marginBottom:3}}>TAKE PROFIT</div>
-                      <div style={{fontSize:14,fontWeight:700,color:"#00cc66"}}>{p.tp?fmtP(p.tp):"--"}</div>
-                      <div style={{fontSize:12,fontWeight:700,color:"#00ff88"}}>{mG?fmtNum(mG):"--"}</div>
-                      {mG&&mL&&!isBE&&<div style={{fontSize:8,color:"#555",marginTop:2}}>Ratio 1:{Math.round(mG/mL)}</div>}
-                    </div>
+                    {p.tpLevels&&p.tpLevels.length>0?(
+                      <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"9px 11px"}}>
+                        <div style={{fontSize:8,color:"#555",marginBottom:5}}>VENTAS PARCIALES</div>
+                        {p.tpLevels.map(function(lvl){
+                          var lvlG=p.capital*lvl.pct/100*Math.abs(lvl.price-p.entry)/p.entry;
+                          return(
+                            <div key={lvl.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3,opacity:lvl.hit?0.45:1}}>
+                              <div>
+                                <span style={{fontSize:10,fontWeight:700,color:lvl.hit?"#444":"#00cc66"}}>{fmtP(lvl.price)}</span>
+                                <span style={{fontSize:8,color:"#555",marginLeft:4}}>{lvl.pct}%</span>
+                                {lvl.hit&&<span style={{fontSize:8,color:"#00ff88",marginLeft:4}}>✓ cerrado</span>}
+                              </div>
+                              <span style={{fontSize:10,fontWeight:700,color:lvl.hit?"#444":"#00ff88"}}>{fmtNum(lvlG)}</span>
+                            </div>
+                          );
+                        })}
+                        {p.capitalRemaining!==undefined&&p.capitalRemaining<p.capital&&(
+                          <div style={{fontSize:8,color:"#f0b429",borderTop:"1px solid #1a1a2a",paddingTop:4,marginTop:4}}>Capital restante: ${Math.round(p.capitalRemaining).toLocaleString()}</div>
+                        )}
+                      </div>
+                    ):(
+                      <div style={{background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"9px 11px"}}>
+                        <div style={{fontSize:8,color:"#555",marginBottom:3}}>TAKE PROFIT</div>
+                        <div style={{fontSize:14,fontWeight:700,color:"#00cc66"}}>{p.tp?fmtP(p.tp):"--"}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:"#00ff88"}}>{mG?fmtNum(mG):"--"}</div>
+                        {mG&&mL&&!isBE&&<div style={{fontSize:8,color:"#555",marginTop:2}}>Ratio 1:{Math.round(mG/mL)}</div>}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -737,7 +1179,6 @@ export default function App(){
                 ))}
               </div>
             </div>
-          </div>
           </div>
         )}
 
@@ -881,8 +1322,6 @@ export default function App(){
               );
             })}
           </div>
-          </div>
-        </div>
         )}
 
         {/* ═══ PERFIL ═══ */}
@@ -936,22 +1375,69 @@ export default function App(){
                 ].map(x=><div key={x.l} style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:6}}><span style={{color:"#555"}}>{x.l}</span><span style={{color:x.c,fontWeight:700}}>{x.v}</span></div>)}
               </div>
               <div style={S.card}>
-                <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>COMO SUBE EL SCORE</div>
+                <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>SCORE: SUBE / BAJA</div>
                 {[
-                  {l:"VICTORIA",c:"#00ff88",pts:"+2 pts"},
-                  {l:"LECCION",c:"#f0b429",pts:"+1.5 pts"},
-                  {l:"ANALISIS",c:"#888",pts:"+1 pt"},
-                  {l:"ERROR+LECCION",c:"#ff6600",pts:"+0.5 extra"},
+                  {l:"SL respetados",c:"#00ff88",pts:"+30 max"},
+                  {l:"TP / TP parcial",c:"#00ff88",pts:"+20 max"},
+                  {l:"Patron confirmado",c:"#88aaff",pts:"+7 c/u"},
+                  {l:"Victoria diario",c:"#f0b429",pts:"+2"},
+                  {l:"Leccion",c:"#f0b429",pts:"+1.5"},
                 ].map(x=>(
-                  <div key={x.l} style={{background:"#0d0d16",borderRadius:5,padding:"6px 8px",border:"1px solid "+x.c+"22",marginBottom:5,display:"flex",justifyContent:"space-between"}}>
-                    <span style={{fontSize:9,color:x.c,fontWeight:700}}>{x.l}</span>
-                    <span style={{fontSize:9,color:x.c}}>{x.pts}</span>
+                  <div key={x.l} style={{background:"#0d0d16",borderRadius:4,padding:"5px 8px",border:"1px solid "+x.c+"22",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontSize:8,color:x.c,fontWeight:700}}>{x.l}</span>
+                    <span style={{fontSize:8,color:x.c}}>{x.pts}</span>
                   </div>
                 ))}
-                <div style={{fontSize:8,color:"#555",marginTop:4}}>Cierres documentados +1.5 bonus</div>
+                <div style={{fontSize:8,color:"#ff4444",fontWeight:700,marginTop:7,marginBottom:4}}>PENALIZACIONES ACTUALES</div>
+                {(()=>{
+                  const slT=ps.slOk+ps.slBroken;
+                  const slLost=slT>0?parseFloat(((ps.slBroken/slT)*30).toFixed(1)):0;
+                  const totC=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0);
+                  const earlyLost=totC>0?parseFloat(((ps.earlyClose||0)/totC*20).toFixed(1)):0;
+                  const revLost=Math.min(20,ps.revenge*5);
+                  return[
+                    {l:"SL roto x"+ps.slBroken,pts:"-"+slLost+" pts",c:"#ff4444",v:slLost},
+                    {l:"Cierre anticipado x"+(ps.earlyClose||0),pts:"-"+earlyLost+" pts",c:"#ff6600",v:earlyLost},
+                    {l:"Revenge trade x"+ps.revenge,pts:"-"+revLost+" pts",c:"#ff4444",v:revLost},
+                  ].map(x=>(
+                    <div key={x.l} style={{background:"rgba(255,68,68,.05)",borderRadius:4,padding:"5px 8px",border:"1px solid rgba(255,68,68,.15)",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
+                      <span style={{fontSize:8,color:x.v>0?x.c:"#555",fontWeight:x.v>0?700:400}}>{x.l}</span>
+                      <span style={{fontSize:8,color:x.v>0?"#ff4444":"#444"}}>{x.pts}</span>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
             <ProfileAnalysis ps={ps} pats={pats} jnl={jnl} hist={hist} xhist={xhist} sc={sc} S={S}/>
+            {/* ── ANALISIS IA ── */}
+            <div style={{...S.card,marginBottom:10,border:"1px solid rgba(136,170,255,.25)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:10,color:"#88aaff",fontWeight:700}}>ANALISIS IA DEL TRADER</div>
+                  <div style={{fontSize:8,color:"#555",marginTop:2}}>
+                    {aiProfile?"Generado el "+aiProfile.date+" (Nivel "+aiProfile.score+")":"Genera un informe completo con IA sobre tu perfil"}
+                  </div>
+                </div>
+                <button
+                  onClick={generateAIProfile}
+                  disabled={aiProfileLoading}
+                  style={{background:aiProfileLoading?"#1e1e2e":"rgba(136,170,255,.15)",border:"1px solid #88aaff",color:aiProfileLoading?"#444":"#88aaff",padding:"7px 12px",borderRadius:6,fontSize:9,fontWeight:700,cursor:aiProfileLoading?"wait":"pointer"}}
+                >
+                  {aiProfileLoading?"Analizando...":aiProfile?"Regenerar":"Generar Analisis"}
+                </button>
+              </div>
+              {aiProfile&&(
+                <div style={{fontSize:10,color:"#aaa",lineHeight:1.8,whiteSpace:"pre-wrap"}}>
+                  {aiProfile.text}
+                </div>
+              )}
+              {!aiProfile&&!aiProfileLoading&&(
+                <div style={{fontSize:9,color:"#444",textAlign:"center",padding:"10px 0"}}>
+                  Pulsa "Generar Analisis" para que la IA evalue todos tus datos de trading y te de un informe con puntos fuertes, debiles y recomendaciones.
+                  <div style={{marginTop:4,color:"#f0b429"}}>Requiere clave API (configurar en Chat)</div>
+                </div>
+              )}
+            </div>
             {sc<65&&(
               <div style={{...S.card,marginBottom:10}}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:6}}>QUE TE FALTA PARA SUBIR</div>
@@ -985,9 +1471,6 @@ export default function App(){
               ))}
             </div>
           </div>
-          </div>
-          </div>
-        </div>
         )}
 
         {/* ═══ RECUPERACION ═══ */}
@@ -1000,8 +1483,8 @@ export default function App(){
                 {l:"ETH HOY",v:"$"+pr.ETH.toLocaleString(),c:"#f0b429"},
                 {l:"PERD. NO REAL. ETH",v:fmtNum(ethU),c:"#ff4444"},
                 {l:"PERD. TOTAL ETH",v:fmtNum(ethT),c:"#ff4444"},
-                {l:"PERD. HISTORICA",v:fmtNum(-7608.69),c:"#ff4444"},
-                {l:"PERDIDA GLOBAL",v:fmtNum(-7608.69+ethT),c:"#ff4444"},
+                {l:"PERD. HISTORICA",v:fmtNum(h0Total),c:"#ff4444"},
+                {l:"PERDIDA GLOBAL",v:fmtNum(h0Total+ethT),c:"#ff4444"},
                 {l:"BREAKEVEN ETH",v:"$4,029",c:"#f0b429"},
               ].map(k=><div key={k.l} style={S.card}><div style={S.lbl}>{k.l}</div><div style={S.val(k.c)}>{k.v}</div></div>)}
             </div>
@@ -1009,7 +1492,7 @@ export default function App(){
               <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:10}}>ESCENARIOS POR PRECIO ETH</div>
               {[2000,2500,3000,3621,4029,5000,6000,7000,7390,9000].map(price=>{
                 const ethG=(price-3621.58)*1.95209253-796.09;
-                const tot=ethG-7608.69;
+                const tot=ethG+h0Total;
                 const isCur=Math.abs(price-pr.ETH)<300;
                 const isBE=Math.abs(price-4029)<100;
                 const isRec=Math.abs(price-7390)<100;
@@ -1042,12 +1525,12 @@ export default function App(){
           <HorariosTab horarios={horarios} SH={SH} S={S} fmtNum={fmtNum}/>
         )}
 
-        {tab==="Alertas"&&(
+        <div style={{display:tab==="Alertas"?"block":"none"}}>
           <AlertasTab S={S}/>
-        )}
+        </div>
 
         {tab==="Chat"&&(
-          <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} SPs={SPs} SJ={SJ} D={D} save={save}/>
+          <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save}/>
         )}
       </div>
 
@@ -1084,9 +1567,15 @@ export default function App(){
           <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:6}}>ACTUALIZAR PRECIOS</div>
           <div style={{fontSize:9,color:"#555",marginBottom:14}}>Activos abiertos + ETH legado</div>
           {(function(){
-            var priceKeys=["SOL","BTC","ETH","MSTR","GOOGL","LINK"].filter(function(k){
-              return pos.some(function(p){return p.asset.includes(k);}) || k==="ETH";
+            // Detectar automaticamente todos los activos de posiciones abiertas
+            var seenKeys=new Set();
+            var priceKeys=[];
+            pos.forEach(function(p){
+              var k=p.asset.replace(/\/.*$/,"").toUpperCase();
+              if(!seenKeys.has(k)){seenKeys.add(k);priceKeys.push(k);}
             });
+            // ETH siempre (posicion legado)
+            if(!seenKeys.has("ETH")){seenKeys.add("ETH");priceKeys.push("ETH");}
             return priceKeys.map(function(k){
               return React.createElement(PriceField,{key:k,label:k,value:(modal.tmpPr&&modal.tmpPr[k]!==undefined?modal.tmpPr[k]:pr[k])||0,onChange:function(v){setModal(function(m){var t=Object.assign({},m.tmpPr||pr);t[k]=v;return Object.assign({},m,{tmpPr:t});});}});
             });
@@ -1101,10 +1590,12 @@ export default function App(){
       {/* ═══ MODAL NUEVA/EDITAR OPERACION ═══ */}
       {modal.pos&&(
         <ModalPos
-          form={modal.posForm||{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""}}
+          form={modal.posForm||{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]}}
           editId={modal.editPosId}
           currentPos={D.current.pos}
           PM={PM}
+          pr={pr}
+          SPr={SPr}
           SPos={SPos}
           setModal={setModal}
           fmtNum={fmtNum}
@@ -1206,162 +1697,449 @@ export default function App(){
         </div></div>
       )}
 
-      {/* ═══ RECORDATORIO DE PRECIOS (una vez al dia) ═══ */}
-      {modal.priceReminder&&(
-        <div style={S.modal}><div style={S.mc}>
-          <div style={{textAlign:"center",marginBottom:16}}>
-            <div style={{fontSize:28,marginBottom:8}}>⏰</div>
-            <div style={{fontSize:13,fontWeight:700,color:"#f0b429"}}>Actualizacion de precios</div>
-            <div style={{fontSize:10,color:"#555",marginTop:4}}>Tienes posiciones abiertas. Actualiza los precios para ver el P&L real.</div>
-          </div>
-          <div style={{marginBottom:14}}>
-            {pos.map(p=>(
-              <div key={p.id} style={{display:"flex",justifyContent:"space-between",fontSize:10,padding:"5px 0",borderBottom:"1px solid #1a1a2a"}}>
-                <span style={{color:"#e0e0e0"}}>{p.asset}</span>
-                <span style={{color:"#f0b429",fontWeight:700}}>precio actual: ${(PM[p.asset]||p.entry).toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>{setModal(m=>({...m,priceReminder:false,prices:true,tmpPr:{...pr}}));}} style={{...S.btn(true),flex:2,padding:8}}>ACTUALIZAR PRECIOS</button>
-            <button onClick={()=>setModal(m=>({...m,priceReminder:false}))} style={{...S.btn(false),flex:1}}>Luego</button>
-          </div>
-        </div></div>
-      )}
 
     </div>
-    </div>
-  </div>
   );
 }
 
 // - SUBCOMPONENTS -
 // - INDICADORES -
 // - CHAT TAB -
-function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
-  const[messages,setMessages]=useState([{
+function detectAssetFromText(text){
+  var lower=text.toLowerCase();
+  var tf="4h";
+  if(/\b(semanal|semana|1w|weekly)\b/.test(lower))tf="1w";
+  else if(/\b(diario|diaria|1d|daily)\b/.test(lower))tf="1d";
+  else if(/\b4h\b|\b4 ?horas?\b/.test(lower))tf="4h";
+  else if(/\b1h\b|\b1 ?hora\b|\bhorario\b/.test(lower))tf="1h";
+  else if(/\b15m\b|\b15 ?min/.test(lower))tf="15m";
+  var cryptos=[
+    {p:/\b(btc|bitcoin)\b/,s:"BTCUSDT",d:"BTC/USD"},
+    {p:/\b(eth|ethereum|ether)\b/,s:"ETHUSDT",d:"ETH/USD"},
+    {p:/\b(sol|solana)\b/,s:"SOLUSDT",d:"SOL/USD"},
+    {p:/\b(link|chainlink)\b/,s:"LINKUSDT",d:"LINK/USD"},
+    {p:/\b(bnb|binance.?coin)\b/,s:"BNBUSDT",d:"BNB/USD"},
+    {p:/\b(xrp|ripple)\b/,s:"XRPUSDT",d:"XRP/USD"},
+    {p:/\b(ada|cardano)\b/,s:"ADAUSDT",d:"ADA/USD"},
+    {p:/\b(doge|dogecoin)\b/,s:"DOGEUSDT",d:"DOGE/USD"},
+    {p:/\b(avax|avalanche)\b/,s:"AVAXUSDT",d:"AVAX/USD"},
+    {p:/\b(dot|polkadot)\b/,s:"DOTUSDT",d:"DOT/USD"},
+    {p:/\b(uni|uniswap)\b/,s:"UNIUSDT",d:"UNI/USD"},
+  ];
+  var stocks=[
+    {p:/\b(nvda|nvidia)\b/,s:"NVDA",d:"NVDA"},
+    {p:/\b(mstr|microstrategy)\b/,s:"MSTR",d:"MSTR"},
+    {p:/\b(googl|google|alphabet)\b/,s:"GOOGL",d:"GOOGL"},
+    {p:/\b(aapl|apple)\b/,s:"AAPL",d:"AAPL"},
+    {p:/\bamd\b/,s:"AMD",d:"AMD"},
+    {p:/\b(spy|sp500)\b/,s:"SPY",d:"SPY"},
+    {p:/\boxy\b/,s:"OXY",d:"OXY"},
+    {p:/\b(rgti|rigetti)\b/,s:"RGTI",d:"RGTI"},
+    {p:/\btlt\b/,s:"TLT",d:"TLT"},
+    {p:/\b(gld|gold|oro)\b/,s:"GLD",d:"GLD"},
+    {p:/\b(mara|marathon digital)\b/,s:"MARA",d:"MARA"},
+    {p:/\b(tsla|tesla)\b/,s:"TSLA",d:"TSLA"},
+    {p:/\b(meta|facebook)\b/,s:"META",d:"META"},
+    {p:/\b(amzn|amazon)\b/,s:"AMZN",d:"AMZN"},
+    {p:/\b(msft|microsoft)\b/,s:"MSFT",d:"MSFT"},
+  ];
+  for(var i=0;i<cryptos.length;i++){if(cryptos[i].p.test(lower))return{symbol:cryptos[i].s,isCrypto:true,tf:tf,display:cryptos[i].d};}
+  for(var j=0;j<stocks.length;j++){if(stocks[j].p.test(lower))return{symbol:stocks[j].s,isCrypto:false,tf:tf,display:stocks[j].d};}
+  return null;
+}
+
+async function getStockData(symbol,tf){
+  var intervalMap={"15m":{interval:"15m",range:"5d"},"1h":{interval:"1h",range:"15d"},"4h":{interval:"1h",range:"30d"},"1d":{interval:"1d",range:"1y"},"1w":{interval:"1wk",range:"5y"}};
+  var p=intervalMap[tf]||(intervalMap["1d"]);
+  var tfLabel=tf==="1w"?"Semanal":tf==="1d"?"Diario":tf==="4h"?"4H":tf==="1h"?"1H":"15M";
+  try{
+    var r=await fetch("https://query2.finance.yahoo.com/v8/finance/chart/"+symbol+"?interval="+p.interval+"&range="+p.range);
+    if(!r.ok)return null;
+    var data=await r.json();
+    var res=(data.chart&&data.chart.result&&data.chart.result[0])||null;
+    if(!res)return null;
+    var q=res.indicators&&res.indicators.quote&&res.indicators.quote[0];
+    if(!q)return null;
+    var closes=(q.close||[]).filter(function(v){return v!=null;});
+    var highs=(q.high||[]).filter(function(v){return v!=null;});
+    var lows=(q.low||[]).filter(function(v){return v!=null;});
+    if(closes.length<2)return null;
+    var price=closes[closes.length-1];
+    var prev=closes[closes.length-2];
+    var change24h=((price-prev)/prev*100).toFixed(2);
+    var rsi=calcRSI(closes,14);
+    var ema7=calcEMA(closes,7);
+    var ema25=calcEMA(closes,25);
+    var ema50=calcEMA(closes,50);
+    var emaRel=ema7&&ema25?(ema7>ema25?"EMA7 sobre EMA25 (alcista)":"EMA7 bajo EMA25 (bajista)"):"--";
+    var sr=calcSRLevels(highs,lows,price);
+    return{asset:symbol,tf:tfLabel,price:price.toFixed(2),change24h:change24h,
+      rsi:rsi,ema7:ema7?ema7.toFixed(2):null,ema25:ema25?ema25.toFixed(2):null,
+      ema50:ema50?ema50.toFixed(2):null,emaRelation:emaRel,
+      supports:sr.supports,resistances:sr.resistances,fvgs:[],
+      trend:"--",volRatio:"--",high24h:"--",low24h:"--",isCrypto:false};
+  }catch(e){return null;}
+}
+
+function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
+  var INIT_MSG={
     role:"assistant",
-    content:"Hola Miguel. Soy tu analista personal. Tengo acceso en tiempo real a tus posiciones, patrones y estadisticas.\n\nPuedo analizar cualquier activo con datos de Binance: precio, RSI, EMAs 7/25/50. Describeme lo que ves en el grafico y te doy mi opinion.\n\n¿Que quieres analizar?",
+    content:"Hola Miguel. Soy tu analista personal.\n\nPuedo analizar cualquier activo de crypto (BTC, ETH, SOL, LINK...) o acciones (NVDA, GOOGL, TSLA, MSTR...) con datos en tiempo real.\n\nSimplemente describeme lo que ves, por ejemplo:\n- \"En 4H en LINK veo una ineficiencia FVG, puedo entrar?\"\n- \"En diario en BTC el RSI esta en 65, hay sobrecompra?\"\n- \"NVDA en semanal, como ve la estructura?\"\n\nNo necesitas seleccionar activo ni temporalidad, yo los detecto de tu mensaje.",
     time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})
-  }]);
+  };
+  const[messages,setMessages]=useState(function(){
+    try{
+      var saved=localStorage.getItem("td-chat-msgs");
+      if(saved){var parsed=JSON.parse(saved);if(parsed&&parsed.length>0)return parsed;}
+    }catch(e){}
+    return [INIT_MSG];
+  });
   const[input,setInput]=useState("");
   const[loading,setLoading]=useState(false);
-  const[selAsset,setSelAsset]=useState("BTCUSDT");
-  const[selTF,setSelTF]=useState("4h");
   const[marketData,setMarketData]=useState(null);
-  const[fetchingMD,setFetchingMD]=useState(false);
+  const[detectedInfo,setDetectedInfo]=useState(null);
+  const[apiKey,setApiKey]=useState(function(){return localStorage.getItem("td-anthropic-key")||"";});
+  const[showKeyInput,setShowKeyInput]=useState(false);
+  const[tmpKey,setTmpKey]=useState("");
+  const[pendingImage,setPendingImage]=useState(null);
   const listRef=useRef(null);
+  const fileInputRef=useRef(null);
 
-  const ASSETS=[
-    {v:"BTCUSDT",l:"BTC/USD"},{v:"SOLUSDT",l:"SOL/USD"},{v:"ETHUSDT",l:"ETH/USD"},
-    {v:"LINKUSDT",l:"LINK/USD"},{v:"BNBUSDT",l:"BNB/USD"},{v:"XRPUSDT",l:"XRP/USD"},
-  ];
-  const TFS=[{v:"15m",l:"15m"},{v:"1h",l:"1H"},{v:"4h",l:"4H"},{v:"1d",l:"D"},{v:"1w",l:"W"}];
+  // ── Predicciones ──
+  const[predictions,setPredictions]=useState(function(){
+    try{var s=localStorage.getItem("td-predictions");if(s)return JSON.parse(s);}catch(e){}
+    return[];
+  });
+  const[showPredictions,setShowPredictions]=useState(false);
+  const[savingMsgIdx,setSavingMsgIdx]=useState(null); // index del mensaje que se quiere guardar
+  const[predNote,setPredNote]=useState("");
 
-  useEffect(()=>{
-    if(listRef.current)listRef.current.scrollTop=listRef.current.scrollHeight;
-  },[messages]);
+  // ── Chat export/import ──
+  const[showChatImport,setShowChatImport]=useState(false);
+  const[chatImportText,setChatImportText]=useState("");
 
-  async function fetchMarketData(){
-    setFetchingMD(true);
-    try{
-      const md=await getBinanceData(selAsset,selTF,ASSETS,TFS);
-      if(md)setMarketData(md);
-      return md;
-    }catch(e){
-      console.error(e);
-      return null;
-    }finally{
-      setFetchingMD(false);
+  // ── Pinned messages ──
+  const[pinned,setPinned]=useState(function(){
+    try{var s=localStorage.getItem("td-pinned-msgs");if(s)return JSON.parse(s);}catch(e){}
+    return[];
+  });
+
+  function savePredictions(arr){
+    setPredictions(arr);
+    try{localStorage.setItem("td-predictions",JSON.stringify(arr));}catch(e){}
+  }
+
+  function savePinned(arr){
+    setPinned(arr);
+    try{localStorage.setItem("td-pinned-msgs",JSON.stringify(arr));}catch(e){}
+  }
+
+  function togglePin(msg){
+    const key=(msg.role||"")+(msg.content||"").slice(0,60)+(msg.time||"");
+    const alreadyPinned=pinned.some(function(p){return p._key===key;});
+    if(alreadyPinned){
+      savePinned(pinned.filter(function(p){return p._key!==key;}));
+    }else{
+      savePinned([...pinned,{...msg,_key:key}].slice(-10));
     }
   }
 
+  function exportChatMessages(){
+    var toExport=messages.slice(-60).map(function(m){return m.image?{...m,image:null}:m;});
+    var data=JSON.stringify(toExport);
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(data).then(function(){alert("Chat copiado al portapapeles. Ve al otro dispositivo y usa Importar Chat.");}).catch(function(){setChatImportText(data);setShowChatImport(true);});
+    }else{setChatImportText(data);setShowChatImport(true);}
+  }
+
+  function importMergeChat(){
+    try{
+      var incoming=JSON.parse(chatImportText);
+      if(!Array.isArray(incoming))throw new Error("formato invalido");
+      var combined=[...messages,...incoming];
+      var seen=new Set();
+      var merged=combined.filter(function(m){
+        var key=(m.role||"")+(m.content||"").slice(0,50)+(m.time||"");
+        if(seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
+      setMessages(merged);
+      setShowChatImport(false);
+      setChatImportText("");
+      alert(merged.length+" mensajes tras fusionar ("+messages.length+" locales + "+incoming.length+" importados).");
+    }catch(e){alert("Error al importar: JSON invalido");}
+  }
+
+  function saveMessageAsPrediction(msg,note){
+    const asset=detectedInfo?detectedInfo.display:marketData?marketData.asset:"";
+    const tf=detectedInfo?detectedInfo.tf:marketData?marketData.tf:"";
+    const now=new Date();
+    const pred={
+      id:Date.now(),
+      savedDate:now.toLocaleDateString("es-ES"),
+      savedTime:now.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),
+      timestamp:now.getTime(),
+      asset,tf,
+      content:msg.content,
+      note:note||"",
+      status:"pending"
+    };
+    savePredictions([pred,...predictions]);
+    setSavingMsgIdx(null);
+    setPredNote("");
+  }
+
+  function resolvePrediction(id,status){
+    savePredictions(predictions.map(function(p){
+      return p.id===id?{...p,status,resolvedDate:new Date().toLocaleDateString("es-ES")}:p;
+    }));
+  }
+
+  function deletePrediction(id){
+    savePredictions(predictions.filter(function(p){return p.id!==id;}));
+  }
+
+  function daysSince(timestamp){
+    return Math.floor((Date.now()-timestamp)/(1000*60*60*24));
+  }
+
+  function handleImageFile(e){
+    var file=e.target.files[0];
+    if(!file)return;
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      var b64=ev.target.result.split(",")[1];
+      setPendingImage({base64:b64,mediaType:file.type||"image/jpeg",name:file.name});
+    };
+    reader.readAsDataURL(file);
+    e.target.value="";
+  }
+
+  useEffect(function(){
+    if(listRef.current)listRef.current.scrollTop=listRef.current.scrollHeight;
+  },[messages]);
+
+  useEffect(function(){
+    try{
+      // Save last 60 messages; preserve images but cap base64 size per image to ~150KB
+      var toSave=messages.slice(-60).map(function(m){
+        if(m.image&&m.image.base64&&m.image.base64.length>200000){
+          // Resize image via canvas before saving to fit in localStorage
+          return{...m,image:{...m.image,base64:m.image.base64.slice(0,200000)}};
+        }
+        return m;
+      });
+      localStorage.setItem("td-chat-msgs",JSON.stringify(toSave));
+    }catch(e){
+      // If still too large, save without images
+      try{
+        var slim=messages.slice(-60).map(function(m){return m.image?{...m,image:null}:m;});
+        localStorage.setItem("td-chat-msgs",JSON.stringify(slim));
+      }catch(e2){}
+    }
+  },[messages]);
+
   function buildSystemPrompt(md){
-    const openPositions=pos.map(p=>{
+    const allHist=[...xhist,...hist];
+    const wins=allHist.filter(function(h){return h.result>0;}).length;
+    const losses=allHist.filter(function(h){return h.result<0;}).length;
+    const winRate=allHist.length>0?Math.round(wins/allHist.length*100):0;
+    const totalPnl=allHist.reduce(function(s,h){return s+h.result;},0).toFixed(2);
+    const recentTrades=allHist.slice(-5).map(function(h){
+      return h.asset+" "+(h.dir||"")+" "+(h.result>0?"+" :"")+h.result.toFixed(0)+"$";
+    }).join(", ")||"Sin historial";
+    const assetStats={};
+    allHist.forEach(function(h){
+      if(!assetStats[h.asset])assetStats[h.asset]={w:0,l:0,pnl:0};
+      if(h.result>0)assetStats[h.asset].w++;
+      else assetStats[h.asset].l++;
+      assetStats[h.asset].pnl+=h.result;
+    });
+    const bestAsset=Object.keys(assetStats).sort(function(a,b){return assetStats[b].pnl-assetStats[a].pnl;})[0];
+    const worstAsset=Object.keys(assetStats).sort(function(a,b){return assetStats[a].pnl-assetStats[b].pnl;})[0];
+
+    const openPositions=pos.map(function(p){
       return p.asset+" "+p.dir+" entrada $"+p.entry+" SL $"+(p.sl||"--")+" TP $"+(p.tp||"--")+(p.be?" [BE]":"");
     }).join(", ")||"Sin posiciones abiertas";
-    const confirmedPats=pats.filter(p=>p.conf>0).map(p=>p.name+" ("+Math.round(p.conf/(p.obs||1)*100)+"% exito)").join(", ")||"Sin patrones confirmados";
-    const recentJournal=jnl.slice(0,3).map(j=>j.type.toUpperCase()+": "+j.text.slice(0,80)).join(" | ")||"Sin entradas";
-    let mdContext="";
+    const confirmedPats=pats.filter(function(p){return p.conf>0;}).map(function(p){
+      return p.name+" ("+Math.round(p.conf/(p.obs||1)*100)+"% exito, "+p.conf+"/"+p.obs+" obs)";
+    }).join(", ")||"Sin patrones confirmados";
+    const recentJournal=jnl.slice(0,5).map(function(j){return j.type.toUpperCase()+": "+j.text.slice(0,80);}).join(" | ")||"Sin entradas";
+    const slTotal=ps.slOk+ps.slBroken;
+    const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
+
+    var mdContext="";
     if(md){
-      const rsiStatus=md.rsi<30?"SOBREVENTA":md.rsi>70?"SOBRECOMPRA":"NEUTRO";
-      mdContext="\nMERCADO ("+md.asset+" "+md.tf+"): $"+md.price+" | 24h: "+md.change24h+"%"+
-        " | RSI: "+md.rsi+" "+rsiStatus+" | EMA7: "+md.ema7+" EMA25: "+md.ema25+" EMA50: "+md.ema50+
-        " | "+md.emaRelation+" | Estructura: "+md.trend+" | Vol: "+md.volRatio+"x | H:"+md.high24h+" L:"+md.low24h;
+      const rsiStatus=md.rsi<30?"SOBREVENTA ⚠️":md.rsi>70?"SOBRECOMPRA ⚠️":"NEUTRO";
+      const supStr=md.supports&&md.supports.length>0?md.supports.map(function(s){return"$"+s;}).join(" | "):"ninguno detectado";
+      const resStr=md.resistances&&md.resistances.length>0?md.resistances.map(function(r){return"$"+r;}).join(" | "):"ninguna detectada";
+      const fvgStr=md.fvgs&&md.fvgs.length>0?md.fvgs.map(function(f){return f.type.toUpperCase()+" $"+f.bot+"-$"+f.top+" (hace "+f.age+" velas)";}).join(" | "):"ninguna cercana";
+      mdContext="\n\n=== DATOS DE MERCADO EN TIEMPO REAL ("+md.asset+" "+md.tf+") ===\n"+
+        "Precio actual: $"+md.price+" | Cambio 24h: "+md.change24h+"%\n"+
+        "RSI 14: "+md.rsi+" → "+rsiStatus+"\n"+
+        "EMA7: $"+md.ema7+" | EMA25: $"+md.ema25+" | EMA50: $"+md.ema50+"\n"+
+        "Relacion EMAs: "+md.emaRelation+"\n"+
+        "Estructura: "+md.trend+" | Volumen: "+md.volRatio+"x media\n"+
+        "SOPORTES cercanos (debajo del precio): "+supStr+"\n"+
+        "RESISTENCIAS cercanas (encima del precio): "+resStr+"\n"+
+        "INEFICIENCIAS FVG cercanas (±5%): "+fvgStr;
     }
-    return "Eres analista de trading y coach personal de Miguel Garcia Parrado (Quantfury). Analiza graficos y ayudale a mejorar.\n\n"+
-      "PERFIL: Nivel "+sc+"/100 | SL respetados "+ps.slOk+" | SL eliminados "+ps.slBroken+"\n"+
-      "Estrategia: ineficiencias FVG + patrones chartistas (cunas, banderines, canales)\n"+
-      "Patrones confirmados: "+confirmedPats+"\n"+
-      "Posiciones abiertas: "+openPositions+"\n"+
-      "Diario reciente: "+recentJournal+"\n"+
-      mdContext+"\n\n"+
-      "INSTRUCCIONES:\n"+
-      "- Responde en espanol, directo, max 200 palabras\n"+
-      "- Menciona RSI, EMAs y estructura de precio\n"+
-      "- Si el setup es arriesgado, dilo claro\n"+
-      "- Si hay confluencia (RSI + EMA + patron), destacalo\n"+
-      "- Termina con: EVALUACION_TRADER:[positivo|negativo|neutro]:[descripcion breve]";
+
+    // Analisis de cierres para el chat
+    const totCloseC=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
+    const tpPctC=totCloseC>0?Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totCloseC*100):0;
+    const earlyPctC=totCloseC>0?Math.round((ps.earlyClose||0)/totCloseC*100):0;
+    const closeDocsC=jnl.filter(function(j){return j.linkedClose;});
+    const recentCloseDocsC=closeDocsC.slice(0,3).map(function(j){
+      const ct=j.linkedClose==="tp"?"TP":j.linkedClose==="sl"?"SL":"Manual";
+      return "["+ct+"/"+j.type+"] "+j.text.slice(0,80);
+    }).join(" | ");
+
+    // Predicciones pendientes con días transcurridos
+    var predContext="";
+    var pendingPreds=predictions.filter(function(p){return p.status==="pending";});
+    if(pendingPreds.length>0){
+      predContext="\n\n=== PREDICCIONES PENDIENTES (lo que dijiste en conversaciones anteriores) ===\n"+
+        "IMPORTANTE: El trader puede estar preguntando sobre una de estas predicciones.\n"+
+        "Si hace referencia a algo que dijiste antes, compara con los datos actuales y recalcula.\n";
+      pendingPreds.slice(0,5).forEach(function(p){
+        var days=Math.floor((Date.now()-p.timestamp)/(1000*60*60*24));
+        var hours=Math.floor((Date.now()-p.timestamp)/(1000*60*60));
+        var timeStr=days>=1?days+" dias":hours+" horas";
+        predContext+="["+p.savedDate+" — hace "+timeStr+"] "+
+          (p.asset?"("+p.asset+(p.tf?" "+p.tf:"")+"): ":"")+
+          p.content.slice(0,300).replace(/\n/g," ")+
+          (p.note?" | NOTA TRADER: "+p.note:"")+"\n";
+      });
+    }
+
+    var pinnedContext="";
+    if(pinned.length>0){
+      pinnedContext="\n\n=== MENSAJES ANCLADOS (contexto permanente elegido por el trader) ===\n";
+      pinned.forEach(function(p){
+        pinnedContext+="["+p.time+"] "+(p.role==="user"?"TRADER":"BOT")+": "+
+          (p.content||"").slice(0,400).replace(/\n/g," ")+"\n";
+      });
+    }
+
+    return "Eres analista tecnico de trading. Tu mision es dar analisis puros de mercado.\n\n"+
+      mdContext+predContext+pinnedContext+"\n\n"+
+      "=== REGLAS DE RESPUESTA ===\n"+
+      "1. Tu analisis se basa EXCLUSIVAMENTE en los datos de mercado arriba (RSI, EMAs, soportes, resistencias, FVGs)\n"+
+      "2. Si el usuario adjunta un grafico/imagen, analiza visualmente la estructura, patrones y niveles que ves\n"+
+      "3. Combina el grafico (si hay) con los datos en tiempo real\n"+
+      "4. Si hay PREDICCIONES PENDIENTES y el usuario hace referencia a una conversacion anterior, compara lo que dijiste con los datos ACTUALES y recalcula tiempos y precios\n"+
+      "5. NO menciones el historial de operaciones del trader ni sus patrones en el analisis tecnico\n"+
+      "6. Responde en espanol, directo y tecnico, max 250 palabras\n"+
+      "7. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
+      "8. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n"+
+      "=== PERFIL (SOLO para EVALUACION_TRADER al final) ===\n"+
+      "Nivel trader: "+sc+"/100 | Tasa ganadora: "+winRate+"% | P&L: $"+totalPnl+"\n"+
+      "SL respetados: "+slRate+"% | Cierre anticipado: "+earlyPctC+"% | Revancha: "+(ps.revenge||0)+"x\n"+
+      "Posiciones abiertas: "+openPositions+"\n\n"+
+      "Termina SIEMPRE con (en linea aparte, sin mostrarla al usuario):\n"+
+      "EVALUACION_TRADER:[positivo|negativo|neutro]:[max 15 palabras sobre estado psicologico]";
+  }
+
+  function clearChat(){
+    setMessages([INIT_MSG]);
+    setMarketData(null);
+    setDetectedInfo(null);
+    try{localStorage.removeItem("td-chat-msgs");}catch(e){}
   }
 
   async function sendMessage(){
     if(!input.trim()||loading)return;
-    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
+    if(!apiKey){
+      setMessages(function(prev){return [...prev,{role:"assistant",content:"Configura tu clave API de Anthropic con el boton (🔑) arriba.",time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}];});
+      return;
+    }
+    const img=pendingImage;
+    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),image:img||null};
     const newMessages=[...messages,userMsg];
     setMessages(newMessages);
+    var currentInput=input;
     setInput("");
+    setPendingImage(null);
     setLoading(true);
 
     try{
-      // Fetch fresh market data if not recent
-      let md=marketData;
-      if(!md)md=await fetchMarketData();
+      // Auto-detect asset and timeframe from message
+      var detected=detectAssetFromText(currentInput);
+      var md=null;
+      if(detected){
+        setDetectedInfo(detected);
+        if(detected.isCrypto){
+          md=await getBinanceData(detected.symbol,detected.tf,[],[]);
+        }else{
+          md=await getStockData(detected.symbol,detected.tf);
+        }
+        if(md)setMarketData(md);
+      }else if(marketData){
+        md=marketData;
+      }
 
       const systemPrompt=buildSystemPrompt(md);
-      const apiMessages=newMessages.map(m=>({role:m.role==="assistant"?"assistant":"user",content:m.content}));
+      const hasImage=newMessages.some(function(m){return m.image;});
+      const apiMessages=newMessages.map(function(m){
+        if(m.role==="user"&&m.image){
+          return{role:"user",content:[
+            {type:"image",source:{type:"base64",media_type:m.image.mediaType,data:m.image.base64}},
+            {type:"text",text:m.content||"Analiza este grafico"}
+          ]};
+        }
+        return{role:m.role==="assistant"?"assistant":"user",content:m.content};
+      });
 
       const response=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key":apiKey,
+          "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-access":"true"
+        },
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:1000,
+          model:hasImage?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",
+          max_tokens:1024,
           system:systemPrompt,
           messages:apiMessages,
         })
       });
 
-      if(!response.ok)throw new Error("API error "+response.status);
+      if(!response.ok){
+        const errData=await response.json().catch(function(){return{};});
+        throw new Error("API "+response.status+(errData.error?" — "+errData.error.message:""));
+      }
       const data=await response.json();
       const raw=data.content[0].text;
 
-      // Extract evaluation for profile update
+      // Extract evaluation for profile update and save to journal
       const evalMatch=raw.match(/EVALUACION_TRADER:(positivo|negativo|neutro):(.+)/);
       if(evalMatch){
         const evalType=evalMatch[1];
         const evalDesc=evalMatch[2].trim();
-        // Add journal entry based on chat evaluation
         const jEntry={
           id:Date.now(),
           date:new Date().toLocaleDateString("es-ES"),
-          text:"[Chat] "+evalDesc,
+          text:"[IA] "+evalDesc,
           emoji:evalType==="positivo"?"💪":evalType==="negativo"?"😤":"🧘",
           type:evalType==="positivo"?"win":evalType==="negativo"?"lesson":"analysis",
           linkedClose:null
         };
         const newJnl=[jEntry,...D.current.jnl];
         D.current.jnl=newJnl;
-        // SJ updates jnl state and saves
-        // We use SJ directly
+        SJ(newJnl);
       }
 
       // Clean response (remove evaluation line from display)
-      const clean=raw.replace(/EVALUACION_TRADER:.+/,"").trim();
+      const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").trim();
       const assistantMsg={role:"assistant",content:clean,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
       setMessages(prev=>[...prev,assistantMsg]);
 
     }catch(e){
-      const errMsg={role:"assistant",content:"Error al conectar con la IA: "+e.message+". Verifica tu conexion.",time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
+      const errMsg={role:"assistant",content:"Error: "+e.message,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
       setMessages(prev=>[...prev,errMsg]);
     }
     setLoading(false);
@@ -1369,59 +2147,182 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 160px)"}}>
-      {/* Selector activo + temporalidad */}
-      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
-        <select value={selAsset} onChange={e=>setSelAsset(e.target.value)} style={{...S.inp,width:"auto",padding:"5px 8px",fontSize:9,flex:1}}>
-          {ASSETS.map(a=><option key={a.v} value={a.v}>{a.l}</option>)}
-        </select>
-        <div style={{display:"flex",gap:3}}>
-          {TFS.map(t=>(
-            <button key={t.v} onClick={()=>setSelTF(t.v)} style={{padding:"5px 8px",borderRadius:4,fontSize:9,fontWeight:700,border:"none",cursor:"pointer",background:selTF===t.v?"#f0b429":"#1e1e2e",color:selTF===t.v?"#0a0a0f":"#666"}}>
-              {t.l}
-            </button>
-          ))}
+      {/* API Key input panel */}
+      {showKeyInput&&(
+        <div style={{background:"#111118",border:"1px solid rgba(240,180,41,.3)",borderRadius:8,padding:10,marginBottom:8}}>
+          <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:6}}>CLAVE API ANTHROPIC</div>
+          <div style={{display:"flex",gap:6}}>
+            <input
+              type="password"
+              placeholder="sk-ant-..."
+              value={tmpKey}
+              onChange={function(e){setTmpKey(e.target.value);}}
+              style={{...S.inp,flex:1,fontSize:10,padding:"6px 8px"}}
+            />
+            <button onClick={function(){
+              if(tmpKey.trim()){
+                localStorage.setItem("td-anthropic-key",tmpKey.trim());
+                setApiKey(tmpKey.trim());
+                setTmpKey("");
+                setShowKeyInput(false);
+              }
+            }} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"6px 12px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar</button>
+            <button onClick={function(){setShowKeyInput(false);setTmpKey("");}} style={{background:"transparent",border:"1px solid #333",color:"#555",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer"}}>✕</button>
+          </div>
+          <div style={{fontSize:8,color:"#444",marginTop:5}}>Se guarda solo en tu dispositivo (localStorage). Necesitas una cuenta en console.anthropic.com</div>
         </div>
-        <button
-          onClick={fetchMarketData}
-          style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",padding:"5px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}
-        >
-          {fetchingMD?"⏳":"⚡"} {marketData?"Actualizar":"Cargar datos"}
+      )}
+
+      {/* Header bar: detected info + key + clear */}
+      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{flex:1,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          {detectedInfo&&(
+            <div style={{background:"rgba(0,255,136,.08)",border:"1px solid rgba(0,255,136,.3)",borderRadius:4,padding:"4px 8px",fontSize:9,color:"#00ff88",fontWeight:700}}>
+              {detectedInfo.display} · {detectedInfo.tf.toUpperCase()} {detectedInfo.isCrypto?"(Binance)":"(Yahoo Finance)"}
+            </div>
+          )}
+          {marketData&&(
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{fontSize:9,fontWeight:700,color:"#f0b429"}}>${marketData.price}</span>
+              <span style={{fontSize:9,color:parseFloat(marketData.change24h)>=0?"#00ff88":"#ff4444"}}>{parseFloat(marketData.change24h)>=0?"+":""}{marketData.change24h}%</span>
+              <span style={{fontSize:9,color:marketData.rsi<=30?"#00ff88":marketData.rsi>=70?"#ff4444":"#888"}}>RSI {marketData.rsi}</span>
+            </div>
+          )}
+          {!detectedInfo&&(
+            <span style={{fontSize:9,color:"#333"}}>Nombra un activo y temporalidad en tu mensaje</span>
+          )}
+        </div>
+        <button onClick={function(){setShowPredictions(!showPredictions);}}
+          title="Predicciones guardadas"
+          style={{background:predictions.filter(function(p){return p.status==="pending";}).length>0?"rgba(136,170,255,.12)":"transparent",border:"1px solid "+(predictions.filter(function(p){return p.status==="pending";}).length>0?"rgba(136,170,255,.4)":"#1e1e2e"),color:predictions.filter(function(p){return p.status==="pending";}).length>0?"#88aaff":"#444",padding:"5px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>
+          🧠 {predictions.filter(function(p){return p.status==="pending";}).length||""}
         </button>
+        <button onClick={exportChatMessages} title="Exportar mensajes al portapapeles"
+          style={{background:"transparent",border:"1px solid #1e1e2e",color:"#444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}>📤</button>
+        <button onClick={function(){setShowChatImport(!showChatImport);setChatImportText("");}} title="Importar y fusionar mensajes de otro dispositivo"
+          style={{background:showChatImport?"rgba(136,170,255,.12)":"transparent",border:"1px solid "+(showChatImport?"rgba(136,170,255,.4)":"#1e1e2e"),color:showChatImport?"#88aaff":"#444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}>📥</button>
+        <button onClick={clearChat} title="Borrar historial del chat"
+          style={{background:"transparent",border:"1px solid #1e1e2e",color:"#444",padding:"5px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>Limpiar</button>
+        <button onClick={function(){setShowKeyInput(!showKeyInput);setTmpKey(apiKey);}} title="Configurar API Key"
+          style={{background:apiKey?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(apiKey?"#00ff88":"#ff4444"),color:apiKey?"#00ff88":"#ff4444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}>🔑</button>
       </div>
 
-      {/* Market data pill */}
-      {marketData&&(
-        <div style={{background:"#0d0d16",border:"1px solid #1e1e2e",borderRadius:6,padding:"6px 10px",marginBottom:8,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
-          <span style={{fontSize:10,fontWeight:700,color:"#f0b429"}}>{marketData.asset} {marketData.tf}</span>
-          <span style={{fontSize:10,fontWeight:700,color:"#e0e0e0"}}>${marketData.price}</span>
-          <span style={{fontSize:9,color:parseFloat(marketData.change24h)>=0?"#00ff88":"#ff4444"}}>{parseFloat(marketData.change24h)>=0?"+":""}{marketData.change24h}%</span>
-          <span style={{fontSize:9,color:marketData.rsi<=30?"#00ff88":marketData.rsi>=70?"#ff4444":"#888"}}>RSI {marketData.rsi}</span>
-          <span style={{fontSize:9,color:parseFloat(marketData.ema7)>parseFloat(marketData.ema25)?"#00ff88":"#ff4444"}}>{marketData.emaRelation}</span>
+      {/* Chat import/merge panel */}
+      {showChatImport&&(
+        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:12,marginBottom:8}}>
+          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:4}}>FUSIONAR MENSAJES DE OTRO DISPOSITIVO</div>
+          <div style={{fontSize:8,color:"#555",marginBottom:6}}>En el otro dispositivo pulsa 📤 para copiar, luego pega aqui y pulsa Fusionar:</div>
+          <textarea value={chatImportText} onChange={function(e){setChatImportText(e.target.value);}}
+            placeholder='[{"role":"user","content":"..."}]'
+            style={{width:"100%",height:80,background:"#0d0d16",border:"1px solid #2a2a3a",color:"#e0e0e0",borderRadius:5,padding:"6px 8px",fontSize:9,boxSizing:"border-box",resize:"none"}}/>
+          <div style={{display:"flex",gap:6,marginTop:6}}>
+            <button onClick={importMergeChat} style={{flex:2,padding:"7px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Fusionar</button>
+            <button onClick={function(){setShowChatImport(false);setChatImportText("");}} style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Panel de predicciones guardadas */}
+      {showPredictions&&(
+        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:10,marginBottom:8,maxHeight:240,overflowY:"auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:9,color:"#88aaff",fontWeight:700}}>PREDICCIONES GUARDADAS</div>
+            <span style={{fontSize:8,color:"#444"}}>El bot las recibe como contexto en cada mensaje</span>
+          </div>
+          {predictions.length===0&&(
+            <div style={{fontSize:9,color:"#333",textAlign:"center",padding:"10px 0"}}>
+              Sin predicciones. Pulsa 💾 en cualquier respuesta del bot para guardarla.
+            </div>
+          )}
+          {predictions.map(function(p){
+            var days=daysSince(p.timestamp);
+            var statusColor=p.status==="pending"?"#88aaff":p.status==="hit"?"#00ff88":"#ff4444";
+            var statusLabel=p.status==="pending"?"pendiente":p.status==="hit"?"acertada":"fallida";
+            return(
+              <div key={p.id} style={{background:"#0d0d16",borderRadius:6,padding:"8px 10px",marginBottom:6,border:"1px solid rgba(136,170,255,.12)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:8,color:statusColor,border:"1px solid "+statusColor,padding:"1px 5px",borderRadius:3}}>{statusLabel}</span>
+                    {p.asset&&<span style={{fontSize:8,color:"#f0b429"}}>{p.asset}{p.tf?" "+p.tf:""}</span>}
+                    <span style={{fontSize:8,color:"#444"}}>{p.savedDate}</span>
+                    <span style={{fontSize:8,color:days>7?"#ff4444":days>3?"#f0b429":"#555"}}>hace {days===0?"hoy":days+" dias"}</span>
+                  </div>
+                  <button onClick={function(){deletePrediction(p.id);}} style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:12,lineHeight:1}}>✕</button>
+                </div>
+                <div style={{fontSize:9,color:"#888",lineHeight:1.5,marginBottom:p.note?4:0,whiteSpace:"pre-wrap"}}>{p.content.slice(0,200)}{p.content.length>200?"…":""}</div>
+                {p.note&&<div style={{fontSize:8,color:"#f0b429",marginBottom:4}}>Nota: {p.note}</div>}
+                {p.status==="pending"&&(
+                  <div style={{display:"flex",gap:4,marginTop:6}}>
+                    <button onClick={function(){resolvePrediction(p.id,"hit");}}
+                      style={{flex:1,padding:"4px",background:"rgba(0,255,136,.08)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",borderRadius:4,fontSize:8,cursor:"pointer",fontWeight:700}}>✓ Acertada</button>
+                    <button onClick={function(){resolvePrediction(p.id,"missed");}}
+                      style={{flex:1,padding:"4px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.3)",color:"#ff4444",borderRadius:4,fontSize:8,cursor:"pointer",fontWeight:700}}>✗ Fallida</button>
+                    <button onClick={function(){
+                      var reminderMsg={role:"assistant",content:"📌 ANALISIS ANTERIOR ("+p.savedDate+", hace "+days+" días):\n\n"+p.content+(p.note?"\n\n[Nota: "+p.note+"]":""),time:p.savedTime,isReminder:true};
+                      setMessages(function(prev){return[...prev,reminderMsg];});
+                      setInput("Han pasado "+days+" dias desde este analisis"+(p.asset?" sobre "+p.asset:"")+(days===0?" (hoy mismo)":".")+". Recalcula en funcion del tiempo transcurrido y los datos actuales.");
+                      setShowPredictions(false);
+                    }}
+                      style={{flex:2,padding:"4px",background:"rgba(136,170,255,.08)",border:"1px solid rgba(136,170,255,.3)",color:"#88aaff",borderRadius:4,fontSize:8,cursor:"pointer"}}>↩ Preguntar update</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Form guardar predicción */}
+      {savingMsgIdx!==null&&(
+        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.4)",borderRadius:6,padding:10,marginBottom:6}}>
+          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:6}}>GUARDAR COMO PREDICCION</div>
+          <input style={{...S.inp,width:"100%",fontSize:9,padding:"6px 8px",marginBottom:6,boxSizing:"border-box"}}
+            placeholder="Nota opcional: ej. 'BTC banderin bajista, objetivo 74500'"
+            value={predNote}
+            onChange={function(e){setPredNote(e.target.value);}}/>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={function(){saveMessageAsPrediction(messages[savingMsgIdx],predNote);}}
+              style={{flex:2,padding:"7px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>GUARDAR</button>
+            <button onClick={function(){setSavingMsgIdx(null);setPredNote("");}}
+              style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+          </div>
         </div>
       )}
 
       {/* Messages */}
       <div ref={listRef} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,paddingBottom:8}}>
-        {messages.map((m,i)=>(
+        {messages.map(function(m,i){return(
           <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}}>
             <div style={{
-              maxWidth:"85%",
+              maxWidth:"88%",
               padding:"10px 12px",
               borderRadius:m.role==="user"?"12px 12px 2px 12px":"12px 12px 12px 2px",
               background:m.role==="user"?"rgba(240,180,41,.15)":"#111118",
               border:"1px solid "+(m.role==="user"?"rgba(240,180,41,.3)":"#1e1e2e"),
-              fontSize:11,
-              color:"#e0e0e0",
-              lineHeight:1.7,
-              whiteSpace:"pre-wrap",
+              fontSize:11,color:"#e0e0e0",lineHeight:1.7,whiteSpace:"pre-wrap",
             }}>
+              {m.image&&<img src={"data:"+m.image.mediaType+";base64,"+m.image.base64} style={{display:"block",maxWidth:"100%",maxHeight:220,borderRadius:6,marginBottom:8,objectFit:"contain"}}/>}
               {m.content}
             </div>
-            <span style={{fontSize:8,color:"#333",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
-              {m.role==="user"?"Tu":"Claude"} · {m.time}
-            </span>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
+              <span style={{fontSize:8,color:"#333"}}>{m.role==="user"?"Tu":"Claude"} · {m.time}</span>
+              {m.role==="assistant"&&i>0&&(
+                <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);}}
+                  title="Guardar como prediccion"
+                  style={{background:"transparent",border:"none",color:"#444",cursor:"pointer",fontSize:10,padding:"0 2px",lineHeight:1}}>💾</button>
+              )}
+              {i>0&&(function(){
+                var key=(m.role||"")+(m.content||"").slice(0,60)+(m.time||"");
+                var isPinned=pinned.some(function(p){return p._key===key;});
+                return(
+                  <button onClick={function(){togglePin(m);}}
+                    title={isPinned?"Desanclar mensaje":"Anclar: siempre en contexto del bot"}
+                    style={{background:"transparent",border:"none",color:isPinned?"#f0b429":"#333",cursor:"pointer",fontSize:10,padding:"0 2px",lineHeight:1}}>📌</button>
+                );
+              })()}
+            </div>
           </div>
-        ))}
+        );})}
         {loading&&(
           <div style={{alignSelf:"flex-start"}}>
             <div style={{padding:"10px 14px",background:"#111118",border:"1px solid #1e1e2e",borderRadius:"12px 12px 12px 2px",fontSize:11,color:"#555"}}>
@@ -1432,13 +2333,26 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
       </div>
 
       {/* Input */}
+      <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImageFile}/>
+      {pendingImage&&(
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",background:"rgba(240,180,41,.08)",border:"1px solid rgba(240,180,41,.2)",borderRadius:6,marginBottom:4}}>
+          <img src={"data:"+pendingImage.mediaType+";base64,"+pendingImage.base64} style={{width:40,height:40,objectFit:"cover",borderRadius:4}}/>
+          <span style={{fontSize:9,color:"#f0b429",flex:1}}>{pendingImage.name}</span>
+          <button onClick={function(){setPendingImage(null);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:14}}>✕</button>
+        </div>
+      )}
       <div style={{display:"flex",gap:6,paddingTop:8,borderTop:"1px solid #1a1a2a"}}>
+        <button
+          onClick={function(){fileInputRef.current&&fileInputRef.current.click();}}
+          title="Adjuntar grafico"
+          style={{background:"rgba(136,170,255,.1)",border:"1px solid rgba(136,170,255,.3)",color:"#88aaff",padding:"10px 12px",borderRadius:6,fontSize:16,cursor:"pointer"}}
+        >📷</button>
         <input
           style={{...S.inp,flex:1,fontSize:12,padding:"10px 12px"}}
-          placeholder={marketData?"Describe lo que ves en el grafico o pregunta lo que quieras...":"Carga los datos del mercado primero con ⚡"}
+          placeholder="Ej: en 4H en LINK veo una ineficiencia FVG, puedo entrar?"
           value={input}
-          onChange={e=>setInput(e.target.value)}
-          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
+          onChange={function(e){setInput(e.target.value);}}
+          onKeyDown={function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
         />
         <button
           onClick={sendMessage}
@@ -1449,7 +2363,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
         </button>
       </div>
       <div style={{fontSize:8,color:"#333",marginTop:4,textAlign:"center"}}>
-        Pulsa ⚡ para cargar datos en tiempo real antes de preguntar · Enter para enviar
+        Nombra el activo y temporalidad en tu mensaje · Los datos se cargan automaticamente · Enter para enviar
       </div>
     </div>
   );
@@ -1459,24 +2373,53 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,SPs,SJ,D,save}){
 
 function EmaDisplay({data}){
   if(!data)return null;
-  const isGolden=data.relation==="above";
-  const crossLabel=data.cross==="golden"?"CRUCE DORADO":data.cross==="death"?"CRUCE MUERTE":null;
+  const isGolden7_25=data.relation==="above";
+  const crossLabel7_25=data.cross==="golden"?"CRUCE DORADO 7/25":data.cross==="death"?"CRUCE MUERTE 7/25":null;
+  const isGolden50_200=data.relation50_200==="above";
+  const has50_200=data.ema50!=null&&data.ema200!=null;
+  const crossLabel50_200=data.cross50_200==="golden"?"CRUCE DORADO 50/200":data.cross50_200==="death"?"CRUCE MUERTE 50/200":null;
   return(
-    <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:4}}>
-      <div style={{background:"rgba(136,170,255,.1)",border:"1px solid rgba(136,170,255,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
-        <span style={{color:"#88aaff"}}>EMA7 </span>
-        <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema7.toFixed(0)}</span>
+    <div style={{marginTop:6}}>
+      <div style={{fontSize:8,color:"#555",marginBottom:3}}>EMA 7 / 25</div>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+        <div style={{background:"rgba(136,170,255,.1)",border:"1px solid rgba(136,170,255,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
+          <span style={{color:"#88aaff"}}>EMA7 </span>
+          <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema7.toFixed(0)}</span>
+        </div>
+        <div style={{background:"rgba(255,136,170,.1)",border:"1px solid rgba(255,136,170,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
+          <span style={{color:"#ff88aa"}}>EMA25 </span>
+          <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema25.toFixed(0)}</span>
+        </div>
+        <div style={{background:isGolden7_25?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(isGolden7_25?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:isGolden7_25?"#00ff88":"#ff4444"}}>
+          {isGolden7_25?"EMA7 > EMA25":"EMA7 < EMA25"}
+        </div>
+        {crossLabel7_25&&(
+          <div style={{background:data.cross==="golden"?"rgba(255,215,0,.15)":"rgba(100,0,100,.15)",border:"1px solid "+(data.cross==="golden"?"#ffd700":"#cc00cc"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:data.cross==="golden"?"#ffd700":"#cc44cc"}}>
+            {crossLabel7_25}
+          </div>
+        )}
       </div>
-      <div style={{background:"rgba(255,136,170,.1)",border:"1px solid rgba(255,136,170,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
-        <span style={{color:"#ff88aa"}}>EMA25 </span>
-        <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema25.toFixed(0)}</span>
-      </div>
-      <div style={{background:isGolden?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(isGolden?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:isGolden?"#00ff88":"#ff4444"}}>
-        {isGolden?"EMA7 > EMA25":"EMA7 < EMA25"}
-      </div>
-      {crossLabel&&(
-        <div style={{background:data.cross==="golden"?"rgba(255,215,0,.15)":"rgba(100,0,100,.15)",border:"1px solid "+(data.cross==="golden"?"#ffd700":"#cc00cc"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:data.cross==="golden"?"#ffd700":"#cc44cc"}}>
-          {crossLabel}
+      {has50_200&&(
+        <div>
+          <div style={{fontSize:8,color:"#555",marginBottom:3}}>EMA 50 / 200</div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{background:"rgba(255,200,100,.1)",border:"1px solid rgba(255,200,100,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
+              <span style={{color:"#ffc864"}}>EMA50 </span>
+              <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema50.toFixed(0)}</span>
+            </div>
+            <div style={{background:"rgba(200,150,255,.1)",border:"1px solid rgba(200,150,255,.3)",borderRadius:4,padding:"4px 8px",fontSize:9}}>
+              <span style={{color:"#c896ff"}}>EMA200 </span>
+              <span style={{color:"#e0e0e0",fontWeight:700}}>{data.ema200.toFixed(0)}</span>
+            </div>
+            <div style={{background:isGolden50_200?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(isGolden50_200?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:isGolden50_200?"#00ff88":"#ff4444"}}>
+              {isGolden50_200?"EMA50 > EMA200":"EMA50 < EMA200"}
+            </div>
+            {crossLabel50_200&&(
+              <div style={{background:data.cross50_200==="golden"?"rgba(255,215,0,.15)":"rgba(100,0,100,.15)",border:"1px solid "+(data.cross50_200==="golden"?"#ffd700":"#cc00cc"),borderRadius:4,padding:"4px 8px",fontSize:9,fontWeight:700,color:data.cross50_200==="golden"?"#ffd700":"#cc44cc"}}>
+                {crossLabel50_200}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1530,13 +2473,11 @@ function calcEMASeries(closes, period){
 }
 
 function detectCross(closes){
-  // Returns null | "golden" | "death"
+  // Returns null | "golden" | "death" for EMA7/EMA25
   if(closes.length<30)return null;
   const ema7=calcEMASeries(closes,7);
   const ema25=calcEMASeries(closes,25);
   if(ema7.length<2||ema25.length<2)return null;
-  // Align arrays (ema25 starts later)
-  const offset=ema7.length-ema25.length;
   const prevE7=ema7[ema7.length-2];
   const currE7=ema7[ema7.length-1];
   const prevE25=ema25[ema25.length-2];
@@ -1546,324 +2487,724 @@ function detectCross(closes){
   return null;
 }
 
+function detectCross50_200(closes){
+  // Returns null | "golden" | "death" for EMA50/EMA200
+  if(closes.length<205)return null;
+  const s50=calcEMASeries(closes,50);
+  const s200=calcEMASeries(closes,200);
+  if(s50.length<2||s200.length<2)return null;
+  const p50=s50[s50.length-2], c50=s50[s50.length-1];
+  const p200=s200[s200.length-2], c200=s200[s200.length-1];
+  if(p50<=p200&&c50>c200)return"golden";
+  if(p50>=p200&&c50<c200)return"death";
+  return null;
+}
+
 function AlertasTab({S}){
   const SYMBOLS=[
     {symbol:"BTCUSDT",label:"BTC/USD"},
+    {symbol:"ETHUSDT",label:"ETH/USD"},
+    {symbol:"SOLUSDT",label:"SOL/USD"},
+    {symbol:"LINKUSDT",label:"LINK/USD"},
+    {symbol:"BNBUSDT",label:"BNB/USD"},
+    {symbol:"XRPUSDT",label:"XRP/USD"},
+    {symbol:"APEUSDT",label:"APE/USD"},
+    {symbol:"AVAXUSDT",label:"AVAX/USD"},
+    {symbol:"DOTUSDT",label:"DOT/USD"},
+    {symbol:"ADAUSDT",label:"ADA/USD"},
   ];
   const INTERVALS=[
-    {value:"1h",label:"1 hora"},
-    {value:"4h",label:"4 horas"},
+    {value:"1h",label:"1H"},
+    {value:"4h",label:"4H"},
     {value:"1d",label:"Diario"},
     {value:"1w",label:"Semanal"},
   ];
 
+  // --- State ---
   const[alerts,setAlerts]=useState([]);
-  const[customAlerts,setCustomAlerts]=useState([]);
-  const[showCustomForm,setShowCustomForm]=useState(false);
-  const[customForm,setCustomForm]=useState({symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",condition:"below",threshold:30,description:""});
+  const alertsRef=useRef([]);
+  const[showForm,setShowForm]=useState(false);
+  const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiEnabled:true,rsiThreshold:30,rsiCondition:"below",emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false,channelEnabled:false,fvgEnabled:false});
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
+  const[lastAlert,setLastAlert]=useState(null);
+  const reconnectCountRef=useRef({});
   const wsRefs=useRef({});
   const closesRef=useRef({});
-  const lastCrossRef=useRef({});
-  const lastCustomRef=useRef({});
+  const ohlcRef=useRef({});
+  const lastTrigRef=useRef({});
   const[emaData,setEmaData]=useState({});
+  const[showImport,setShowImport]=useState(false);
+  const[importText,setImportText]=useState("");
+
+  // Telegram config
+  const[tgToken,setTgToken]=useState(function(){return localStorage.getItem("td-tg-token")||"";});
+  const[tgChatId,setTgChatId]=useState(function(){return localStorage.getItem("td-tg-chatid")||"";});
+  const[showTgConfig,setShowTgConfig]=useState(false);
+  const[tgStatus,setTgStatus]=useState(null);
+
+  // Wake Lock — mantiene pantalla encendida cuando hay alertas activas
+  const wakeLockRef=useRef(null);
+  async function requestWakeLock(){
+    if(!("wakeLock" in navigator))return;
+    try{
+      if(wakeLockRef.current)return;
+      wakeLockRef.current=await navigator.wakeLock.request("screen");
+      wakeLockRef.current.addEventListener("release",function(){wakeLockRef.current=null;});
+    }catch(e){}
+  }
+  function releaseWakeLock(){
+    if(wakeLockRef.current){wakeLockRef.current.release().catch(function(){});wakeLockRef.current=null;}
+  }
+  // Re-acquire wake lock when tab becomes visible again
+  useEffect(function(){
+    function onVis(){
+      if(document.visibilityState==="visible"){
+        const hasActive=alertsRef.current.some(function(a){return a.active;});
+        if(hasActive)requestWakeLock();
+      }
+    }
+    document.addEventListener("visibilitychange",onVis);
+    return function(){document.removeEventListener("visibilitychange",onVis);};
+  },[]);
+
+  function saveAlerts(arr){
+    alertsRef.current=arr;
+    setAlerts(arr);
+    localStorage.setItem("td-alerts-v2",JSON.stringify(arr));
+  }
 
   useEffect(()=>{
     if("Notification" in window)setNotifPerm(Notification.permission);
-    // Load saved alerts - if none, init the 4 default BTC alerts
+    // Load new-format alerts
     try{
-      const savedCustom=localStorage.getItem("td-custom-alerts");
-      if(savedCustom)setCustomAlerts(JSON.parse(savedCustom));
-    }catch(e){}
-    try{
-      const saved=localStorage.getItem("td-rsi-alerts");
+      const saved=localStorage.getItem("td-alerts-v2");
       if(saved){
         const parsed=JSON.parse(saved);
-        if(parsed.length>0){setAlerts(parsed);return;}
+        if(parsed.length>0){
+          const loaded=parsed.map(function(a){return{...a,currentRsi:null,currentPrice:null,error:false};});
+          alertsRef.current=loaded;
+          setAlerts(loaded);
+          // Auto-restart monitors that were active before page close
+          setTimeout(function(){loaded.forEach(function(a){if(a.active)startAlert(a);});},700);
+          return;
+        }
       }
-      // First time: create the 4 BTC alerts automatically
-      const defaults=[
-        {id:1,symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",oversold:30,overbought:70,active:false,rsi:null},
-        {id:2,symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",oversold:30,overbought:70,active:false,rsi:null},
-        {id:3,symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",oversold:30,overbought:70,active:false,rsi:null},
-        {id:4,symbol:"BTCUSDT",label:"BTC/USD",interval:"1w",oversold:30,overbought:70,active:false,rsi:null},
-      ];
-      setAlerts(defaults);
-      localStorage.setItem("td-rsi-alerts",JSON.stringify(defaults));
+    }catch(e){}
+    // Migrate from old format (td-rsi-alerts)
+    try{
+      const oldSaved=localStorage.getItem("td-rsi-alerts");
+      if(oldSaved){
+        const old=JSON.parse(oldSaved);
+        if(old.length>0){
+          const migrated=old.map(function(a){return{
+            id:a.id,symbol:a.symbol,label:a.label,interval:a.interval,
+            rsiEnabled:a.notifyRsi!==false,rsiThreshold:a.oversold||30,rsiCondition:"below",
+            emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false,
+            active:false,currentRsi:null,currentPrice:null,error:false
+          };});
+          alertsRef.current=migrated;
+          setAlerts(migrated);
+          localStorage.setItem("td-alerts-v2",JSON.stringify(migrated));
+          return;
+        }
+      }
     }catch(e){}
   },[]);
 
-  function saveAlerts(newAlerts){
-    setAlerts(newAlerts);
-    localStorage.setItem("td-rsi-alerts",JSON.stringify(newAlerts));
-  }
-
-  function saveCustomAlerts(arr){
-    setCustomAlerts(arr);
-    localStorage.setItem("td-custom-alerts",JSON.stringify(arr));
-  }
-
-  function addCustomAlert(){
-    if(!customForm.threshold)return;
-    const na={...customForm,id:Date.now(),triggered:false};
-    saveCustomAlerts([...customAlerts,na]);
-    setShowCustomForm(false);
-    setCustomForm({symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",condition:"below",threshold:30,description:""});
-  }
-
   function requestNotif(){
-    if(!("Notification" in window)){alert("Tu navegador no soporta notificaciones");return;}
-    Notification.requestPermission().then(p=>{
+    const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+    if(!("Notification" in window)){
+      if(isIOS){
+        alert("iOS Safari no soporta notificaciones web.\n\nPara recibirlas en iPhone:\n1. Pulsa el boton Compartir (cuadrado con flecha)\n2. Selecciona \"Añadir a pantalla de inicio\"\n3. Abre la app desde el icono que se crea\n4. Vuelve a pulsar ACTIVAR");
+      }else{
+        alert("Tu navegador no soporta notificaciones. Usa Chrome en Android.");
+      }
+      return;
+    }
+    const req=Notification.requestPermission(function(p){
       setNotifPerm(p);
       if(p==="granted")sendTestNotif();
     });
+    if(req&&typeof req.then==="function"){
+      req.then(function(p){
+        setNotifPerm(p);
+        if(p==="granted")sendTestNotif();
+      });
+    }
   }
 
   function sendTestNotif(){
-    new Notification("Trading Diary - Alertas RSI",{
-      body:"Las notificaciones funcionan correctamente",
-      icon:"https://cdn.iconscout.com/icon/free/png-256/free-trading-2742759-2274860.png"
-    });
+    const title="Trading Diary";
+    const opts={body:"Notificaciones funcionando en tu dispositivo",icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",silent:false};
+    function doNotif(){try{new Notification(title,opts);}catch(e){console.warn("Notif fallback",e);}}
+    if("serviceWorker" in navigator){
+      navigator.serviceWorker.getRegistration().then(function(reg){
+        if(reg){try{reg.showNotification(title,opts);}catch(e){doNotif();}}
+        else{doNotif();}
+      }).catch(doNotif);
+    }else{doNotif();}
   }
 
-  function sendAlert(label,interval,rsi,type,ema7,ema25,customDesc){
-    const rsiPart=rsi!==null?(type==="oversold"?"RSI SOBREVENTA "+rsi:type==="overbought"?"RSI SOBRECOMPRA "+rsi:""):"";
-    const emaPart=type==="golden"?"CRUCE DORADO EMA7 > EMA25":type==="death"?"CRUCE DE LA MUERTE EMA7 < EMA25":"";
-    const customPart=customDesc||"";
-    const title=type==="golden"||type==="death"?"Alerta EMA":type.startsWith("custom")?"Alerta Personalizada":"Alerta RSI";
-    const body=customDesc?customDesc:[rsiPart,emaPart].filter(Boolean).join(" + ");
-    const tf=interval==="1h"?"1H":interval==="4h"?"4H":interval==="1d"?"Diario":"Semanal";
-    const msg=label+" "+tf+" — "+body;
-    const log={id:Date.now(),label,interval:tf,rsi,type,ema7:ema7?ema7.toFixed(0):null,ema25:ema25?ema25.toFixed(0):null,time:new Date().toLocaleTimeString("es-ES")};
-    setLogs(prev=>[log,...prev.slice(0,49)]);
+  function sendAlert(label,interval,rsi,type,e1,e2,customDesc,price){
+    const isPriceAlert=type==="price_target";
+    const tf=isPriceAlert?"Precio":interval==="1h"?"1H":interval==="4h"?"4H":interval==="1d"?"Diario":"Semanal";
+    const priceStr=price!=null?" | $"+parseFloat(price).toLocaleString("es-ES",{maximumFractionDigits:2}):"";
+    var title="Alerta Trading";
+    var body="";
+    if(type==="rsi_custom"){title="Alerta RSI";body=label+" "+tf+" — "+(customDesc||"RSI "+rsi)+priceStr;}
+    else if(type==="golden"){title="Cruce Dorado EMA 7/25";body=label+" "+tf+" — EMA7 cruza EMA25 al alza"+priceStr;}
+    else if(type==="death"){title="Cruce Muerte EMA 7/25";body=label+" "+tf+" — EMA7 cruza EMA25 a la baja"+priceStr;}
+    else if(type==="ema200_golden"){title="Cruce Dorado EMA 50/200";body=label+" "+tf+" — EMA50 cruza EMA200 al alza"+priceStr;}
+    else if(type==="ema200_death"){title="Cruce Muerte EMA 50/200";body=label+" "+tf+" — EMA50 cruza EMA200 a la baja"+priceStr;}
+    else if(type==="price_target"){title="Precio Objetivo";body=customDesc||label+" — PRECIO ALCANZADO $"+parseFloat(price).toFixed(2);}
+    else if(type==="patron_combo"){title="🔥 PATRÓN COMBINADO";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
+    else if(type==="patron_canal"){title="📐 Canal Detectado";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
+    else if(type==="patron_fvg"){title="⚡ FVG Cubierta";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
+    else if(customDesc){title="Alerta";body=label+" "+tf+" — "+customDesc+priceStr;}
+    else{title="Alerta";body=label+" "+tf+" — "+type+priceStr;}
+    const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,price:price!=null?parseFloat(price).toFixed(2):null,body,time:new Date().toLocaleTimeString("es-ES")};
+    setLogs(function(prev){return[log,...prev.slice(0,49)];});
+    setLastAlert({title,body,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})});
+    setTimeout(function(){setLastAlert(null);},8000);
+    if(navigator.vibrate){try{navigator.vibrate([300,150,300,150,300]);}catch(e){}}
+    // Telegram
+    var tk=localStorage.getItem("td-tg-token");
+    var cid=localStorage.getItem("td-tg-chatid");
+    if(tk&&cid){
+      var tgText=encodeURIComponent("📊 "+title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES"));
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+tgText).catch(function(){});
+    }
     if(Notification.permission==="granted"){
-      new Notification(title,{body:msg,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png"});
+      const notifOpts={body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",requireInteraction:true,silent:false};
+      function doNotif(){try{new Notification(title,notifOpts);}catch(ex){try{new Notification(title,{body:body});}catch(e){}}}
+      if("serviceWorker" in navigator){
+        navigator.serviceWorker.getRegistration().then(function(reg){
+          if(reg){try{reg.showNotification(title,notifOpts);}catch(e){doNotif();}}
+          else{doNotif();}
+        }).catch(doNotif);
+      }else{doNotif();}
     }
   }
 
   function startAlert(alert){
+    requestWakeLock(); // mantener pantalla encendida
+    const sid=alert.id.toString();
+    // Close existing WS for this alert if any
+    if(wsRefs.current[sid])wsRefs.current[sid].close();
     const key=alert.symbol+alert.interval;
-    if(wsRefs.current[key])wsRefs.current[key].close();
-    closesRef.current[key]=[];
+    if(!closesRef.current[key])closesRef.current[key]=[];
+    // Mark as active and persist so auto-restart works on next load
+    saveAlerts(alertsRef.current.map(function(a){return a.id===alert.id?{...a,active:true,error:false}:a;}));
 
-    // First fetch historical data for RSI calculation
-    fetch("https://api.binance.com/api/v3/klines?symbol="+alert.symbol+"&interval="+alert.interval+"&limit=50")
-      .then(r=>r.json())
-      .then(data=>{
-        closesRef.current[key]=data.map(k=>parseFloat(k[4]));
-        // Open WebSocket for live updates
+    fetch("https://api.binance.com/api/v3/klines?symbol="+alert.symbol+"&interval="+alert.interval+"&limit=250")
+      .then(function(r){return r.json();})
+      .then(function(data){
+        closesRef.current[key]=data.map(function(k){return parseFloat(k[4]);});
+        ohlcRef.current[key]=data.map(function(k){return{o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4])};});
         const ws=new WebSocket("wss://stream.binance.com:9443/ws/"+alert.symbol.toLowerCase()+"@kline_"+alert.interval);
-        ws.onmessage=e=>{
+        ws.onmessage=function(e){
           const d=JSON.parse(e.data);
           const k=d.k;
           const closePrice=parseFloat(k.c);
           const closes=[...closesRef.current[key]];
-          if(k.x){closes.push(closePrice);if(closes.length>100)closes.shift();}
+          if(k.x){closes.push(closePrice);if(closes.length>300)closes.shift();}
           else{if(closes.length>0)closes[closes.length-1]=closePrice;}
           closesRef.current[key]=closes;
+          const ohlc=[...(ohlcRef.current[key]||[])];
+          const newCandle={o:parseFloat(k.o),h:parseFloat(k.h),l:parseFloat(k.l),c:closePrice};
+          if(k.x){ohlc.push(newCandle);if(ohlc.length>300)ohlc.shift();}
+          else{if(ohlc.length>0)ohlc[ohlc.length-1]=newCandle;}
+          ohlcRef.current[key]=ohlc;
 
           const rsi=calcRSI(closes,14);
           const ema7=calcEMA(closes,7);
           const ema25=calcEMA(closes,25);
-          const cross=detectCross(closes);
+          const ema50=calcEMA(closes,50);
+          const ema200=calcEMA(closes,200);
+          const cross7_25=detectCross(closes);
+          const cross50_200=detectCross50_200(closes);
           const relation=ema7&&ema25?(ema7>ema25?"above":"below"):null;
+          const relation50_200=ema50&&ema200?(ema50>ema200?"above":"below"):null;
 
           // Update UI
-          setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,rsi,active:true}:a));
+          setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,currentRsi:rsi,currentPrice:closePrice,active:true}:a;});});
           if(ema7&&ema25){
-            setEmaData(prev=>({...prev,[alert.id]:{ema7,ema25,relation,cross}}));
+            setEmaData(function(prev){return{...prev,[alert.id]:{ema7,ema25,relation,cross:cross7_25,ema50,ema200,relation50_200,cross50_200}};});
           }
 
-          // RSI alerts
-          if(rsi!==null){
-            if(rsi<=alert.oversold)sendAlert(alert.label,alert.interval,rsi,"oversold",ema7,ema25);
-            if(rsi>=alert.overbought)sendAlert(alert.label,alert.interval,rsi,"overbought",ema7,ema25);
+          const ak=sid+"_";
+          // RSI custom threshold
+          if(alert.rsiEnabled&&rsi!==null){
+            const rsiKey=ak+"rsi";
+            const triggered=(alert.rsiCondition==="below"&&rsi<=alert.rsiThreshold)||(alert.rsiCondition==="above"&&rsi>=alert.rsiThreshold);
+            if(triggered&&!lastTrigRef.current[rsiKey]){
+              lastTrigRef.current[rsiKey]=true;
+              const condLabel=alert.rsiCondition==="below"?"SOBREVENTA":"SOBRECOMPRA";
+              sendAlert(alert.label,alert.interval,rsi,"rsi_custom",ema7,ema25,"RSI "+condLabel+" "+rsi+" (umbral "+alert.rsiThreshold+")",closePrice);
+            }
+            if(!triggered)lastTrigRef.current[rsiKey]=false;
           }
-
-          // EMA cross alerts - only fire once per cross (not every tick)
-          if(cross){
-            const crossKey=key+"_cross";
-            const lastCross=lastCrossRef.current[crossKey];
-            if(lastCross!==cross){
-              lastCrossRef.current[crossKey]=cross;
-              sendAlert(alert.label,alert.interval,rsi,cross,ema7,ema25);
+          // EMA 7/25 golden
+          if(cross7_25==="golden"&&alert.emaGoldenEnabled){
+            if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice);}
+          }else if(cross7_25!=="golden"){lastTrigRef.current[ak+"g725"]=false;}
+          // EMA 7/25 death
+          if(cross7_25==="death"&&alert.emaDeathEnabled){
+            if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice);}
+          }else if(cross7_25!=="death"){lastTrigRef.current[ak+"d725"]=false;}
+          // EMA 50/200 golden
+          if(cross50_200==="golden"&&alert.ema200GoldenEnabled){
+            if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice);}
+          }else if(cross50_200!=="golden"){lastTrigRef.current[ak+"g200"]=false;}
+          // EMA 50/200 death
+          if(cross50_200==="death"&&alert.ema200DeathEnabled){
+            if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice);}
+          }else if(cross50_200!=="death"){lastTrigRef.current[ak+"d200"]=false;}
+          // Channel detection (only on closed candles to avoid noise)
+          if(k.x&&(alert.channelEnabled||alert.fvgEnabled)){
+            var channelResult=alert.channelEnabled?detectChannelAlert(ohlc):null;
+            var fvgResult=alert.fvgEnabled?checkFVGCovered(ohlc,closePrice):null;
+            // After every closed candle, reset channel trigger so new touches re-fire
+            // (FVG trigger stays locked per age to avoid repeated fires on same gap)
+            lastTrigRef.current[ak+"chan_prev"]=lastTrigRef.current[ak+"chan_cur"]||"";
+            var chanTypeNow=channelResult?channelResult.type:"";
+            if(chanTypeNow!==lastTrigRef.current[ak+"chan_prev"]){
+              lastTrigRef.current[ak+"chan_cur"]=chanTypeNow;
+            }
+            // Combo: channel boundary + FVG covered at same time (highest quality signal)
+            if(channelResult&&fvgResult){
+              var comboKey=ak+"combo_"+channelResult.type+"_"+fvgResult.age;
+              if(!lastTrigRef.current[comboKey]){
+                lastTrigRef.current[comboKey]=true;
+                sendAlert(alert.label,alert.interval,rsi,"patron_combo",null,null,
+                  "PATRÓN: "+channelResult.desc+" + FVG "+fvgResult.subtype+" cubierta ($"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+")",closePrice);
+              }
+            }else{
+              if(channelResult){
+                var chanKey=ak+"chan_"+channelResult.type+"_"+Math.round(closePrice/10);
+                if(!lastTrigRef.current[chanKey]){
+                  lastTrigRef.current[chanKey]=true;
+                  sendAlert(alert.label,alert.interval,rsi,"patron_canal",null,null,channelResult.desc,closePrice);
+                }
+              }
+              if(fvgResult){
+                var fvgKey=ak+"fvg_"+fvgResult.subtype+"_"+fvgResult.age;
+                if(!lastTrigRef.current[fvgKey]){
+                  lastTrigRef.current[fvgKey]=true;
+                  sendAlert(alert.label,alert.interval,rsi,"patron_fvg",null,null,
+                    "FVG "+fvgResult.subtype+" cubierta — zona $"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+" (hace "+fvgResult.age+" velas)",closePrice);
+                }
+              }
             }
           }
-
-          // Combined: RSI oversold + EMA relation favorable
-          if(rsi!==null&&rsi<=alert.oversold&&relation==="above"){
-            sendAlert(alert.label,alert.interval,rsi,"oversold_golden",ema7,ema25);
-          }
-          // Check custom personalized alerts
-          if(rsi!==null){
-            customAlerts.forEach(function(ca){
-              if(ca.symbol!==alert.symbol||ca.interval!==alert.interval)return;
-              const thresh=parseFloat(ca.threshold);
-              const triggered=(ca.condition==="below"&&rsi<=thresh)||(ca.condition==="above"&&rsi>=thresh);
-              const ck=ca.id+"_"+alert.symbol+alert.interval;
-              if(triggered&&lastCustomRef.current[ck]!==true){
-                lastCustomRef.current[ck]=true;
-                const desc=ca.description||("RSI "+(ca.condition==="below"?"por debajo de":"por encima de")+" "+thresh);
-                sendAlert(alert.label,alert.interval,rsi,"custom_"+ca.condition,ema7,ema25,desc);
-              }
-              if(!triggered)lastCustomRef.current[ck]=false;
-            });
-          }
         };
-        ws.onerror=()=>setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,active:false,error:true}:a));
-        wsRefs.current[key]=ws;
-        setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,active:true,error:false}:a));
+        ws.onerror=function(){
+          // will be followed by onclose, handle reconnect there
+        };
+        ws.onclose=function(){
+          // If the alert is still supposed to be active, auto-reconnect
+          const stillActive=alertsRef.current.find(function(a){return a.id===alert.id&&a.active;});
+          if(!stillActive)return; // user stopped it
+          const cnt=(reconnectCountRef.current[sid]||0)+1;
+          reconnectCountRef.current[sid]=cnt;
+          if(cnt>10){
+            // too many retries, mark error
+            setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+            reconnectCountRef.current[sid]=0;
+            return;
+          }
+          const delay=Math.min(30000,3000*cnt);
+          setTimeout(function(){
+            const check=alertsRef.current.find(function(a){return a.id===alert.id&&a.active;});
+            if(check)startAlert(check);
+          },delay);
+        };
+        wsRefs.current[sid]=ws;
+        reconnectCountRef.current[sid]=0;
       })
-      .catch(()=>setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,active:false,error:true}:a)));
+      .catch(function(){
+        setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+      });
   }
 
   function stopAlert(alert){
-    const key=alert.symbol+alert.interval;
-    if(wsRefs.current[key])wsRefs.current[key].close();
-    delete wsRefs.current[key];
-    setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,active:false,rsi:null}:a));
+    const sid=alert.id.toString();
+    if(wsRefs.current[sid]){wsRefs.current[sid].close();delete wsRefs.current[sid];}
+    const updated=alertsRef.current.map(function(a){return a.id===alert.id?{...a,active:false,currentRsi:null,currentPrice:null,error:false}:a;});
+    saveAlerts(updated);
+    // liberar wake lock si no quedan alertas activas
+    if(!updated.some(function(a){return a.active;}))releaseWakeLock();
   }
 
   function addAlert(){
-    const newAlert={
-      id:Date.now(),symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",
-      oversold:30,overbought:70,active:false,rsi:null
-    };
-    saveAlerts([...alerts,newAlert]);
-  }
-
-  function initDefaultAlerts(){
-    const defaults=[
-      {id:Date.now()+1,symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",oversold:30,overbought:70,active:false,rsi:null},
-      {id:Date.now()+2,symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",oversold:30,overbought:70,active:false,rsi:null},
-      {id:Date.now()+3,symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",oversold:30,overbought:70,active:false,rsi:null},
-      {id:Date.now()+4,symbol:"BTCUSDT",label:"BTC/USD",interval:"1w",oversold:30,overbought:70,active:false,rsi:null},
-    ];
-    saveAlerts(defaults);
-  }
-
-  function updateAlert(id,field,val){
-    saveAlerts(alerts.map(a=>a.id===id?{...a,[field]:val}:a));
+    if(draft.selectedSymbols.length===0)return;
+    const newAlerts=draft.selectedSymbols.map(function(sym,i){
+      const symInfo=SYMBOLS.find(function(s){return s.symbol===sym;})||{symbol:sym,label:sym};
+      return{
+        id:Date.now()+i,symbol:symInfo.symbol,label:symInfo.label,interval:draft.interval,
+        rsiEnabled:draft.rsiEnabled,rsiThreshold:draft.rsiThreshold,rsiCondition:draft.rsiCondition,
+        emaGoldenEnabled:draft.emaGoldenEnabled,emaDeathEnabled:draft.emaDeathEnabled,
+        ema200GoldenEnabled:draft.ema200GoldenEnabled,ema200DeathEnabled:draft.ema200DeathEnabled,
+        channelEnabled:draft.channelEnabled,fvgEnabled:draft.fvgEnabled,
+        active:false,currentRsi:null,currentPrice:null,error:false
+      };
+    });
+    const updated=[...alertsRef.current,...newAlerts];
+    saveAlerts(updated);
+    setShowForm(false);
+    newAlerts.forEach(function(a){startAlert(a);});
   }
 
   function removeAlert(alert){
     stopAlert(alert);
-    saveAlerts(alerts.filter(a=>a.id!==alert.id));
+    saveAlerts(alertsRef.current.filter(function(a){return a.id!==alert.id;}));
+  }
+
+  function exportAlerts(){
+    const data=JSON.stringify(alertsRef.current.map(function(a){return{...a,active:false,currentRsi:null,currentPrice:null,error:false};}));
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(data).then(function(){alert("Alertas copiadas al portapapeles. Pegalas en el movil con el boton Importar.");}).catch(function(){setImportText(data);setShowImport(true);});
+    }else{setImportText(data);setShowImport(true);}
+  }
+
+  function importAlerts(){
+    try{
+      const parsed=JSON.parse(importText);
+      if(!Array.isArray(parsed))throw new Error("formato invalido");
+      const imported=parsed.map(function(a){return{...a,active:false,currentRsi:null,currentPrice:null,error:false};});
+      saveAlerts(imported);
+      setShowImport(false);
+      setImportText("");
+      alert(imported.length+" alertas importadas. Pulsa Iniciar en cada una.");
+    }catch(e){alert("Error al importar: JSON invalido");}
   }
 
   return(
     <div>
-      {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-        <div>
-          <div style={{fontSize:11,color:"#f0b429",fontWeight:700,letterSpacing:1}}>ALERTAS RSI</div>
-          <div style={{fontSize:9,color:"#555",marginTop:2}}>Notificaciones en tiempo real via Binance</div>
+      {/* In-app alert banner */}
+      {lastAlert&&(
+        <div style={{background:"rgba(240,180,41,.15)",border:"1px solid rgba(240,180,41,.6)",borderRadius:8,padding:"10px 14px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",animation:"fadein .3s"}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"#f0b429"}}>{lastAlert.title}</div>
+            <div style={{fontSize:10,color:"#e0e0e0",marginTop:2}}>{lastAlert.body}</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+            <span style={{fontSize:8,color:"#888"}}>{lastAlert.time}</span>
+            <button onClick={function(){setLastAlert(null);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:12}}>✕</button>
+          </div>
         </div>
-        <button onClick={initDefaultAlerts} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"8px 12px",borderRadius:6,fontSize:9,cursor:"pointer"}}>Resetear</button>
+      )}
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div>
+          <div style={{fontSize:11,color:"#f0b429",fontWeight:700,letterSpacing:1}}>ALERTAS RSI / EMA</div>
+          <div style={{fontSize:9,color:"#555",marginTop:2}}>Tiempo real via Binance WebSocket</div>
+        </div>
+        <div style={{display:"flex",gap:5}}>
+          <button onClick={function(){setShowTgConfig(!showTgConfig);}} title="Notificaciones Telegram"
+            style={{background:tgToken&&tgChatId?"rgba(0,136,204,.15)":"transparent",border:"1px solid "+(tgToken&&tgChatId?"#0088cc":"#2a2a3a"),color:tgToken&&tgChatId?"#0088cc":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>✈️</button>
+          {alerts.length>0&&<button onClick={exportAlerts} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Exportar</button>}
+          <button onClick={function(){setShowImport(!showImport);setImportText("");}} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Importar</button>
+          <button onClick={function(){setShowForm(!showForm);}} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"8px 14px",borderRadius:6,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva</button>
+        </div>
       </div>
 
-      {/* Notificaciones permission */}
-      <div style={{background:"#111118",border:"1px solid "+(notifPerm==="granted"?"rgba(0,255,136,.3)":"rgba(240,180,41,.3)"),borderRadius:8,padding:12,marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontSize:10,fontWeight:700,color:notifPerm==="granted"?"#00ff88":"#f0b429"}}>
-              {notifPerm==="granted"?"✓ Notificaciones activadas":"Notificaciones del navegador"}
-            </div>
-            <div style={{fontSize:9,color:"#555",marginTop:2}}>
-              {notifPerm==="granted"
-                ?"Recibiras alertas aunque la app este en segundo plano"
-                :"Activa para recibir avisos cuando el RSI alcance los limites"}
+      {/* Telegram config panel */}
+      {/* Telegram — compacto si ya está configurado, expandible */}
+      {tgToken&&tgChatId&&!showTgConfig?(
+        <div style={{background:"rgba(0,136,204,.06)",border:"1px solid rgba(0,136,204,.25)",borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontSize:13}}>✈️</span>
+            <div>
+              <div style={{fontSize:9,fontWeight:700,color:"#0088cc"}}>Telegram conectado</div>
+              <div style={{fontSize:8,color:"#444"}}>Alertas enviadas como mensaje al dispararse</div>
             </div>
           </div>
-          {notifPerm!=="granted"&&(
-            <button onClick={requestNotif} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"6px 12px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>ACTIVAR</button>
-          )}
-          {notifPerm==="granted"&&(
-            <button onClick={sendTestNotif} style={{background:"transparent",border:"1px solid #00ff88",color:"#00ff88",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer"}}>Probar</button>
-          )}
+          <button onClick={function(){setShowTgConfig(true);}}
+            style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"4px 8px",borderRadius:4,fontSize:8,cursor:"pointer"}}>Editar</button>
         </div>
-      </div>
+      ):(
+        showTgConfig&&(
+        <div style={{background:"#111118",border:"1px solid rgba(0,136,204,.3)",borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:10,color:"#0088cc",fontWeight:700}}>✈️ NOTIFICACIONES TELEGRAM</div>
+            {tgToken&&tgChatId&&<button onClick={function(){setShowTgConfig(false);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:12}}>✕</button>}
+          </div>
+          <div style={{fontSize:8,color:"#555",marginBottom:10,lineHeight:1.6}}>
+            Cuando salte una alerta, recibirás un mensaje de Telegram aunque el móvil esté bloqueado.<br/>
+            1. Abre Telegram → busca <strong style={{color:"#88aaff"}}>@BotFather</strong> → /newbot → copia el token<br/>
+            2. Busca <strong style={{color:"#88aaff"}}>@userinfobot</strong> → /start → copia tu Chat ID
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div>
+              <div style={{fontSize:8,color:"#888",marginBottom:3}}>TOKEN DEL BOT</div>
+              <input value={tgToken} onChange={function(e){setTgToken(e.target.value);}}
+                placeholder="123456:ABCdef..."
+                style={{...S.inp,width:"100%",fontSize:9,padding:"5px 8px",boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:8,color:"#888",marginBottom:3}}>CHAT ID</div>
+              <input value={tgChatId} onChange={function(e){setTgChatId(e.target.value);}}
+                placeholder="123456789"
+                style={{...S.inp,width:"100%",fontSize:9,padding:"5px 8px",boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          {tgStatus&&(
+            <div style={{fontSize:9,marginBottom:8,padding:"5px 8px",borderRadius:4,
+              background:tgStatus==="ok"?"rgba(0,255,136,.08)":"rgba(255,68,68,.08)",
+              color:tgStatus==="ok"?"#00ff88":"#ff4444",
+              border:"1px solid "+(tgStatus==="ok"?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)")}}>
+              {tgStatus==="ok"?"✓ Mensaje enviado — Telegram configurado correctamente":"✗ Error — revisa el token y el Chat ID"}
+            </div>
+          )}
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={function(){
+              var tk=tgToken.trim();var cid=tgChatId.trim();
+              if(!tk||!cid){setTgStatus("error");return;}
+              localStorage.setItem("td-tg-token",tk);
+              localStorage.setItem("td-tg-chatid",cid);
+              var txt=encodeURIComponent("✅ Trading Diary conectado!\n\nRecibirás alertas aquí cuando se disparen.");
+              fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+txt)
+                .then(function(r){return r.json();})
+                .then(function(d){
+                  setTgStatus(d.ok?"ok":"error");
+                  if(d.ok)setTimeout(function(){setShowTgConfig(false);},1500);
+                })
+                .catch(function(){setTgStatus("error");});
+            }} style={{flex:2,padding:"7px",background:"#0088cc",color:"#fff",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar y probar</button>
+            {tgToken&&<button onClick={function(){
+              localStorage.removeItem("td-tg-token");localStorage.removeItem("td-tg-chatid");
+              setTgToken("");setTgChatId("");setTgStatus(null);setShowTgConfig(false);
+            }} style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Desconectar</button>}
+          </div>
+        </div>
+        )
+      )}
+
+      {/* Import panel */}
+      {showImport&&(
+        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:6}}>IMPORTAR ALERTAS</div>
+          <div style={{fontSize:8,color:"#555",marginBottom:6}}>Copia el texto exportado desde otro dispositivo y pegalo aqui:</div>
+          <textarea value={importText} onChange={function(e){setImportText(e.target.value);}}
+            placeholder='[{"id":...}]'
+            style={{...S.inp,width:"100%",minHeight:70,padding:8,fontSize:9,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box"}}/>
+          <div style={{display:"flex",gap:6,marginTop:8}}>
+            <button onClick={importAlerts} style={{flex:2,padding:"8px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>IMPORTAR</button>
+            <button onClick={function(){setShowImport(false);setImportText("");}} style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Formulario nueva alerta */}
+      {showForm&&(
+        <div style={{background:"#111118",border:"1px solid rgba(240,180,41,.35)",borderRadius:8,padding:14,marginBottom:12}}>
+          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:12}}>NUEVA ALERTA</div>
+          {/* Activos (multi-select) */}
+          <div style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:8,color:"#555"}}>ACTIVOS <span style={{color:"#f0b429"}}>({draft.selectedSymbols.length} seleccionados)</span></div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={function(){setDraft({...draft,selectedSymbols:SYMBOLS.map(function(s){return s.symbol;})});}}
+                  style={{fontSize:7,color:"#f0b429",background:"transparent",border:"none",cursor:"pointer",padding:0}}>Todo</button>
+                <button onClick={function(){setDraft({...draft,selectedSymbols:[]});}}
+                  style={{fontSize:7,color:"#555",background:"transparent",border:"none",cursor:"pointer",padding:0}}>Ninguno</button>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+              {SYMBOLS.map(function(s){
+                const sel=draft.selectedSymbols.indexOf(s.symbol)>-1;
+                return(
+                  <button key={s.symbol} onClick={function(){
+                    const cur=draft.selectedSymbols;
+                    const next=sel?cur.filter(function(x){return x!==s.symbol;}):[...cur,s.symbol];
+                    setDraft({...draft,selectedSymbols:next});
+                  }} style={{padding:"6px 2px",borderRadius:5,border:"1px solid "+(sel?"#f0b429":"#2a2a3a"),background:sel?"rgba(240,180,41,.12)":"transparent",color:sel?"#f0b429":"#444",fontSize:8,fontWeight:sel?700:400,cursor:"pointer",textAlign:"center"}}>
+                    {s.label.replace("/USD","")}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {/* Temporalidad */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:8,color:"#555",marginBottom:4}}>TEMPORALIDAD</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}}>
+              {INTERVALS.map(function(iv){
+                const act=draft.interval===iv.value;
+                return <button key={iv.value} onClick={function(){setDraft({...draft,interval:iv.value});}}
+                  style={{padding:"8px 2px",borderRadius:5,border:"1px solid "+(act?"#f0b429":"#333"),background:act?"rgba(240,180,41,.15)":"transparent",color:act?"#f0b429":"#555",fontSize:9,fontWeight:act?700:400,cursor:"pointer"}}>{iv.label}</button>;
+              })}
+            </div>
+          </div>
+          {/* RSI section */}
+          <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:10,marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:draft.rsiEnabled?10:0}}>
+              <div style={{fontSize:9,fontWeight:700,color:draft.rsiEnabled?"#00ff88":"#444"}}>RSI 14</div>
+              <button onClick={function(){setDraft({...draft,rsiEnabled:!draft.rsiEnabled});}}
+                style={{padding:"4px 10px",borderRadius:4,border:"1px solid "+(draft.rsiEnabled?"#00ff88":"#333"),background:"transparent",color:draft.rsiEnabled?"#00ff88":"#555",fontSize:8,fontWeight:700,cursor:"pointer"}}>
+                {draft.rsiEnabled?"🔔 ACTIVADO":"🔕 SILENCIADO"}
+              </button>
+            </div>
+            {draft.rsiEnabled&&(
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"end"}}>
+                <div>
+                  <div style={{fontSize:8,color:"#555",marginBottom:4}}>NOTIFICAR CUANDO RSI</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+                    <button onClick={function(){setDraft({...draft,rsiCondition:"below"});}}
+                      style={{padding:"7px 4px",borderRadius:5,border:"1px solid "+(draft.rsiCondition==="below"?"#00ff88":"#333"),background:draft.rsiCondition==="below"?"rgba(0,255,136,.1)":"transparent",color:draft.rsiCondition==="below"?"#00ff88":"#555",fontSize:8,fontWeight:draft.rsiCondition==="below"?700:400,cursor:"pointer"}}>
+                      RSI por debajo
+                    </button>
+                    <button onClick={function(){setDraft({...draft,rsiCondition:"above"});}}
+                      style={{padding:"7px 4px",borderRadius:5,border:"1px solid "+(draft.rsiCondition==="above"?"#ff4444":"#333"),background:draft.rsiCondition==="above"?"rgba(255,68,68,.1)":"transparent",color:draft.rsiCondition==="above"?"#ff4444":"#555",fontSize:8,fontWeight:draft.rsiCondition==="above"?700:400,cursor:"pointer"}}>
+                      RSI por encima
+                    </button>
+                  </div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:8,color:draft.rsiCondition==="below"?"#00ff88":"#ff4444",marginBottom:3}}>VALOR ({draft.rsiCondition==="below"?"≤":"≥"})</div>
+                  <input type="number" min="1" max="99" value={draft.rsiThreshold}
+                    onChange={function(e){setDraft({...draft,rsiThreshold:+e.target.value});}}
+                    style={{...S.inp,width:56,padding:"5px",fontSize:22,textAlign:"center",fontWeight:700,color:draft.rsiCondition==="below"?"#00ff88":"#ff4444"}}/>
+                </div>
+              </div>
+            )}
+          </div>
+          {/* EMA 7/25 section */}
+          <div style={{background:"rgba(136,170,255,.04)",border:"1px solid rgba(136,170,255,.2)",borderRadius:6,padding:10,marginBottom:8}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#88aaff",marginBottom:8}}>EMA 7 / 25</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+              <button onClick={function(){setDraft({...draft,emaGoldenEnabled:!draft.emaGoldenEnabled});}}
+                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.emaGoldenEnabled?"#ffd700":"#333"),background:draft.emaGoldenEnabled?"rgba(255,215,0,.08)":"transparent",color:draft.emaGoldenEnabled?"#ffd700":"#555",fontSize:8,fontWeight:draft.emaGoldenEnabled?700:400,cursor:"pointer"}}>
+                {draft.emaGoldenEnabled?"🔔":"🔕"} Cruce Dorado
+              </button>
+              <button onClick={function(){setDraft({...draft,emaDeathEnabled:!draft.emaDeathEnabled});}}
+                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.emaDeathEnabled?"#cc44cc":"#333"),background:draft.emaDeathEnabled?"rgba(204,68,204,.08)":"transparent",color:draft.emaDeathEnabled?"#cc44cc":"#555",fontSize:8,fontWeight:draft.emaDeathEnabled?700:400,cursor:"pointer"}}>
+                {draft.emaDeathEnabled?"🔔":"🔕"} Cruce Muerte
+              </button>
+            </div>
+          </div>
+          {/* EMA 50/200 section */}
+          <div style={{background:"rgba(255,200,100,.04)",border:"1px solid rgba(255,200,100,.2)",borderRadius:6,padding:10,marginBottom:8}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#ffc864",marginBottom:8}}>EMA 50 / 200</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+              <button onClick={function(){setDraft({...draft,ema200GoldenEnabled:!draft.ema200GoldenEnabled});}}
+                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.ema200GoldenEnabled?"#ffd700":"#333"),background:draft.ema200GoldenEnabled?"rgba(255,215,0,.08)":"transparent",color:draft.ema200GoldenEnabled?"#ffd700":"#555",fontSize:8,fontWeight:draft.ema200GoldenEnabled?700:400,cursor:"pointer"}}>
+                {draft.ema200GoldenEnabled?"🔔":"🔕"} Cruce Dorado
+              </button>
+              <button onClick={function(){setDraft({...draft,ema200DeathEnabled:!draft.ema200DeathEnabled});}}
+                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.ema200DeathEnabled?"#cc44cc":"#333"),background:draft.ema200DeathEnabled?"rgba(204,68,204,.08)":"transparent",color:draft.ema200DeathEnabled?"#cc44cc":"#555",fontSize:8,fontWeight:draft.ema200DeathEnabled?700:400,cursor:"pointer"}}>
+                {draft.ema200DeathEnabled?"🔔":"🔕"} Cruce Muerte
+              </button>
+            </div>
+          </div>
+          {/* Patrones chartistas */}
+          <div style={{background:"rgba(255,100,200,.04)",border:"1px solid rgba(255,100,200,.2)",borderRadius:6,padding:10,marginBottom:12}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#ff88dd",marginBottom:4}}>PATRONES CHARTISTAS</div>
+            <div style={{fontSize:8,color:"#555",marginBottom:8,lineHeight:1.5}}>
+              Detecta canales alcistas/bajistas y FVGs cubiertas en tiempo real.<br/>
+              La alerta más potente es cuando ambas coinciden en la misma vela.
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+              <button onClick={function(){setDraft({...draft,channelEnabled:!draft.channelEnabled});}}
+                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.channelEnabled?"#ff88dd":"#333"),background:draft.channelEnabled?"rgba(255,136,221,.08)":"transparent",color:draft.channelEnabled?"#ff88dd":"#555",fontSize:8,fontWeight:draft.channelEnabled?700:400,cursor:"pointer"}}>
+                {draft.channelEnabled?"🔔":"🔕"} Canal (soporte/resistencia)
+              </button>
+              <button onClick={function(){setDraft({...draft,fvgEnabled:!draft.fvgEnabled});}}
+                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.fvgEnabled?"#ffaa44":"#333"),background:draft.fvgEnabled?"rgba(255,170,68,.08)":"transparent",color:draft.fvgEnabled?"#ffaa44":"#555",fontSize:8,fontWeight:draft.fvgEnabled?700:400,cursor:"pointer"}}>
+                {draft.fvgEnabled?"🔔":"🔕"} FVG cubierta (ineficiencia)
+              </button>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={addAlert} disabled={draft.selectedSymbols.length===0} style={{flex:2,padding:"10px",background:draft.selectedSymbols.length===0?"#2a2a3a":"#f0b429",color:draft.selectedSymbols.length===0?"#444":"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:draft.selectedSymbols.length===0?"not-allowed":"pointer"}}>
+              {draft.selectedSymbols.length<=1?"CREAR Y MONITORIZAR":"CREAR "+draft.selectedSymbols.length+" ALERTAS"}
+            </button>
+            <button onClick={function(){setShowForm(false);}} style={{flex:1,padding:"10px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* Alertas configuradas */}
       {alerts.length===0&&(
         <div style={{textAlign:"center",padding:"30px 20px",color:"#333",fontSize:10,lineHeight:2}}>
-          Sin alertas. Pulsa + NUEVA ALERTA para monitorizar un activo.
+          Sin alertas. Pulsa + Nueva alerta para empezar.
         </div>
       )}
-      {alerts.map(alert=>{
-        const rsiColor=alert.rsi===null?"#555":alert.rsi<=alert.oversold?"#00ff88":alert.rsi>=alert.overbought?"#ff4444":"#e0e0e0";
+      {alerts.map(function(alert){
+        const rsi=alert.currentRsi;
+        const rsiActive=alert.rsiEnabled&&rsi!==null&&((alert.rsiCondition==="below"&&rsi<=alert.rsiThreshold)||(alert.rsiCondition==="above"&&rsi>=alert.rsiThreshold));
+        const rsiColor=rsi===null?"#555":rsiActive?(alert.rsiCondition==="below"?"#00ff88":"#ff4444"):"#e0e0e0";
+        const intv=INTERVALS.find(function(i){return i.value===alert.interval;})||{label:alert.interval};
         return(
           <div key={alert.id} style={{background:"#111118",border:"1px solid "+(alert.active?"rgba(0,255,136,.25)":alert.error?"rgba(255,68,68,.25)":"#1e1e2e"),borderRadius:8,padding:12,marginBottom:8}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            {/* Card header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <div style={{width:8,height:8,borderRadius:"50%",background:alert.active?"#00ff88":alert.error?"#ff4444":"#555"}}/>
                 <span style={{fontSize:12,fontWeight:700,color:"#e0e0e0"}}>{alert.label}</span>
-                <span style={{fontSize:10,color:"#f0b429",background:"rgba(240,180,41,.1)",padding:"2px 8px",borderRadius:4}}>
-                  {alert.interval==="1h"?"1H":alert.interval==="4h"?"4H":alert.interval==="1d"?"DIARIO":"SEMANAL"}
-                </span>
+                <span style={{fontSize:10,color:"#f0b429",background:"rgba(240,180,41,.1)",padding:"2px 8px",borderRadius:4}}>{intv.label}</span>
               </div>
-              <div style={{textAlign:"center"}}>
-                <div style={{fontSize:22,fontWeight:700,color:rsiColor}}>{alert.rsi!==null?alert.rsi:"--"}</div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:22,fontWeight:700,color:rsiColor,lineHeight:1}}>{rsi!==null?rsi:"--"}</div>
                 <div style={{fontSize:7,color:"#444"}}>RSI 14</div>
+                {alert.currentPrice!=null&&<div style={{fontSize:9,color:"#888",marginTop:1}}>${parseFloat(alert.currentPrice).toLocaleString("es-ES",{maximumFractionDigits:2})}</div>}
               </div>
             </div>
 
-            {/* Umbrales RSI */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-              <div style={{background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"8px",textAlign:"center"}}>
-                <div style={{fontSize:8,color:"#00ff88",marginBottom:2}}>SOBREVENTA</div>
-                <div style={{fontSize:18,fontWeight:700,color:"#00ff88"}}>{"< "+alert.oversold}</div>
-                <div style={{fontSize:7,color:"#444"}}>RSI por debajo = compra</div>
-              </div>
-              <div style={{background:"rgba(255,68,68,.06)",border:"1px solid rgba(255,68,68,.2)",borderRadius:6,padding:"8px",textAlign:"center"}}>
-                <div style={{fontSize:8,color:"#ff4444",marginBottom:2}}>SOBRECOMPRA</div>
-                <div style={{fontSize:18,fontWeight:700,color:"#ff4444"}}>{"> "+alert.overbought}</div>
-                <div style={{fontSize:7,color:"#444"}}>RSI por encima = venta</div>
-              </div>
-            </div>
-
-            {/* RSI + EMA display */}
-            <div style={{marginBottom:8}}>
-              {alert.rsi!==null&&(
-                <div style={{marginBottom:8}}>
-                  <div style={{height:8,borderRadius:4,background:"#1e1e2e",position:"relative",overflow:"hidden"}}>
-                    <div style={{position:"absolute",left:0,width:"30%",height:"100%",background:"rgba(0,255,136,.12)"}}/>
-                    <div style={{position:"absolute",right:0,width:"30%",height:"100%",background:"rgba(255,68,68,.12)"}}/>
-                    <div style={{
-                      position:"absolute",
-                      left:"calc("+Math.min(99,Math.max(1,alert.rsi))+"% - 4px)",
-                      top:0,width:8,height:"100%",
-                      background:rsiColor,borderRadius:2,
-                      transition:"left .5s"
-                    }}/>
-                  </div>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:8,marginTop:3}}>
-                    <span style={{color:"#00ff88"}}>SV &lt;{alert.oversold}</span>
-                    <span style={{color:rsiColor,fontWeight:700}}>RSI {alert.rsi}</span>
-                    <span style={{color:"#ff4444"}}>SC &gt;{alert.overbought}</span>
-                  </div>
-                </div>
+            {/* Notification tags */}
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+              {alert.rsiEnabled&&(
+                <span style={{fontSize:8,background:rsiActive?"rgba(0,255,136,.15)":"rgba(0,255,136,.06)",color:rsiActive?"#00ff88":"#3a6644",padding:"3px 8px",borderRadius:10,border:"1px solid "+(rsiActive?"rgba(0,255,136,.5)":"rgba(0,255,136,.15)")}}>
+                  RSI {alert.rsiCondition==="below"?"≤":"≥"} {alert.rsiThreshold}
+                </span>
               )}
-              {/* EMA 7/25 */}
-              <EmaDisplay data={emaData[alert.id]}/>
+              {alert.emaGoldenEnabled&&<span style={{fontSize:8,background:"rgba(255,215,0,.08)",color:"#ffd700",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,215,0,.25)"}}>Dorado 7/25</span>}
+              {alert.emaDeathEnabled&&<span style={{fontSize:8,background:"rgba(204,68,204,.08)",color:"#cc44cc",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(204,68,204,.25)"}}>Muerte 7/25</span>}
+              {alert.ema200GoldenEnabled&&<span style={{fontSize:8,background:"rgba(255,215,0,.08)",color:"#ffd700",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,215,0,.25)"}}>Dorado 50/200</span>}
+              {alert.ema200DeathEnabled&&<span style={{fontSize:8,background:"rgba(204,68,204,.08)",color:"#cc44cc",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(204,68,204,.25)"}}>Muerte 50/200</span>}
+              {alert.channelEnabled&&<span style={{fontSize:8,background:"rgba(255,136,221,.08)",color:"#ff88dd",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,136,221,.25)"}}>📐 Canal</span>}
+              {alert.fvgEnabled&&<span style={{fontSize:8,background:"rgba(255,170,68,.08)",color:"#ffaa44",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,170,68,.25)"}}>⚡ FVG</span>}
+              {!alert.rsiEnabled&&!alert.emaGoldenEnabled&&!alert.emaDeathEnabled&&!alert.ema200GoldenEnabled&&!alert.ema200DeathEnabled&&!alert.channelEnabled&&!alert.fvgEnabled&&(
+                <span style={{fontSize:8,color:"#333"}}>Sin notificaciones</span>
+              )}
             </div>
 
-            {/* Acciones */}
-            <div style={{display:"flex",gap:6}}>
+            {/* RSI bar */}
+            {rsi!==null&&(
+              <div style={{marginBottom:8}}>
+                <div style={{height:6,borderRadius:3,background:"#1e1e2e",position:"relative",overflow:"hidden"}}>
+                  <div style={{position:"absolute",left:0,width:"30%",height:"100%",background:"rgba(0,255,136,.08)"}}/>
+                  <div style={{position:"absolute",right:0,width:"30%",height:"100%",background:"rgba(255,68,68,.08)"}}/>
+                  {alert.rsiEnabled&&<div style={{position:"absolute",left:alert.rsiThreshold+"%",top:0,width:1,height:"100%",background:alert.rsiCondition==="below"?"rgba(0,255,136,.6)":"rgba(255,68,68,.6)"}}/>}
+                  <div style={{position:"absolute",left:"calc("+Math.min(99,Math.max(1,rsi))+"% - 3px)",top:0,width:6,height:"100%",background:rsiColor,borderRadius:2,transition:"left .5s"}}/>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:7,marginTop:2}}>
+                  <span style={{color:"#444"}}>0</span>
+                  <span style={{color:rsiColor,fontWeight:700}}>RSI {rsi}</span>
+                  <span style={{color:"#444"}}>100</span>
+                </div>
+              </div>
+            )}
+
+            <EmaDisplay data={emaData[alert.id]}/>
+
+            {/* Actions */}
+            <div style={{display:"flex",gap:6,marginTop:8}}>
               {!alert.active?(
-                <button onClick={()=>startAlert(alert)}
-                  style={{flex:2,padding:"7px",background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>
-                  INICIAR MONITOR
+                <button onClick={function(){startAlert(alert);}}
+                  style={{flex:2,padding:"8px",background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>
+                  ▶ INICIAR
                 </button>
               ):(
-                <button onClick={()=>stopAlert(alert)}
-                  style={{flex:2,padding:"7px",background:"rgba(255,68,68,.1)",border:"1px solid #ff4444",color:"#ff4444",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>
-                  DETENER
+                <button onClick={function(){stopAlert(alert);}}
+                  style={{flex:2,padding:"8px",background:"rgba(255,68,68,.1)",border:"1px solid #ff4444",color:"#ff4444",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>
+                  ■ DETENER
                 </button>
               )}
-              <button onClick={()=>removeAlert(alert)}
-                style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#444",borderRadius:5,fontSize:9,cursor:"pointer"}}>
+              <button onClick={function(){removeAlert(alert);}}
+                style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #333",color:"#444",borderRadius:5,fontSize:9,cursor:"pointer"}}>
                 Eliminar
               </button>
             </div>
@@ -1872,114 +3213,37 @@ function AlertasTab({S}){
         );
       })}
 
-      {/* ── ALERTAS PERSONALIZADAS ── */}
-      <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:12,marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div>
-            <div style={{fontSize:10,color:"#88aaff",fontWeight:700}}>ALERTAS PERSONALIZADAS</div>
-            <div style={{fontSize:8,color:"#555",marginTop:2}}>Notificaciones fuera de los umbrales estandar</div>
-          </div>
-          <button onClick={()=>setShowCustomForm(!showCustomForm)} style={{background:"#88aaff",color:"#0a0a0f",border:"none",padding:"6px 10px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva</button>
-        </div>
-
-        {showCustomForm&&(
-          <div style={{background:"#0d0d16",borderRadius:6,padding:12,marginBottom:10,border:"1px solid rgba(136,170,255,.2)"}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-              <div>
-                <div style={{fontSize:8,color:"#555",marginBottom:3}}>ACTIVO</div>
-                <select value={customForm.symbol} onChange={e=>{
-                  const s=SYMBOLS.find(function(x){return x.symbol===e.target.value;})||{label:e.target.value};
-                  setCustomForm({...customForm,symbol:e.target.value,label:s.label||e.target.value});
-                }} style={{...S.inp,padding:"5px",fontSize:9}}>
-                  {SYMBOLS.map(s=><option key={s.symbol} value={s.symbol}>{s.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:8,color:"#555",marginBottom:3}}>TEMPORALIDAD</div>
-                <select value={customForm.interval} onChange={e=>setCustomForm({...customForm,interval:e.target.value})} style={{...S.inp,padding:"5px",fontSize:9}}>
-                  {INTERVALS.map(i=><option key={i.value} value={i.value}>{i.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:8,color:"#555",marginBottom:3}}>CONDICION</div>
-                <select value={customForm.condition} onChange={e=>setCustomForm({...customForm,condition:e.target.value})} style={{...S.inp,padding:"5px",fontSize:9}}>
-                  <option value="below">RSI por debajo de</option>
-                  <option value="above">RSI por encima de</option>
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:8,color:customForm.condition==="below"?"#00ff88":"#ff4444",marginBottom:3}}>VALOR RSI</div>
-                <input type="number" min="1" max="99" value={customForm.threshold}
-                  onChange={e=>setCustomForm({...customForm,threshold:+e.target.value})}
-                  style={{...S.inp,padding:"5px",fontSize:14,textAlign:"center",fontWeight:700}}/>
-              </div>
-            </div>
-            <div style={{marginBottom:8}}>
-              <div style={{fontSize:8,color:"#555",marginBottom:3}}>DESCRIPCION (opcional)</div>
-              <input style={S.inp} placeholder="Ej: BTC en zona de decision diario"
-                value={customForm.description}
-                onChange={e=>setCustomForm({...customForm,description:e.target.value})}/>
-            </div>
-            <div style={{background:"rgba(136,170,255,.08)",border:"1px solid rgba(136,170,255,.2)",borderRadius:5,padding:"8px 10px",marginBottom:8,fontSize:9,color:"#88aaff"}}>
-              Notificar cuando {customForm.label} en {INTERVALS.find(function(i){return i.value===customForm.interval;})||{label:customForm.interval}}.label tenga RSI {customForm.condition==="below"?"por debajo de":"por encima de"} {customForm.threshold}
-            </div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={addCustomAlert} style={{flex:2,padding:"8px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>GUARDAR ALERTA</button>
-              <button onClick={()=>setShowCustomForm(false)} style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>Cancelar</button>
-            </div>
-          </div>
-        )}
-
-        {customAlerts.length===0&&!showCustomForm&&(
-          <div style={{fontSize:9,color:"#333",textAlign:"center",padding:"10px 0"}}>
-            Sin alertas personalizadas. Pulsa + Nueva para crear una.
-          </div>
-        )}
-
-        {customAlerts.map(ca=>{
-          const itvLabel=(INTERVALS.find(function(i){return i.value===ca.interval;})||{label:ca.interval}).label;
-          return(
-            <div key={ca.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#0d0d16",borderRadius:6,marginBottom:4,border:"1px solid rgba(136,170,255,.15)"}}>
-              <div>
-                <span style={{fontSize:10,fontWeight:700,color:"#88aaff"}}>{ca.label}</span>
-                <span style={{fontSize:9,color:"#f0b429",marginLeft:6}}>{itvLabel}</span>
-                <div style={{fontSize:9,color:ca.condition==="below"?"#00ff88":"#ff4444",marginTop:2}}>
-                  RSI {ca.condition==="below"?"menores de":"mayores de"} {ca.threshold}
-                  {ca.description&&<span style={{color:"#555"}}> · {ca.description}</span>}
-                </div>
-              </div>
-              <button onClick={()=>saveCustomAlerts(customAlerts.filter(function(x){return x.id!==ca.id;}))}
-                style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:16}}>✕</button>
-            </div>
-          );
-        })}
-
-        {customAlerts.length>0&&(
-          <div style={{fontSize:8,color:"#444",marginTop:6,textAlign:"center"}}>
-            Las alertas personalizadas se comprueban cuando el monitor estandar esta activo
-          </div>
-        )}
-      </div>
-
       {/* Log de alertas disparadas */}
       {logs.length>0&&(
         <div style={{background:"#111118",border:"1px solid #1e1e2e",borderRadius:8,padding:12,marginTop:4}}>
-          <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:8}}>HISTORIAL DE ALERTAS</div>
-          {logs.slice(0,20).map(log=>(
-            <div key={log.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid #1a1a2a",fontSize:9}}>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <span style={{fontSize:13}}>{log.type==="oversold"?"🟢":"🔴"}</span>
-                <div>
-                  <span style={{fontWeight:700,color:"#e0e0e0"}}>{log.label}</span>
-                  <span style={{color:"#555",marginLeft:5}}>{log.interval}</span>
-                  <span style={{color:log.type==="oversold"?"#00ff88":"#ff4444",marginLeft:5,fontWeight:700}}>
-                    RSI {log.rsi} — {log.type==="oversold"?"SOBREVENTA":"SOBRECOMPRA"}
-                  </span>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:9,color:"#f0b429",fontWeight:700}}>HISTORIAL DE ALERTAS</div>
+            <button onClick={()=>setLogs([])} style={{background:"transparent",border:"none",color:"#444",fontSize:8,cursor:"pointer"}}>Limpiar</button>
+          </div>
+          {logs.slice(0,20).map(function(log){
+            var icon="🔔";
+            var color="#88aaff";
+            if(log.type==="oversold"){icon="🟢";color="#00ff88";}
+            else if(log.type==="overbought"){icon="🔴";color="#ff4444";}
+            else if(log.type==="golden"||log.type.indexOf("golden")>-1){icon="🌟";color="#ffd700";}
+            else if(log.type==="death"||log.type.indexOf("death")>-1){icon="💀";color="#cc44cc";}
+            else if(log.type==="ema200_golden"){icon="🌟";color="#ffd700";}
+            else if(log.type==="ema200_death"){icon="💀";color="#cc44cc";}
+            else if(log.type==="price_target"){icon="🎯";color="#f0b429";}
+            return(
+              <div key={log.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"6px 0",borderBottom:"1px solid #1a1a2a",fontSize:9}}>
+                <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                  <span style={{fontSize:14,lineHeight:1}}>{icon}</span>
+                  <div>
+                    <span style={{fontWeight:700,color:"#e0e0e0"}}>{log.label}</span>
+                    <span style={{color:"#555",marginLeft:5,background:"rgba(240,180,41,.1)",padding:"1px 5px",borderRadius:3}}>{log.interval}</span>
+                    <div style={{color:color,marginTop:2,fontWeight:700,fontSize:8}}>{log.body}</div>
+                  </div>
                 </div>
+                <span style={{color:"#444",fontSize:8,whiteSpace:"nowrap",marginLeft:8}}>{log.time}</span>
               </div>
-              <span style={{color:"#444",fontSize:8}}>{log.time}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -1988,14 +3252,14 @@ function AlertasTab({S}){
 
 // - GOAL TRACKER -
 function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
-  const GOAL=7641; // euros = approx USD (close enough for tracking)
-  // Total recovered = positive results from xhist (new closes via app)
-  const recovered=xhist.reduce((a,h)=>a+(h.result>0?h.result:0),0);
-  // Also count actPnl if positive (open positions in profit)
+  // Net P&L de los cierres hechos via app (xhist)
+  const recovered=parseFloat(xhist.reduce((a,h)=>a+(h.result||0),0).toFixed(2));
+  // GOAL = perdida historica INICIAL (Quantfury base), fija e independiente de nuevos cierres
+  // h0Total = QUANTFURY_BASE + recovered  →  QUANTFURY_BASE = h0Total - recovered
+  const GOAL=parseFloat(Math.abs(h0Total-recovered).toFixed(2));
   const potentialExtra=actPnl>0?actPnl:0;
-  const totalRecovered=parseFloat((recovered).toFixed(2));
-  const pct=Math.min(100,Math.round(totalRecovered/GOAL*100));
-  const remaining=parseFloat((GOAL-totalRecovered).toFixed(2));
+  const pct=GOAL>0?Math.min(100,Math.round(Math.max(0,recovered)/GOAL*100)):0;
+  const remaining=parseFloat(Math.max(0,GOAL-recovered).toFixed(2));
 
   // Milestone messages
   let milestone="";
@@ -2013,8 +3277,8 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
     <div style={{...S.card,border:"1px solid rgba(240,180,41,.4)",marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
         <div>
-          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,letterSpacing:1}}>OBJETIVO: RECUPERAR $7.641</div>
-          <div style={{fontSize:9,color:"#555",marginTop:2}}>Perdidas de octubre 2025</div>
+          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,letterSpacing:1}}>RECUPERACION — PERDIDA INICIAL: ${GOAL.toLocaleString()}</div>
+          <div style={{fontSize:9,color:"#555",marginTop:2}}>Perdida Quantfury historica (fija) · Cierres via app: {recovered>=0?"+":""}{recovered.toFixed(2)}</div>
         </div>
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:28,fontWeight:700,color:pct>=100?"#00ff88":pct>=50?"#f0b429":"#e0e0e0"}}>{pct}%</div>
@@ -2037,7 +3301,7 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
           </div>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:"#444",marginTop:3}}>
-          <span style={{color:"#00ff88"}}>Recuperado: +${totalRecovered.toLocaleString()}</span>
+          <span style={{color:recovered>=0?"#00ff88":"#ff4444"}}>Recuperado: {recovered>=0?"+":""}{recovered.toFixed(2)}</span>
           <span style={{color:"#ff4444"}}>Restante: ${remaining.toLocaleString()}</span>
         </div>
       </div>
@@ -2045,7 +3309,7 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
       {/* Stats */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}}>
         <div style={{background:"#0d0d16",borderRadius:6,padding:"8px",textAlign:"center"}}>
-          <div style={{fontSize:16,fontWeight:700,color:"#00ff88"}}>${totalRecovered.toFixed(0)}</div>
+          <div style={{fontSize:16,fontWeight:700,color:recovered>=0?"#00ff88":"#ff4444"}}>{recovered>=0?"+":""}{recovered.toFixed(0)}</div>
           <div style={{fontSize:7,color:"#555"}}>RECUPERADO</div>
         </div>
         <div style={{background:"#0d0d16",borderRadius:6,padding:"8px",textAlign:"center"}}>
@@ -2432,8 +3696,15 @@ function ModalPostCierre({data,jnl,SJ,setModal,fmtNum,S,TC}){
       <div style={{padding:"7px 10px",background:"rgba(240,180,41,.05)",borderRadius:5,border:"1px solid rgba(240,180,41,.2)",marginBottom:12,fontSize:9,color:"#888"}}>
         Documenta este cierre para sumar puntos al score
       </div>
-      <div style={{fontSize:9,color:"#555",marginBottom:3}}>QUE APRENDISTE?</div>
-      <textarea style={{...S.inp,height:75,resize:"none",marginBottom:10}} value={form.text} onChange={e=>setForm(f=>({...f,text:e.target.value}))}/>
+      <div style={{fontSize:9,color:"#555",marginBottom:3}}>
+        {data.type==="tp"?"¿POR QUE CERRASTE? ¿SEGUISTE EL PLAN?":data.type==="sl"?"¿QUE FALLO? ¿RESPETASTE EL SL?":"¿POR QUE CERRASTE ANTES? ¿FUE LA DECISION CORRECTA?"}
+      </div>
+      <textarea
+        style={{...S.inp,height:80,resize:"none",marginBottom:10}}
+        placeholder={data.type==="tp"?"Ej: Segui el plan hasta el TP, RSI en sobrecompra confirmaba la salida...":data.type==="sl"?"Ej: El SL se activo correctamente, la tesis se invalido en 4H...":"Ej: Cerre antes porque vi debilidad en el momentum, aunque el TP estaba cerca..."}
+        value={form.text}
+        onChange={function(e){setForm(function(f){return{...f,text:e.target.value};});}}
+      />
       <div style={{fontSize:9,color:"#555",marginBottom:5}}>EMOCION</div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
         {["😰","😅","💪","🎯","😤","🧘","😊","😬"].map(em=>(
@@ -2638,9 +3909,8 @@ function HorariosTab({horarios,SH,S,fmtNum}){
 
   const[showForm,setShowForm]=useState(false);
   const[form,setForm]=useState({
-    hora:"19:30",activo:"BTC/USDT",
-    tendenciaInicio:"",tendenciaFin:"",
-    resultado:"",notas:""
+    horaInicio:"19:30",horaFin:"20:00",activo:"BTC/USDT",
+    tendenciaInicio:"",tendenciaFin:"",notas:""
   });
 
   function getFecha(){
@@ -2663,7 +3933,7 @@ function HorariosTab({horarios,SH,S,fmtNum}){
   }
 
   function guardar(){
-    if(!form.resultado){alert("Selecciona el resultado: Acierto, Fallo o Pendiente");return;}
+    if(!form.tendenciaInicio||!form.tendenciaFin){alert("Selecciona como empieza y como acaba el movimiento");return;}
     const fecha=getFecha();
     const entry={
       ...form,
@@ -2672,7 +3942,7 @@ function HorariosTab({horarios,SH,S,fmtNum}){
       diaSemana:getDOW(fecha)
     };
     SH([entry,...horarios]);
-    setForm({hora:"19:30",activo:"BTC/USDT",tendenciaInicio:"",tendenciaFin:"",resultado:"",notas:""});
+    setForm({horaInicio:"19:30",horaFin:"20:00",activo:"BTC/USDT",tendenciaInicio:"",tendenciaFin:"",notas:""});
     setShowForm(false);
   }
 
@@ -2689,14 +3959,14 @@ function HorariosTab({horarios,SH,S,fmtNum}){
     return pb.localeCompare(pa);
   });
 
-  // Stats por dia de semana
+  // Stats por dia de semana (patrones de inicio/fin)
   const statsDOW={};
   horarios.forEach(h=>{
     const d=h.diaSemana||getDOW(h.fecha)||"?";
-    if(!statsDOW[d])statsDOW[d]={total:0,aciertos:0,fallos:0};
+    if(!statsDOW[d])statsDOW[d]={total:0,giros:{},inicios:{}};
     statsDOW[d].total++;
-    if(h.resultado==="Acierto")statsDOW[d].aciertos++;
-    if(h.resultado==="Fallo")statsDOW[d].fallos++;
+    const giro=(h.tendenciaInicio||"?")+"→"+(h.tendenciaFin||"?");
+    statsDOW[d].giros[giro]=(statsDOW[d].giros[giro]||0)+1;
   });
 
   return(
@@ -2731,69 +4001,62 @@ function HorariosTab({horarios,SH,S,fmtNum}){
             REGISTRAR HOY — {getFechaLarga(getFecha())}
           </div>
 
-          {/* Hora y activo */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+          {/* Activo */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:9,color:"#555",marginBottom:3}}>ACTIVO</div>
+            <input style={S.inp} value={form.activo} onChange={e=>setForm({...form,activo:e.target.value})}/>
+          </div>
+
+          {/* INICIO del movimiento */}
+          <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.15)",borderRadius:6,padding:"10px",marginBottom:10}}>
+            <div style={{fontSize:9,color:"#00ff88",fontWeight:700,marginBottom:8,letterSpacing:1}}>INICIO DEL MOVIMIENTO</div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,color:"#555",marginBottom:3}}>HORA DE INICIO</div>
+              <input style={{...S.inp,fontSize:16,fontWeight:700,textAlign:"center"}} type="time" value={form.horaInicio}
+                onChange={e=>setForm({...form,horaInicio:e.target.value})}/>
+            </div>
             <div>
-              <div style={{fontSize:9,color:"#555",marginBottom:3}}>HORA EXACTA</div>
-              <input style={S.inp} type="time" value={form.hora}
-                onChange={e=>setForm({...form,hora:e.target.value})}/>
+              <div style={{fontSize:8,color:"#555",marginBottom:5}}>COMO EMPIEZA</div>
+              <div style={{display:"flex",gap:6}}>
+                {["Alcista","Bajista","Lateral"].map(d=>(
+                  <button key={d} onClick={()=>setForm({...form,tendenciaInicio:d})}
+                    style={{flex:1,padding:"8px 4px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",
+                      border:"1px solid "+(d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#555"),
+                      background:form.tendenciaInicio===d?(d==="Alcista"?"rgba(0,255,136,.2)":d==="Bajista"?"rgba(255,68,68,.2)":"rgba(136,136,136,.2)"):"transparent",
+                      color:d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#888"
+                    }}>{d}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* FIN del movimiento */}
+          <div style={{background:"rgba(240,180,41,.04)",border:"1px solid rgba(240,180,41,.15)",borderRadius:6,padding:"10px",marginBottom:10}}>
+            <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:8,letterSpacing:1}}>FIN DEL MOVIMIENTO</div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,color:"#555",marginBottom:3}}>HORA DE FIN</div>
+              <input style={{...S.inp,fontSize:16,fontWeight:700,textAlign:"center"}} type="time" value={form.horaFin}
+                onChange={e=>setForm({...form,horaFin:e.target.value})}/>
             </div>
             <div>
-              <div style={{fontSize:9,color:"#555",marginBottom:3}}>ACTIVO</div>
-              <input style={S.inp} value={form.activo}
-                onChange={e=>setForm({...form,activo:e.target.value})}/>
-            </div>
-          </div>
-
-          {/* Tendencia inicio */}
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:9,color:"#555",marginBottom:5}}>TENDENCIA ANTES DEL CAMBIO</div>
-            <div style={{display:"flex",gap:6}}>
-              {["Alcista","Bajista","Lateral"].map(d=>(
-                <button key={d} onClick={()=>setForm({...form,tendenciaInicio:d})}
-                  style={{flex:1,padding:"8px 4px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",
-                    border:"1px solid "+(d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#555"),
-                    background:form.tendenciaInicio===d?(d==="Alcista"?"rgba(0,255,136,.2)":d==="Bajista"?"rgba(255,68,68,.2)":"rgba(136,136,136,.2)"):"transparent",
-                    color:d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#888"
-                  }}>{d}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* Tendencia fin */}
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:9,color:"#555",marginBottom:5}}>GIRO A (despues del cambio)</div>
-            <div style={{display:"flex",gap:6}}>
-              {["Alcista","Bajista","Lateral"].map(d=>(
-                <button key={d} onClick={()=>setForm({...form,tendenciaFin:d})}
-                  style={{flex:1,padding:"8px 4px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",
-                    border:"1px solid "+(d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#555"),
-                    background:form.tendenciaFin===d?(d==="Alcista"?"rgba(0,255,136,.2)":d==="Bajista"?"rgba(255,68,68,.2)":"rgba(136,136,136,.2)"):"transparent",
-                    color:d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#888"
-                  }}>{d}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* Resultado */}
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:9,color:"#555",marginBottom:5}}>RESULTADO DEL PATRON *</div>
-            <div style={{display:"flex",gap:6}}>
-              {[["Acierto","#00ff88"],["Fallo","#ff4444"],["Pendiente","#888"]].map(([r,col])=>(
-                <button key={r} onClick={()=>setForm({...form,resultado:r})}
-                  style={{flex:1,padding:"10px 4px",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer",
-                    border:"2px solid "+(form.resultado===r?col:"#2a2a3a"),
-                    background:form.resultado===r?col+"22":"transparent",
-                    color:col
-                  }}>{r}</button>
-              ))}
+              <div style={{fontSize:8,color:"#555",marginBottom:5}}>COMO ACABA</div>
+              <div style={{display:"flex",gap:6}}>
+                {["Alcista","Bajista","Lateral"].map(d=>(
+                  <button key={d} onClick={()=>setForm({...form,tendenciaFin:d})}
+                    style={{flex:1,padding:"8px 4px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",
+                      border:"1px solid "+(d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#555"),
+                      background:form.tendenciaFin===d?(d==="Alcista"?"rgba(0,255,136,.2)":d==="Bajista"?"rgba(255,68,68,.2)":"rgba(136,136,136,.2)"):"transparent",
+                      color:d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#888"
+                    }}>{d}</button>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Notas */}
           <div style={{marginBottom:12}}>
             <div style={{fontSize:9,color:"#555",marginBottom:3}}>NOTAS (opcional)</div>
-            <input style={S.inp} placeholder="Que observaste, como fue el movimiento..."
+            <input style={S.inp} placeholder="Que observaste, contexto del movimiento..."
               value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})}/>
           </div>
 
@@ -2801,12 +4064,12 @@ function HorariosTab({horarios,SH,S,fmtNum}){
             onClick={guardar}
             style={{
               width:"100%",padding:"12px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",
-              background:form.resultado?"#f0b429":"#2a2a3a",
-              color:form.resultado?"#0a0a0f":"#555",
+              background:(form.tendenciaInicio&&form.tendenciaFin)?"#f0b429":"#2a2a3a",
+              color:(form.tendenciaInicio&&form.tendenciaFin)?"#0a0a0f":"#555",
               border:"none"
             }}
           >
-            {form.resultado?"GUARDAR OBSERVACION":"Selecciona el resultado primero"}
+            {(form.tendenciaInicio&&form.tendenciaFin)?"GUARDAR OBSERVACION":"Selecciona como empieza y como acaba"}
           </button>
         </div>
       )}
@@ -2815,27 +4078,27 @@ function HorariosTab({horarios,SH,S,fmtNum}){
       {Object.keys(statsDOW).length>0&&(
         <div style={{background:"#111118",border:"1px solid #1e1e2e",borderRadius:8,padding:12,marginBottom:12}}>
           <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:10,letterSpacing:1}}>
-            ESTADISTICAS POR DIA DE LA SEMANA
+            PATRONES POR DIA DE LA SEMANA
           </div>
           {["Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo"]
             .filter(d=>statsDOW[d])
             .map(dow=>{
               const s=statsDOW[dow];
-              const rate=s.total>0?Math.round(s.aciertos/s.total*100):0;
               const col=DOW_COL[dow]||"#888";
+              const topGiro=Object.entries(s.giros).sort((a,b)=>b[1]-a[1])[0];
               return(
-                <div key={dow} style={{marginBottom:8,padding:"8px 10px",background:"#0d0d16",borderRadius:6,border:"1px solid "+col+"33"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                    <span style={{fontSize:11,fontWeight:700,color:col}}>{dow}</span>
-                    <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                      <span style={{fontSize:9,color:"#00ff88"}}>{s.aciertos} ok</span>
-                      <span style={{fontSize:9,color:"#ff4444"}}>{s.fallos} fallo</span>
-                      <span style={{fontSize:16,fontWeight:700,color:rate>=70?"#00ff88":rate>=50?"#f0b429":"#ff4444"}}>{rate}%</span>
+                <div key={dow} style={{marginBottom:6,padding:"8px 10px",background:"#0d0d16",borderRadius:6,border:"1px solid "+col+"33"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <span style={{fontSize:11,fontWeight:700,color:col}}>{dow}</span>
+                      <span style={{fontSize:8,color:"#555",marginLeft:6}}>{s.total} registros</span>
                     </div>
-                  </div>
-                  <div style={{height:5,borderRadius:3,background:"#1e1e2e",overflow:"hidden",display:"flex"}}>
-                    <div style={{width:rate+"%",background:"#00ff88",transition:"width .5s"}}/>
-                    <div style={{width:(s.total>0?Math.round(s.fallos/s.total*100):0)+"%",background:"#ff4444"}}/>
+                    {topGiro&&(
+                      <div style={{fontSize:8,color:"#888"}}>
+                        Patron mas frecuente: <span style={{color:"#f0b429",fontWeight:700}}>{topGiro[0]}</span>
+                        <span style={{color:"#555",marginLeft:4}}>({topGiro[1]}x)</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -2856,8 +4119,6 @@ function HorariosTab({horarios,SH,S,fmtNum}){
           </div>
           {fechasOrdenadas.map(fecha=>{
             const grupo=byFecha[fecha];
-            const nAciertos=grupo.entries.filter(e=>e.resultado==="Acierto").length;
-            const nFallos=grupo.entries.filter(e=>e.resultado==="Fallo").length;
             const col=DOW_COL[grupo.dow]||"#888";
             return(
               <div key={fecha} style={{background:"#111118",border:"1px solid #1e1e2e",borderRadius:8,marginBottom:8,overflow:"hidden"}}>
@@ -2867,38 +4128,39 @@ function HorariosTab({horarios,SH,S,fmtNum}){
                     <span style={{fontSize:12,fontWeight:700,color:col}}>{grupo.dow}</span>
                     <span style={{fontSize:10,color:"#666",marginLeft:8}}>{getFechaLarga(fecha)}</span>
                   </div>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    {nAciertos>0&&<span style={{fontSize:9,color:"#00ff88",fontWeight:700}}>{nAciertos} ok</span>}
-                    {nFallos>0&&<span style={{fontSize:9,color:"#ff4444",fontWeight:700}}>{nFallos} fallo</span>}
-                  </div>
+                  <span style={{fontSize:9,color:"#555"}}>{grupo.entries.length} registro{grupo.entries.length!==1?"s":""}</span>
                 </div>
                 {/* Entradas del dia */}
                 {grupo.entries.map(h=>(
-                  <div key={h.id} style={{padding:"8px 12px",borderBottom:"1px solid #1a1a2a"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                        <span style={{fontSize:13,fontWeight:700,color:"#f0b429"}}>{h.hora}</span>
-                        <span style={{fontSize:9,color:"#e0e0e0"}}>{h.activo}</span>
-                        {h.tendenciaInicio&&h.tendenciaFin&&(
-                          <span style={{fontSize:9,color:"#555"}}>
-                            <span style={{color:h.tendenciaInicio==="Alcista"?"#00ff88":"#ff4444"}}>{h.tendenciaInicio}</span>
-                            <span style={{color:"#444"}}> → </span>
-                            <span style={{color:h.tendenciaFin==="Alcista"?"#00ff88":"#ff4444"}}>{h.tendenciaFin}</span>
-                          </span>
-                        )}
+                  <div key={h.id} style={{padding:"10px 12px",borderBottom:"1px solid #1a1a2a"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div style={{flex:1}}>
+                        {/* Inicio → Fin */}
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                          <span style={{fontSize:9,color:"#555"}}>INICIO</span>
+                          <span style={{fontSize:13,fontWeight:700,color:"#00ff88"}}>{h.horaInicio||h.hora||"--"}</span>
+                          {h.tendenciaInicio&&(
+                            <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:3,
+                              background:h.tendenciaInicio==="Alcista"?"rgba(0,255,136,.12)":h.tendenciaInicio==="Bajista"?"rgba(255,68,68,.12)":"rgba(136,136,136,.12)",
+                              color:h.tendenciaInicio==="Alcista"?"#00ff88":h.tendenciaInicio==="Bajista"?"#ff4444":"#888"
+                            }}>{h.tendenciaInicio}</span>
+                          )}
+                          <span style={{fontSize:10,color:"#333",margin:"0 2px"}}>→</span>
+                          <span style={{fontSize:9,color:"#555"}}>FIN</span>
+                          <span style={{fontSize:13,fontWeight:700,color:"#f0b429"}}>{h.horaFin||"--"}</span>
+                          {h.tendenciaFin&&(
+                            <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:3,
+                              background:h.tendenciaFin==="Alcista"?"rgba(0,255,136,.12)":h.tendenciaFin==="Bajista"?"rgba(255,68,68,.12)":"rgba(136,136,136,.12)",
+                              color:h.tendenciaFin==="Alcista"?"#00ff88":h.tendenciaFin==="Bajista"?"#ff4444":"#888"
+                            }}>{h.tendenciaFin}</span>
+                          )}
+                        </div>
+                        {h.activo&&<div style={{fontSize:9,color:"#555",marginBottom:2}}>{h.activo}</div>}
+                        {h.notas&&<div style={{fontSize:9,color:"#444",marginTop:2}}>{h.notas}</div>}
                       </div>
-                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                        <span style={{
-                          fontSize:9,fontWeight:700,
-                          color:h.resultado==="Acierto"?"#00ff88":h.resultado==="Fallo"?"#ff4444":"#888",
-                          border:"1px solid "+(h.resultado==="Acierto"?"#00ff8844":h.resultado==="Fallo"?"#ff444444":"#55544"),
-                          padding:"2px 7px",borderRadius:3
-                        }}>{h.resultado}</span>
-                        <button onClick={()=>SH(horarios.filter(x=>x.id!==h.id))}
-                          style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:12,lineHeight:1}}>✕</button>
-                      </div>
+                      <button onClick={()=>SH(horarios.filter(x=>x.id!==h.id))}
+                        style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:12,marginLeft:8}}>✕</button>
                     </div>
-                    {h.notas&&<div style={{fontSize:9,color:"#444",marginTop:4}}>{h.notas}</div>}
                   </div>
                 ))}
               </div>
@@ -2910,26 +4172,149 @@ function HorariosTab({horarios,SH,S,fmtNum}){
   );
 }
 
-function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
+function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
   const[f,setF]=useState(form);
+  const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {ticker,price,name} | "error"
+  function addTpLevel(){setF(function(prev){return{...prev,tpLevels:[...(prev.tpLevels||[]),{id:Date.now(),price:"",pct:""}]};});}
+  function removeTpLevel(id){setF(function(prev){return{...prev,tpLevels:(prev.tpLevels||[]).filter(function(l){return l.id!==id;})};});}
+  function updateTpLevel(id,key,val){setF(function(prev){return{...prev,tpLevels:(prev.tpLevels||[]).map(function(l){return l.id===id?{...l,[key]:val}:l;})};});}
+  const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
+
+  // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
+  async function fetchStockPrice(base){
+    // Stooq — CSV con sufijo .us para bolsa americana
+    const stooqSuffixes=[".us",""];
+    for(var s=0;s<stooqSuffixes.length;s++){
+      try{
+        var url="https://stooq.com/q/l/?s="+base.toLowerCase()+stooqSuffixes[s]+"&f=sd2t2ohlcvn&e=csv";
+        var r=await fetch(url);
+        if(!r.ok)continue;
+        var text=await r.text();
+        var lines=text.trim().split("\n");
+        if(lines.length<2)continue;
+        var fields=lines[1].split(",");
+        // CSV format: Symbol,Date,Time,Open,High,Low,Close,Volume,OpenInt
+        var close=parseFloat(fields[6]);
+        if(!isNaN(close)&&close>0)return{price:close.toFixed(2),name:base+" (Stooq)",source:"stooq"};
+      }catch(e){}
+    }
+    // Fallback Yahoo Finance
+    var yahooUrls=[
+      "https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
+      "https://query2.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
+    ];
+    for(var y=0;y<yahooUrls.length;y++){
+      try{
+        var ry=await fetch(yahooUrls[y],{credentials:"omit"});
+        if(!ry.ok)continue;
+        var dy=await ry.json();
+        var meta=dy.chart&&dy.chart.result&&dy.chart.result[0]&&dy.chart.result[0].meta;
+        if(meta&&meta.regularMarketPrice)
+          return{price:meta.regularMarketPrice.toFixed(2),name:(meta.shortName||base)+" (Yahoo)",source:"yahoo"};
+      }catch(e){}
+    }
+    return null;
+  }
+
+  async function checkLivePrice(){
+    if(!f.asset)return;
+    const raw=f.asset.trim();
+    const base=raw.replace(/\/.*$/,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,10);
+    if(!base){setLiveCheck("error");return;}
+    setLiveCheck("loading");
+    setF(function(prev){return{...prev,asset:base};});
+    // 1. Binance para crypto conocida
+    if(CRYPTO_BINANCE[base]){
+      try{
+        const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+CRYPTO_BINANCE[base]);
+        if(r.ok){const d=await r.json();setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}
+      }catch(e){}
+    }
+    // 2. Binance con USDT dinamico (otras cryptos)
+    try{
+      const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+base+"USDT");
+      if(r.ok){const d=await r.json();if(d.price){setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}}
+    }catch(e){}
+    // 3. Stooq + Yahoo + proxy CORS para acciones y ETFs
+    const result=await fetchStockPrice(base);
+    if(result){
+      const p=parseFloat(result.price);
+      if(SPr&&pr)SPr({...pr,[base]:p}); // actualizar precio en mapa global
+      setLiveCheck({ticker:base,price:result.price,name:result.name});
+      return;
+    }
+    // 4. Proxy CORS allorigins.win como último recurso
+    try{
+      var proxyUrl="https://api.allorigins.win/get?url="+encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d");
+      var rp=await fetch(proxyUrl);
+      if(rp.ok){
+        var dp=await rp.json();
+        var inner=typeof dp.contents==="string"?JSON.parse(dp.contents):dp.contents;
+        var meta=inner&&inner.chart&&inner.chart.result&&inner.chart.result[0]&&inner.chart.result[0].meta;
+        if(meta&&meta.regularMarketPrice){
+          var p2=parseFloat(meta.regularMarketPrice.toFixed(2));
+          if(SPr&&pr)SPr({...pr,[base]:p2});
+          setLiveCheck({ticker:base,price:p2.toFixed(2),name:(meta.shortName||base)+" (Yahoo)"});
+          return;
+        }
+      }
+    }catch(e){}
+    setLiveCheck("error");
+  }
   function doSavePosForm(){
     if(!f.asset||!f.capital||!f.entry)return;
-    const obj={...f,id:editId||Date.now(),capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,be:false};
+    var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
+    const obj={...f,id:editId||Date.now(),capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false};
     const nv=editId?currentPos.map(x=>x.id===editId?obj:x):[...currentPos,obj];
     SPos(nv);
     setModal(m=>({...m,pos:false,posForm:null,editPosId:null}));
   }
   const e2=+f.entry,sl=+f.sl,tp2=+f.tp,cap=+f.capital;
   const hasCalc=f.entry&&f.sl&&f.tp&&f.capital;
+  const isShort=f.dir==="Short";
+  // Direction-aware validation: for SHORT, SL must be above entry and TP below; for LONG, reversed
+  const slValid=(!f.sl||!f.entry)||(isShort?(sl>e2):(sl<e2));
+  const tpValid=(!f.tp||!f.entry)||(isShort?(tp2<e2):(tp2>e2));
   const risk=hasCalc?cap*Math.abs(e2-sl)/e2:0;
-  const reward=hasCalc?cap*Math.abs(tp2-e2)/e2:0;
-  const ratio=risk>0?reward/risk:0;
+  const reward=hasCalc&&tpValid?cap*Math.abs(tp2-e2)/e2:0;
+  const ratio=risk>0&&tpValid?reward/risk:0;
   return(
     <div style={S.modal}><div style={S.mc}>
       <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>{editId?"EDITAR OPERACION":"NUEVA OPERACION"}</div>
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>ACTIVO</div>
-        <input style={S.inp} placeholder="BTC/USDT, AAPL, SOL/USD..." value={f.asset} onChange={e=>setF({...f,asset:e.target.value.toUpperCase()})}/>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <input style={{...S.inp,flex:1}} placeholder="Ticker: TLT · AAPL · BTC · SOL..." value={f.asset} onChange={function(e){setF({...f,asset:e.target.value.toUpperCase()});setLiveCheck(null);}}/>
+          <button onClick={checkLivePrice} disabled={!f.asset||liveCheck==="loading"}
+            style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {liveCheck==="loading"?"⏳":"⚡ Check"}
+          </button>
+        </div>
+        <div style={{fontSize:8,color:"#444",marginTop:3}}>Escribe el ticker del activo (TLT, AAPL, MSFT…), no el nombre completo</div>
+        {liveCheck&&liveCheck!=="loading"&&liveCheck!=="error"&&(
+          <div style={{marginTop:5,padding:"6px 8px",background:"rgba(0,255,136,.08)",border:"1px solid rgba(0,255,136,.3)",borderRadius:4,fontSize:9,color:"#00ff88"}}>
+            <div>✓ <strong>{liveCheck.name}</strong></div>
+            <div style={{marginTop:2}}>Ticker: <strong>{liveCheck.ticker}</strong> · Precio actual: <strong>${liveCheck.price}</strong></div>
+          </div>
+        )}
+        {liveCheck==="error"&&(
+          <div style={{marginTop:5,padding:"8px",background:"rgba(255,136,68,.08)",border:"1px solid rgba(255,136,68,.3)",borderRadius:4,fontSize:9}}>
+            <div style={{color:"#ff8844",marginBottom:6}}>⚠ No se pudo obtener precio automáticamente.</div>
+            <div style={{color:"#888",marginBottom:6}}>Introduce el precio actual manualmente para calcular el P&L:</div>
+            <div style={{display:"flex",gap:6}}>
+              <input type="number" id="manualPriceInput" placeholder="ej: 88.45"
+                style={{...S.inp,flex:1,fontSize:10,padding:"5px 8px"}}/>
+              <button onClick={function(){
+                var val=parseFloat(document.getElementById("manualPriceInput").value);
+                if(isNaN(val)||val<=0)return;
+                var base=f.asset.replace(/\/.*$/,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,10)||f.asset;
+                if(SPr&&pr)SPr({...pr,[base]:val}); // guardar en mapa global
+                setLiveCheck({ticker:base,price:val.toFixed(2),name:base+" (Manual)"});
+              }} style={{background:"rgba(255,136,68,.2)",border:"1px solid #ff8844",color:"#ff8844",padding:"5px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>Usar</button>
+            </div>
+            <div style={{marginTop:5,color:"#555",fontSize:8}}>Tickers válidos: TLT · AAPL · MSFT · SPY · NVDA · cualquier símbolo de bolsa</div>
+          </div>
+        )}
       </div>
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>DIRECCION</div>
@@ -2945,19 +4330,70 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
           <input style={S.inp} type="number" placeholder={ph} value={f[k]||""} onChange={e=>setF({...f,[k]:e.target.value})}/>
         </div>
       ))}
+      {/* Ventas parciales */}
+      <div style={{marginBottom:9}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={S.lbl}>VENTAS PARCIALES</div>
+          <button type="button" onClick={addTpLevel} style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>+ Añadir nivel</button>
+        </div>
+        {(f.tpLevels||[]).length===0&&(
+          <div style={{fontSize:8,color:"#333",padding:"4px 0"}}>Sin ventas parciales — el TP único cierra toda la posición.</div>
+        )}
+        {(f.tpLevels||[]).map(function(lvl,i){
+          var totalPct=(f.tpLevels||[]).reduce(function(a,l){return a+(+l.pct||0);},0);
+          return(
+            <div key={lvl.id} style={{display:"grid",gridTemplateColumns:"1fr 80px auto",gap:5,marginBottom:6,alignItems:"end"}}>
+              <div>
+                <div style={{fontSize:7,color:"#555",marginBottom:2}}>PRECIO NIVEL {i+1} ({isShort?"↓ por debajo":"↑ por encima"})</div>
+                <input type="number" value={lvl.price||""} onChange={function(e){updateTpLevel(lvl.id,"price",e.target.value);}}
+                  style={{...S.inp,padding:"5px 8px",fontSize:10}} placeholder={isShort?"ej: 69000":"ej: 72000"}/>
+              </div>
+              <div>
+                <div style={{fontSize:7,color:totalPct>100?"#ff4444":"#555",marginBottom:2}}>% POSICIÓN</div>
+                <input type="number" min="1" max="100" value={lvl.pct||""} onChange={function(e){updateTpLevel(lvl.id,"pct",e.target.value);}}
+                  style={{...S.inp,padding:"5px 8px",fontSize:10,color:totalPct>100?"#ff4444":"#e0e0e0"}} placeholder="50"/>
+              </div>
+              <button type="button" onClick={function(){removeTpLevel(lvl.id);}} style={{background:"transparent",border:"1px solid #333",color:"#555",padding:"7px 8px",borderRadius:4,fontSize:11,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+          );
+        })}
+        {(f.tpLevels||[]).length>0&&(function(){
+          var tot=(f.tpLevels||[]).reduce(function(a,l){return a+(+l.pct||0);},0);
+          return <div style={{fontSize:8,color:tot>100?"#ff4444":tot===100?"#00ff88":"#f0b429",textAlign:"right",marginTop:2}}>Total: {tot}%{tot>100?" ⚠ supera 100%":tot===100?" ✓":""}</div>;
+        })()}
+      </div>
       {hasCalc&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-          <div style={{background:"rgba(255,68,68,.06)",borderRadius:4,padding:"8px 10px"}}>
-            <div style={{fontSize:8,color:"#555",marginBottom:2}}>SL - PERDIDA MAXIMA</div>
-            <div style={{fontSize:11,fontWeight:700,color:"#ff4444"}}>{fmtNum(-risk)}</div>
+          <div style={{background:slValid?"rgba(255,68,68,.06)":"rgba(255,136,68,.1)",border:slValid?"none":"1px solid rgba(255,136,68,.4)",borderRadius:4,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:slValid?"#555":"#ff8844",marginBottom:2}}>
+              SL - PÉRDIDA MÁXIMA
+              {!slValid&&<span> ⚠ {isShort?"debe ser MAYOR que entrada":"debe ser MENOR que entrada"}</span>}
+            </div>
+            {risk===0
+              ? <div style={{fontSize:10,fontWeight:700,color:"#00ff88"}}>RIESGO CERO<br/><span style={{fontSize:8,color:"#555",fontWeight:400}}>SL en precio de entrada</span></div>
+              : <div style={{fontSize:11,fontWeight:700,color:"#ff4444"}}>{fmtNum(-risk)}</div>
+            }
           </div>
-          <div style={{background:"rgba(0,255,136,.06)",borderRadius:4,padding:"8px 10px"}}>
-            <div style={{fontSize:8,color:"#555",marginBottom:2}}>TP - GANANCIA MAXIMA</div>
-            <div style={{fontSize:11,fontWeight:700,color:"#00ff88"}}>{fmtNum(reward)}</div>
+          <div style={{background:tpValid?"rgba(0,255,136,.06)":"rgba(255,136,68,.1)",border:tpValid?"none":"1px solid rgba(255,136,68,.4)",borderRadius:4,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:tpValid?"#555":"#ff8844",marginBottom:2}}>
+              TP - GANANCIA MÁXIMA
+              {!tpValid&&<span> ⚠ {isShort?"debe ser MENOR que entrada":"debe ser MAYOR que entrada"}</span>}
+            </div>
+            {tpValid
+              ? <div style={{fontSize:11,fontWeight:700,color:"#00ff88"}}>{fmtNum(reward)}</div>
+              : <div style={{fontSize:10,fontWeight:700,color:"#ff8844"}}>—</div>
+            }
           </div>
-          <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:ratio>=3?"#00ff88":ratio>=2?"#f0b429":"#ff4444",fontWeight:700}}>
-            {"Ratio R:B 1:"+ratio.toFixed(1)+" "+(ratio>=3?"Solido":ratio>=2?"Aceptable":"Insuficiente")}
-          </div>
+          {risk>0&&tpValid&&(
+            <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:ratio>=3?"#00ff88":ratio>=2?"#f0b429":"#ff4444",fontWeight:700}}>
+              {"Ratio R:B 1:"+ratio.toFixed(1)+" "+(ratio>=3?"Sólido":ratio>=2?"Aceptable":"Insuficiente")}
+            </div>
+          )}
+          {risk===0&&reward>0&&(
+            <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:"#00ff88",fontWeight:700}}>
+              Posición protegida — ganancia potencial {fmtNum(reward)}
+            </div>
+          )}
         </div>
       )}
       <div style={{display:"flex",gap:7,marginTop:12}}>
@@ -3012,10 +4448,136 @@ function PhotoBtn({patId,hasPhoto,onFile}){
   );
 }
 
+function calcSRLevels(highs,lows,price){
+  var range=5;
+  var supports=[],resistances=[];
+  for(var i=range;i<highs.length-range;i++){
+    var isR=true,iS=true;
+    for(var j=i-range;j<=i+range;j++){
+      if(j===i)continue;
+      if(highs[j]>=highs[i])isR=false;
+      if(lows[j]<=lows[i])iS=false;
+    }
+    if(isR)resistances.push(parseFloat(highs[i].toFixed(4)));
+    if(iS)supports.push(parseFloat(lows[i].toFixed(4)));
+  }
+  return{
+    supports:supports.filter(function(s){return s<price;}).sort(function(a,b){return b-a;}).slice(0,3),
+    resistances:resistances.filter(function(r){return r>price;}).sort(function(a,b){return a-b;}).slice(0,3)
+  };
+}
+
+// --- Channel & FVG pattern detection (for real-time alerts) ---
+
+function detectPivots(highs,lows,win){
+  win=win||3;
+  var pH=[],pL=[];
+  for(var i=win;i<highs.length-win;i++){
+    var isH=true,isL=true;
+    for(var j=1;j<=win;j++){
+      if(highs[i]<=highs[i-j]||highs[i]<=highs[i+j])isH=false;
+      if(lows[i]>=lows[i-j]||lows[i]>=lows[i+j])isL=false;
+    }
+    if(isH)pH.push({x:i,y:highs[i]});
+    if(isL)pL.push({x:i,y:lows[i]});
+  }
+  return{pH:pH,pL:pL};
+}
+
+function linReg(pts){
+  var n=pts.length;
+  if(n<2)return null;
+  var sx=0,sy=0,sxy=0,sx2=0;
+  for(var i=0;i<n;i++){sx+=pts[i].x;sy+=pts[i].y;sxy+=pts[i].x*pts[i].y;sx2+=pts[i].x*pts[i].x;}
+  var denom=n*sx2-sx*sx;
+  if(denom===0)return null;
+  var m=(n*sxy-sx*sy)/denom;
+  var b=(sy-m*sx)/n;
+  return{slope:m,intercept:b};
+}
+
+function detectChannelAlert(ohlc){
+  if(!ohlc||ohlc.length<60)return null;
+  var recent=ohlc.slice(-80);
+  var highs=recent.map(function(c){return c.h;});
+  var lows=recent.map(function(c){return c.l;});
+  var price=recent[recent.length-1].c;
+  var pivs=detectPivots(highs,lows,3);
+  if(pivs.pH.length<3||pivs.pL.length<3)return null;
+  var rH=linReg(pivs.pH);
+  var rL=linReg(pivs.pL);
+  if(!rH||!rL)return null;
+  var n=recent.length-1;
+  var topLine=rH.slope*n+rH.intercept;
+  var botLine=rL.slope*n+rL.intercept;
+  var ch=topLine-botLine;
+  if(ch<=0||price<=0)return null;
+  var pos=(price-botLine)/ch; // 0=bottom 1=top
+  // Slopes must have same sign (parallel) and ratio between 0.25–4
+  var sameSign=(rH.slope<0&&rL.slope<0)||(rH.slope>0&&rL.slope>0);
+  if(!sameSign)return null;
+  var sRatio=Math.abs(rH.slope)/Math.abs(rL.slope);
+  if(sRatio<0.25||sRatio>4)return null;
+  // Price must be near a boundary (within 20% of channel height)
+  var isDescending=rH.slope<0;
+  if(pos<0.2){
+    return isDescending
+      ?{type:"bajista_soporte",desc:"Canal bajista — precio en soporte (posible rebote/ruptura alcista)"}
+      :{type:"alcista_soporte",desc:"Canal alcista — precio en soporte (zona de compra)"};
+  }
+  if(pos>0.8){
+    return isDescending
+      ?{type:"bajista_resistencia",desc:"Canal bajista — precio en resistencia (zona de venta)"}
+      :{type:"alcista_resistencia",desc:"Canal alcista — precio en resistencia (posible ruptura)"};
+  }
+  return null;
+}
+
+function checkFVGCovered(ohlc,price){
+  if(!ohlc||ohlc.length<10)return null;
+  var n=ohlc.length;
+  // Scan from index 2 up to last-2 (avoid most recent partial candle)
+  for(var i=2;i<n-2;i++){
+    var h0=ohlc[i-2].h,l0=ohlc[i-2].l;
+    var h2=ohlc[i].h,l2=ohlc[i].l;
+    var age=n-1-i;
+    if(age<3)continue; // skip very recent, need some gap
+    // Bullish FVG: low[i] > high[i-2] → gap above h0 up to l2
+    if(l2>h0&&price>=h0&&price<=l2){
+      return{subtype:"alcista",top:l2,bot:h0,age:age};
+    }
+    // Bearish FVG: high[i] < low[i-2] → gap below l0 down to h2
+    if(h2<l0&&price<=l0&&price>=h2){
+      return{subtype:"bajista",top:l0,bot:h2,age:age};
+    }
+  }
+  return null;
+}
+
+function detectFVGs(klines,price){
+  var fvgs=[];
+  for(var i=2;i<klines.length;i++){
+    var h0=parseFloat(klines[i-2][2]),l0=parseFloat(klines[i-2][3]);
+    var h2=parseFloat(klines[i][2]),l2=parseFloat(klines[i][3]);
+    var ageCandels=klines.length-i;
+    if(l2>h0){
+      var mid=(l2+h0)/2;
+      if(Math.abs(mid-price)/price<0.05)
+        fvgs.push({type:"alcista",top:l2.toFixed(4),bot:h0.toFixed(4),age:ageCandels});
+    }
+    if(h2<l0){
+      var mid2=(h2+l0)/2;
+      if(Math.abs(mid2-price)/price<0.05)
+        fvgs.push({type:"bajista",top:l0.toFixed(4),bot:h2.toFixed(4),age:ageCandels});
+    }
+  }
+  return fvgs.sort(function(a,b){return a.age-b.age;}).slice(0,4);
+}
+
 async function getBinanceData(selAsset,selTF,ASSETS,TFS){
   var klines=[],ticker={};
   try{
-    var r1=await fetch("https://api.binance.com/api/v3/klines?symbol="+selAsset+"&interval="+selTF+"&limit=100");
+    var r1=await fetch("https://api.binance.com/api/v3/klines?symbol="+selAsset+"&interval="+selTF+"&limit=150");
     var r2=await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol="+selAsset);
     klines=await r1.json();
     ticker=await r2.json();
@@ -3045,7 +4607,10 @@ async function getBinanceData(selAsset,selTF,ASSETS,TFS){
   var assetLabel=(ASSETS.find(function(a){return a.v===selAsset;})||{l:selAsset}).l;
   var tfLabel=(TFS.find(function(t){return t.v===selTF;})||{l:selTF}).l;
   var emaRel=ema7&&ema25?(ema7>ema25?"EMA7 sobre EMA25 (alcista)":"EMA7 bajo EMA25 (bajista)"):"--";
-  return{asset:assetLabel,tf:tfLabel,price:price.toFixed(2),change24h:ticker.priceChangePercent,
-    rsi:rsi,ema7:ema7?ema7.toFixed(2):null,ema25:ema25?ema25.toFixed(2):null,ema50:ema50?ema50.toFixed(2):null,
-    emaRelation:emaRel,trend:trend,volRatio:volRatio,high24h:ticker.highPrice,low24h:ticker.lowPrice};
+  var sr=calcSRLevels(highs,lows,price);
+  var fvgs=detectFVGs(klines,price);
+  return{asset:assetLabel,tf:tfLabel,price:price.toFixed(4),change24h:ticker.priceChangePercent,
+    rsi:rsi,ema7:ema7?ema7.toFixed(4):null,ema25:ema25?ema25.toFixed(4):null,ema50:ema50?ema50.toFixed(4):null,
+    emaRelation:emaRel,trend:trend,volRatio:volRatio,high24h:ticker.highPrice,low24h:ticker.lowPrice,
+    supports:sr.supports,resistances:sr.resistances,fvgs:fvgs};
 }
