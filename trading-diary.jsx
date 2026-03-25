@@ -2815,15 +2815,14 @@ function AlertasTab({S}){
 
 // - GOAL TRACKER -
 function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
-  // GOAL = total a recuperar (perdida historica total absoluta, dinamica)
-  const GOAL=parseFloat(Math.abs(h0Total).toFixed(2));
-  // Net P&L from all closes done via the app (wins + losses)
+  // Net P&L de los cierres hechos via app (xhist)
   const recovered=parseFloat(xhist.reduce((a,h)=>a+(h.result||0),0).toFixed(2));
-  // Also count actPnl if positive (open positions in profit)
+  // GOAL = perdida historica INICIAL (Quantfury base), fija e independiente de nuevos cierres
+  // h0Total = QUANTFURY_BASE + recovered  →  QUANTFURY_BASE = h0Total - recovered
+  const GOAL=parseFloat(Math.abs(h0Total-recovered).toFixed(2));
   const potentialExtra=actPnl>0?actPnl:0;
-  const totalRecovered=recovered;
-  const pct=GOAL>0?Math.min(100,Math.round(Math.max(0,totalRecovered)/GOAL*100)):0;
-  const remaining=parseFloat(Math.max(0,GOAL-totalRecovered).toFixed(2));
+  const pct=GOAL>0?Math.min(100,Math.round(Math.max(0,recovered)/GOAL*100)):0;
+  const remaining=parseFloat(Math.max(0,GOAL-recovered).toFixed(2));
 
   // Milestone messages
   let milestone="";
@@ -2841,8 +2840,8 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
     <div style={{...S.card,border:"1px solid rgba(240,180,41,.4)",marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
         <div>
-          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,letterSpacing:1}}>OBJETIVO: RECUPERAR ${GOAL.toLocaleString()}</div>
-          <div style={{fontSize:9,color:"#555",marginTop:2}}>Perdidas acumuladas (actualizado con cierres)</div>
+          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,letterSpacing:1}}>RECUPERACION — PERDIDA INICIAL: ${GOAL.toLocaleString()}</div>
+          <div style={{fontSize:9,color:"#555",marginTop:2}}>Perdida Quantfury historica (fija) · Cierres via app: {recovered>=0?"+":""}{recovered.toFixed(2)}</div>
         </div>
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:28,fontWeight:700,color:pct>=100?"#00ff88":pct>=50?"#f0b429":"#e0e0e0"}}>{pct}%</div>
@@ -2865,7 +2864,7 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
           </div>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:"#444",marginTop:3}}>
-          <span style={{color:"#00ff88"}}>Recuperado: +${totalRecovered.toLocaleString()}</span>
+          <span style={{color:recovered>=0?"#00ff88":"#ff4444"}}>Recuperado: {recovered>=0?"+":""}{recovered.toFixed(2)}</span>
           <span style={{color:"#ff4444"}}>Restante: ${remaining.toLocaleString()}</span>
         </div>
       </div>
@@ -2873,7 +2872,7 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
       {/* Stats */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}}>
         <div style={{background:"#0d0d16",borderRadius:6,padding:"8px",textAlign:"center"}}>
-          <div style={{fontSize:16,fontWeight:700,color:"#00ff88"}}>${totalRecovered.toFixed(0)}</div>
+          <div style={{fontSize:16,fontWeight:700,color:recovered>=0?"#00ff88":"#ff4444"}}>{recovered>=0?"+":""}{recovered.toFixed(0)}</div>
           <div style={{fontSize:7,color:"#555"}}>RECUPERADO</div>
         </div>
         <div style={{background:"#0d0d16",borderRadius:6,padding:"8px",textAlign:"center"}}>
