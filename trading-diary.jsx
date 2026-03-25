@@ -287,23 +287,39 @@ export default function App(){
           if(r.ok){const d=await r.json();newPr[pair.key]=parseFloat(parseFloat(d.price).toFixed(2));}
         }catch(e){}
       }),
-      // Acciones y ETFs via Yahoo Finance (prueba varios endpoints por si alguno falla por CORS)
+      // Acciones y ETFs: Stooq primero (CORS abierto), fallback Yahoo
       ...[...stockSymbols].map(async function(sym){
-        const endpoints=[
-          "https://query1.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
-          "https://query2.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
-          "https://query1.finance.yahoo.com/v7/finance/quote?symbols="+sym,
-        ];
-        for(var i=0;i<endpoints.length;i++){
+        // Stooq CSV — sufijo .us para bolsa americana
+        var found=false;
+        var stooqSuffixes=[".us",""];
+        for(var s=0;s<stooqSuffixes.length&&!found;s++){
           try{
-            const r=await fetch(endpoints[i],{credentials:"omit"});
-            if(!r.ok)continue;
-            const d=await r.json();
-            const meta=d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
-            if(meta&&meta.regularMarketPrice){newPr[sym]=parseFloat(meta.regularMarketPrice.toFixed(2));break;}
-            const q=d.quoteResponse&&d.quoteResponse.result&&d.quoteResponse.result[0];
-            if(q&&q.regularMarketPrice){newPr[sym]=parseFloat(q.regularMarketPrice.toFixed(2));break;}
+            var su="https://stooq.com/q/l/?s="+sym.toLowerCase()+stooqSuffixes[s]+"&f=sd2t2ohlcvn&e=csv";
+            var rs=await fetch(su);
+            if(!rs.ok)continue;
+            var txt=await rs.text();
+            var lines=txt.trim().split("\n");
+            if(lines.length<2)continue;
+            var fields=lines[1].split(",");
+            var close=parseFloat(fields[6]);
+            if(!isNaN(close)&&close>0){newPr[sym]=close;found=true;}
           }catch(e){}
+        }
+        // Fallback Yahoo si Stooq no dio resultado
+        if(!found){
+          var yahooUrls=[
+            "https://query1.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
+            "https://query2.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
+          ];
+          for(var y=0;y<yahooUrls.length&&!found;y++){
+            try{
+              var ry=await fetch(yahooUrls[y],{credentials:"omit"});
+              if(!ry.ok)continue;
+              var dy=await ry.json();
+              var meta=dy.chart&&dy.chart.result&&dy.chart.result[0]&&dy.chart.result[0].meta;
+              if(meta&&meta.regularMarketPrice){newPr[sym]=parseFloat(meta.regularMarketPrice.toFixed(2));found=true;}
+            }catch(e){}
+          }
         }
       })
     ]);
@@ -3986,53 +4002,65 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
   const[f,setF]=useState(form);
   const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {price,name} | "error"
   const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
+
+  // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
+  async function fetchStockPrice(base){
+    // Stooq — CSV con sufijo .us para bolsa americana
+    const stooqSuffixes=[".us",""];
+    for(var s=0;s<stooqSuffixes.length;s++){
+      try{
+        var url="https://stooq.com/q/l/?s="+base.toLowerCase()+stooqSuffixes[s]+"&f=sd2t2ohlcvn&e=csv";
+        var r=await fetch(url);
+        if(!r.ok)continue;
+        var text=await r.text();
+        var lines=text.trim().split("\n");
+        if(lines.length<2)continue;
+        var fields=lines[1].split(",");
+        // CSV format: Symbol,Date,Time,Open,High,Low,Close,Volume,OpenInt
+        var close=parseFloat(fields[6]);
+        if(!isNaN(close)&&close>0)return{price:close.toFixed(2),name:base+" (Stooq)",source:"stooq"};
+      }catch(e){}
+    }
+    // Fallback Yahoo Finance
+    var yahooUrls=[
+      "https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
+      "https://query2.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
+    ];
+    for(var y=0;y<yahooUrls.length;y++){
+      try{
+        var ry=await fetch(yahooUrls[y],{credentials:"omit"});
+        if(!ry.ok)continue;
+        var dy=await ry.json();
+        var meta=dy.chart&&dy.chart.result&&dy.chart.result[0]&&dy.chart.result[0].meta;
+        if(meta&&meta.regularMarketPrice)
+          return{price:meta.regularMarketPrice.toFixed(2),name:(meta.shortName||base)+" (Yahoo)",source:"yahoo"};
+      }catch(e){}
+    }
+    return null;
+  }
+
   async function checkLivePrice(){
     if(!f.asset)return;
-    // Extraer solo el ticker limpio: "TLT", "BTC/USDT" → "BTC", ignorar nombres largos
     const raw=f.asset.trim();
     const base=raw.replace(/\/.*$/,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,10);
     if(!base){setLiveCheck("error");return;}
     setLiveCheck("loading");
-    // Actualizar campo con ticker limpio
     setF(function(prev){return{...prev,asset:base};});
-    // 1. Intentar Binance para crypto
+    // 1. Binance para crypto conocida
     if(CRYPTO_BINANCE[base]){
       try{
         const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+CRYPTO_BINANCE[base]);
         if(r.ok){const d=await r.json();setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}
       }catch(e){}
     }
-    // 2. Intentar Binance de todas formas con USDT (por si es crypto no listada)
+    // 2. Binance con USDT dinamico (otras cryptos)
     try{
       const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+base+"USDT");
       if(r.ok){const d=await r.json();if(d.price){setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}}
     }catch(e){}
-    // 3. Yahoo Finance — probar query1 y query2, v8 y v7
-    const yahooEndpoints=[
-      "https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
-      "https://query2.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
-      "https://query1.finance.yahoo.com/v7/finance/quote?symbols="+base,
-      "https://query2.finance.yahoo.com/v7/finance/quote?symbols="+base,
-    ];
-    for(var i=0;i<yahooEndpoints.length;i++){
-      try{
-        const r=await fetch(yahooEndpoints[i],{credentials:"omit"});
-        if(!r.ok)continue;
-        const d=await r.json();
-        // Formato v8/chart
-        const meta=d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
-        if(meta&&meta.regularMarketPrice){
-          setLiveCheck({ticker:meta.symbol||base,price:meta.regularMarketPrice.toFixed(2),name:(meta.shortName||meta.symbol||base)+" (Yahoo)"});
-          return;
-        }
-        // Formato v7/quote
-        const q=d.quoteResponse&&d.quoteResponse.result&&d.quoteResponse.result[0];
-        if(q&&q.regularMarketPrice){
-          setLiveCheck({ticker:q.symbol||base,price:q.regularMarketPrice.toFixed(2),name:(q.shortName||q.symbol||base)+" (Yahoo)"});
-          return;
-        }
-      }catch(e){}
-    }
+    // 3. Stooq + Yahoo para acciones y ETFs
+    const result=await fetchStockPrice(base);
+    if(result){setLiveCheck({ticker:base,price:result.price,name:result.name});return;}
     setLiveCheck("error");
   }
   function doSavePosForm(){
@@ -4067,9 +4095,20 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
           </div>
         )}
         {liveCheck==="error"&&(
-          <div style={{marginTop:5,padding:"6px 8px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.25)",borderRadius:4,fontSize:9,color:"#ff4444"}}>
-            <div>✗ No encontrado. Asegúrate de usar el ticker exacto:</div>
-            <div style={{marginTop:2,color:"#888"}}>ETF bonos 20Y → <strong>TLT</strong> · Apple → <strong>AAPL</strong> · Bitcoin → <strong>BTC</strong></div>
+          <div style={{marginTop:5,padding:"8px",background:"rgba(255,136,68,.08)",border:"1px solid rgba(255,136,68,.3)",borderRadius:4,fontSize:9}}>
+            <div style={{color:"#ff8844",marginBottom:6}}>⚠ No se pudo obtener precio automáticamente.</div>
+            <div style={{color:"#888",marginBottom:6}}>Introduce el precio actual manualmente para calcular el P&L:</div>
+            <div style={{display:"flex",gap:6}}>
+              <input type="number" id="manualPriceInput" placeholder="ej: 88.45"
+                style={{...S.inp,flex:1,fontSize:10,padding:"5px 8px"}}/>
+              <button onClick={function(){
+                var val=parseFloat(document.getElementById("manualPriceInput").value);
+                if(isNaN(val)||val<=0)return;
+                var base=f.asset.replace(/\/.*$/,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,10)||f.asset;
+                setLiveCheck({ticker:base,price:val.toFixed(2),name:base+" (Manual)"});
+              }} style={{background:"rgba(255,136,68,.2)",border:"1px solid #ff8844",color:"#ff8844",padding:"5px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>Usar</button>
+            </div>
+            <div style={{marginTop:5,color:"#555",fontSize:8}}>Tickers válidos: TLT · AAPL · MSFT · SPY · NVDA · cualquier símbolo de bolsa</div>
           </div>
         )}
       </div>
