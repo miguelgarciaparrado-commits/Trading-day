@@ -1984,13 +1984,8 @@ function AlertasTab({S}){
   const closesRef=useRef({});
   const lastTrigRef=useRef({});
   const[emaData,setEmaData]=useState({});
-  const[priceAlerts,setPriceAlerts]=useState([]);
-  const priceAlertsRef=useRef([]);
-  const priceWsRefs=useRef({});
-  const pricePollRefs=useRef({});
-  const lastPriceTrigRef=useRef({});
-  const[showPriceForm,setShowPriceForm]=useState(false);
-  const[priceForm,setPriceForm]=useState({symbol:"BTCUSDT",displayName:"BTC/USD",isCrypto:true,targetPrice:"",condition:"below",description:""});
+  const[showImport,setShowImport]=useState(false);
+  const[importText,setImportText]=useState("");
 
   function saveAlerts(arr){
     alertsRef.current=arr;
@@ -2000,16 +1995,6 @@ function AlertasTab({S}){
 
   useEffect(()=>{
     if("Notification" in window)setNotifPerm(Notification.permission);
-    // Price alerts (always load)
-    try{
-      const savedPA=localStorage.getItem("td-price-alerts");
-      if(savedPA){
-        const pa=JSON.parse(savedPA);
-        const paReset=pa.map(function(p){return{id:p.id,symbol:p.symbol,displayName:p.displayName,isCrypto:p.isCrypto,targetPrice:parseFloat(p.targetPrice),condition:p.condition,description:p.description||"",active:false,currentPrice:null,error:false};});
-        priceAlertsRef.current=paReset;
-        setPriceAlerts(paReset);
-      }
-    }catch(e){}
     // Load new-format alerts
     try{
       const saved=localStorage.getItem("td-alerts-v2");
@@ -2201,72 +2186,23 @@ function AlertasTab({S}){
     saveAlerts(alertsRef.current.filter(function(a){return a.id!==alert.id;}));
   }
 
-  function savePriceAlerts(arr){
-    priceAlertsRef.current=arr;
-    setPriceAlerts(arr);
-    localStorage.setItem("td-price-alerts",JSON.stringify(arr));
+  function exportAlerts(){
+    const data=JSON.stringify(alertsRef.current.map(function(a){return{...a,active:false,currentRsi:null,currentPrice:null,error:false};}));
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(data).then(function(){alert("Alertas copiadas al portapapeles. Pegalas en el movil con el boton Importar.");}).catch(function(){setImportText(data);setShowImport(true);});
+    }else{setImportText(data);setShowImport(true);}
   }
 
-  function addPriceAlert(){
-    if(!priceForm.targetPrice)return;
-    var na={
-      id:Date.now(),symbol:priceForm.symbol,displayName:priceForm.displayName,
-      isCrypto:priceForm.isCrypto,targetPrice:parseFloat(priceForm.targetPrice),
-      condition:priceForm.condition,description:priceForm.description,
-      active:false,currentPrice:null,error:false
-    };
-    savePriceAlerts([...priceAlertsRef.current,na]);
-    setShowPriceForm(false);
-    setPriceForm({symbol:"BTCUSDT",displayName:"BTC/USD",isCrypto:true,targetPrice:"",condition:"below",description:""});
-  }
-
-  function startPriceAlert(pa){
-    var sid=pa.id.toString();
-    if(priceWsRefs.current[sid]){priceWsRefs.current[sid].close();delete priceWsRefs.current[sid];}
-    if(pricePollRefs.current[sid]){clearInterval(pricePollRefs.current[sid]);delete pricePollRefs.current[sid];}
-    savePriceAlerts(priceAlertsRef.current.map(function(p){return p.id===pa.id?{...p,active:true,error:false}:p;}));
-
-    function checkPrice(price){
-      setPriceAlerts(function(prev){return prev.map(function(p){return p.id===pa.id?{...p,currentPrice:price.toFixed(2)}:p;});});
-      var met=(pa.condition==="above"&&price>=pa.targetPrice)||(pa.condition==="below"&&price<=pa.targetPrice);
-      if(met&&!lastPriceTrigRef.current[sid]){
-        lastPriceTrigRef.current[sid]=true;
-        var condStr=pa.condition==="above"?"sube a":"baja a";
-        var desc=(pa.description?pa.description+" — ":"")+pa.displayName+" "+condStr+" $"+pa.targetPrice.toFixed(2)+" ($"+price.toFixed(2)+" actual)";
-        sendAlert(pa.displayName,"precio",null,"price_target",null,null,desc,price);
-      }
-      if(!met)lastPriceTrigRef.current[sid]=false;
-    }
-
-    if(pa.isCrypto){
-      var ws=new WebSocket("wss://stream.binance.com:9443/ws/"+pa.symbol.toLowerCase()+"@miniTicker");
-      ws.onmessage=function(e){
-        var d=JSON.parse(e.data);
-        checkPrice(parseFloat(d.c));
-      };
-      ws.onerror=function(){savePriceAlerts(priceAlertsRef.current.map(function(p){return p.id===pa.id?{...p,active:false,error:true}:p;}));};
-      priceWsRefs.current[sid]=ws;
-    }else{
-      function pollStock(){
-        getStockData(pa.symbol,"1d").then(function(data){
-          if(data)checkPrice(parseFloat(data.price));
-        });
-      }
-      pollStock();
-      pricePollRefs.current[sid]=setInterval(pollStock,60000);
-    }
-  }
-
-  function stopPriceAlert(pa){
-    var sid=pa.id.toString();
-    if(priceWsRefs.current[sid]){priceWsRefs.current[sid].close();delete priceWsRefs.current[sid];}
-    if(pricePollRefs.current[sid]){clearInterval(pricePollRefs.current[sid]);delete pricePollRefs.current[sid];}
-    savePriceAlerts(priceAlertsRef.current.map(function(p){return p.id===pa.id?{...p,active:false,currentPrice:null}:p;}));
-  }
-
-  function removePriceAlert(pa){
-    stopPriceAlert(pa);
-    savePriceAlerts(priceAlertsRef.current.filter(function(p){return p.id!==pa.id;}));
+  function importAlerts(){
+    try{
+      const parsed=JSON.parse(importText);
+      if(!Array.isArray(parsed))throw new Error("formato invalido");
+      const imported=parsed.map(function(a){return{...a,active:false,currentRsi:null,currentPrice:null,error:false};});
+      saveAlerts(imported);
+      setShowImport(false);
+      setImportText("");
+      alert(imported.length+" alertas importadas. Pulsa Iniciar en cada una.");
+    }catch(e){alert("Error al importar: JSON invalido");}
   }
 
   return(
@@ -2277,8 +2213,27 @@ function AlertasTab({S}){
           <div style={{fontSize:11,color:"#f0b429",fontWeight:700,letterSpacing:1}}>ALERTAS RSI / EMA</div>
           <div style={{fontSize:9,color:"#555",marginTop:2}}>Tiempo real via Binance WebSocket</div>
         </div>
-        <button onClick={function(){setShowForm(!showForm);}} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"8px 14px",borderRadius:6,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva alerta</button>
+        <div style={{display:"flex",gap:5}}>
+          {alerts.length>0&&<button onClick={exportAlerts} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Exportar</button>}
+          <button onClick={function(){setShowImport(!showImport);setImportText("");}} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Importar</button>
+          <button onClick={function(){setShowForm(!showForm);}} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"8px 14px",borderRadius:6,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva</button>
+        </div>
       </div>
+
+      {/* Import panel */}
+      {showImport&&(
+        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:6}}>IMPORTAR ALERTAS</div>
+          <div style={{fontSize:8,color:"#555",marginBottom:6}}>Copia el texto exportado desde otro dispositivo y pegalo aqui:</div>
+          <textarea value={importText} onChange={function(e){setImportText(e.target.value);}}
+            placeholder='[{"id":...}]'
+            style={{...S.inp,width:"100%",minHeight:70,padding:8,fontSize:9,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box"}}/>
+          <div style={{display:"flex",gap:6,marginTop:8}}>
+            <button onClick={importAlerts} style={{flex:2,padding:"8px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>IMPORTAR</button>
+            <button onClick={function(){setShowImport(false);setImportText("");}} style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* Formulario nueva alerta */}
       {showForm&&(
@@ -2497,133 +2452,6 @@ function AlertasTab({S}){
           </div>
         );
       })}
-
-      {/* ── ALERTAS DE PRECIO ── */}
-      <div style={{background:"#111118",border:"1px solid rgba(240,180,41,.3)",borderRadius:8,padding:12,marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div>
-            <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>ALERTAS DE PRECIO</div>
-            <div style={{fontSize:8,color:"#555",marginTop:2}}>Notificacion cuando el activo alcance tu precio objetivo</div>
-          </div>
-          <button onClick={function(){setShowPriceForm(!showPriceForm);}} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"6px 10px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva</button>
-        </div>
-
-        {showPriceForm&&(
-          <div style={{background:"#0d0d16",borderRadius:6,padding:12,marginBottom:10,border:"1px solid rgba(240,180,41,.2)"}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-              <div>
-                <div style={{fontSize:8,color:"#555",marginBottom:3}}>ACTIVO</div>
-                <select value={priceForm.symbol} onChange={function(e){
-                  var opts={
-                    "BTCUSDT":{d:"BTC/USD",c:true},"ETHUSDT":{d:"ETH/USD",c:true},"SOLUSDT":{d:"SOL/USD",c:true},
-                    "LINKUSDT":{d:"LINK/USD",c:true},"BNBUSDT":{d:"BNB/USD",c:true},"XRPUSDT":{d:"XRP/USD",c:true},
-                    "NVDA":{d:"NVDA",c:false},"MSTR":{d:"MSTR",c:false},"GOOGL":{d:"GOOGL",c:false},
-                    "AAPL":{d:"AAPL",c:false},"AMD":{d:"AMD",c:false},"TSLA":{d:"TSLA",c:false},
-                    "META":{d:"META",c:false},"MARA":{d:"MARA",c:false},"SPY":{d:"SPY",c:false},
-                  };
-                  var o=opts[e.target.value]||{d:e.target.value,c:true};
-                  setPriceForm({...priceForm,symbol:e.target.value,displayName:o.d,isCrypto:o.c});
-                }} style={{...S.inp,padding:"5px",fontSize:9}}>
-                  <optgroup label="Crypto (tiempo real)">
-                    <option value="BTCUSDT">BTC/USD</option>
-                    <option value="ETHUSDT">ETH/USD</option>
-                    <option value="SOLUSDT">SOL/USD</option>
-                    <option value="LINKUSDT">LINK/USD</option>
-                    <option value="BNBUSDT">BNB/USD</option>
-                    <option value="XRPUSDT">XRP/USD</option>
-                  </optgroup>
-                  <optgroup label="Acciones (cada 60s)">
-                    <option value="NVDA">NVDA</option>
-                    <option value="MSTR">MSTR</option>
-                    <option value="GOOGL">GOOGL</option>
-                    <option value="AAPL">AAPL</option>
-                    <option value="AMD">AMD</option>
-                    <option value="TSLA">TSLA</option>
-                    <option value="META">META</option>
-                    <option value="MARA">MARA</option>
-                    <option value="SPY">SPY</option>
-                  </optgroup>
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:8,color:"#555",marginBottom:3}}>CONDICION</div>
-                <select value={priceForm.condition} onChange={function(e){setPriceForm({...priceForm,condition:e.target.value});}} style={{...S.inp,padding:"5px",fontSize:9}}>
-                  <option value="below">Precio baja hasta (≤)</option>
-                  <option value="above">Precio sube hasta (≥)</option>
-                </select>
-              </div>
-            </div>
-            <div style={{marginBottom:8}}>
-              <div style={{fontSize:8,color:"#f0b429",marginBottom:3}}>PRECIO OBJETIVO (USD)</div>
-              <input type="number" min="0" step="any" placeholder="ej: 84000"
-                value={priceForm.targetPrice}
-                onChange={function(e){setPriceForm({...priceForm,targetPrice:e.target.value});}}
-                style={{...S.inp,padding:"8px",fontSize:18,textAlign:"center",fontWeight:700,color:"#f0b429"}}/>
-            </div>
-            <div style={{marginBottom:8}}>
-              <div style={{fontSize:8,color:"#555",marginBottom:3}}>NOTA (opcional)</div>
-              <input style={S.inp} placeholder="Ej: Soporte BTC zona de entrada"
-                value={priceForm.description}
-                onChange={function(e){setPriceForm({...priceForm,description:e.target.value});}}/>
-            </div>
-            {priceForm.targetPrice&&(
-              <div style={{background:"rgba(240,180,41,.08)",border:"1px solid rgba(240,180,41,.2)",borderRadius:5,padding:"8px 10px",marginBottom:8,fontSize:9,color:"#f0b429"}}>
-                Notificar cuando {priceForm.displayName} {priceForm.condition==="below"?"baje a":"suba a"} ${parseFloat(priceForm.targetPrice).toFixed(2)}
-                {priceForm.isCrypto?" · Binance WebSocket (tiempo real)":" · Yahoo Finance (cada 60s)"}
-              </div>
-            )}
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={addPriceAlert} style={{flex:2,padding:"8px",background:"#f0b429",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>GUARDAR ALERTA</button>
-              <button onClick={function(){setShowPriceForm(false);}} style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>Cancelar</button>
-            </div>
-          </div>
-        )}
-
-        {priceAlerts.length===0&&!showPriceForm&&(
-          <div style={{fontSize:9,color:"#333",textAlign:"center",padding:"10px 0"}}>
-            Sin alertas de precio. Pulsa + Nueva para configurar una.
-          </div>
-        )}
-
-        {priceAlerts.map(function(pa){
-          var condColor=pa.condition==="below"?"#00ff88":"#f0b429";
-          var condLabel=pa.condition==="below"?"BAJE A":"SUBA A";
-          var priceReached=pa.currentPrice&&((pa.condition==="above"&&parseFloat(pa.currentPrice)>=pa.targetPrice)||(pa.condition==="below"&&parseFloat(pa.currentPrice)<=pa.targetPrice));
-          return(
-            <div key={pa.id} style={{background:"#0d0d16",border:"1px solid "+(pa.active?"rgba(240,180,41,.35)":pa.error?"rgba(255,68,68,.2)":"rgba(240,180,41,.15)"),borderRadius:6,padding:"10px 12px",marginBottom:6}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <div>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{width:7,height:7,borderRadius:"50%",background:pa.active?"#f0b429":"#333"}}/>
-                    <span style={{fontSize:11,fontWeight:700,color:condColor}}>{pa.displayName}</span>
-                    <span style={{fontSize:8,color:"#444"}}>{pa.isCrypto?"WS Binance":"Yahoo 60s"}</span>
-                  </div>
-                  {pa.description&&<div style={{fontSize:9,color:"#555",marginTop:3,marginLeft:13}}>{pa.description}</div>}
-                </div>
-                <div style={{textAlign:"right"}}>
-                  {pa.currentPrice&&(
-                    <div style={{fontSize:13,fontWeight:700,color:priceReached?"#00ff88":"#888"}}>${pa.currentPrice}</div>
-                  )}
-                  {pa.active&&!pa.currentPrice&&<div style={{fontSize:9,color:"#555"}}>...</div>}
-                </div>
-              </div>
-              <div style={{background:"rgba(240,180,41,.06)",borderRadius:4,padding:"6px 10px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span style={{fontSize:9,color:"#555"}}>Notificar cuando {condLabel}:</span>
-                <span style={{fontSize:18,fontWeight:700,color:condColor}}>${pa.targetPrice.toFixed(2)}</span>
-              </div>
-              <div style={{display:"flex",gap:6}}>
-                {!pa.active?(
-                  <button onClick={function(){startPriceAlert(pa);}} style={{flex:2,padding:"7px",background:"rgba(240,180,41,.1)",border:"1px solid #f0b429",color:"#f0b429",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>INICIAR MONITOR</button>
-                ):(
-                  <button onClick={function(){stopPriceAlert(pa);}} style={{flex:2,padding:"7px",background:"rgba(255,68,68,.1)",border:"1px solid #ff4444",color:"#ff4444",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>DETENER</button>
-                )}
-                <button onClick={function(){removePriceAlert(pa);}} style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#444",borderRadius:5,fontSize:9,cursor:"pointer"}}>Eliminar</button>
-              </div>
-              {pa.error&&<div style={{fontSize:8,color:"#ff4444",marginTop:4}}>Error de conexion.</div>}
-            </div>
-          );
-        })}
-      </div>
 
       {/* Log de alertas disparadas */}
       {logs.length>0&&(

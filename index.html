@@ -1846,13 +1846,8 @@ function AlertasTab({ S }) {
     const closesRef = useRef({});
     const lastTrigRef = useRef({});
     const [emaData, setEmaData] = useState({});
-    const [priceAlerts, setPriceAlerts] = useState([]);
-    const priceAlertsRef = useRef([]);
-    const priceWsRefs = useRef({});
-    const pricePollRefs = useRef({});
-    const lastPriceTrigRef = useRef({});
-    const [showPriceForm, setShowPriceForm] = useState(false);
-    const [priceForm, setPriceForm] = useState({ symbol: "BTCUSDT", displayName: "BTC/USD", isCrypto: true, targetPrice: "", condition: "below", description: "" });
+    const [showImport, setShowImport] = useState(false);
+    const [importText, setImportText] = useState("");
     function saveAlerts(arr) {
         alertsRef.current = arr;
         setAlerts(arr);
@@ -1861,17 +1856,6 @@ function AlertasTab({ S }) {
     useEffect(() => {
         if ("Notification" in window)
             setNotifPerm(Notification.permission);
-        // Price alerts (always load)
-        try {
-            const savedPA = localStorage.getItem("td-price-alerts");
-            if (savedPA) {
-                const pa = JSON.parse(savedPA);
-                const paReset = pa.map(function (p) { return { id: p.id, symbol: p.symbol, displayName: p.displayName, isCrypto: p.isCrypto, targetPrice: parseFloat(p.targetPrice), condition: p.condition, description: p.description || "", active: false, currentPrice: null, error: false }; });
-                priceAlertsRef.current = paReset;
-                setPriceAlerts(paReset);
-            }
-        }
-        catch (e) { }
         // Load new-format alerts
         try {
             const saved = localStorage.getItem("td-alerts-v2");
@@ -2159,89 +2143,47 @@ function AlertasTab({ S }) {
         stopAlert(alert);
         saveAlerts(alertsRef.current.filter(function (a) { return a.id !== alert.id; }));
     }
-    function savePriceAlerts(arr) {
-        priceAlertsRef.current = arr;
-        setPriceAlerts(arr);
-        localStorage.setItem("td-price-alerts", JSON.stringify(arr));
-    }
-    function addPriceAlert() {
-        if (!priceForm.targetPrice)
-            return;
-        var na = {
-            id: Date.now(), symbol: priceForm.symbol, displayName: priceForm.displayName,
-            isCrypto: priceForm.isCrypto, targetPrice: parseFloat(priceForm.targetPrice),
-            condition: priceForm.condition, description: priceForm.description,
-            active: false, currentPrice: null, error: false
-        };
-        savePriceAlerts([...priceAlertsRef.current, na]);
-        setShowPriceForm(false);
-        setPriceForm({ symbol: "BTCUSDT", displayName: "BTC/USD", isCrypto: true, targetPrice: "", condition: "below", description: "" });
-    }
-    function startPriceAlert(pa) {
-        var sid = pa.id.toString();
-        if (priceWsRefs.current[sid]) {
-            priceWsRefs.current[sid].close();
-            delete priceWsRefs.current[sid];
-        }
-        if (pricePollRefs.current[sid]) {
-            clearInterval(pricePollRefs.current[sid]);
-            delete pricePollRefs.current[sid];
-        }
-        savePriceAlerts(priceAlertsRef.current.map(function (p) { return p.id === pa.id ? { ...p, active: true, error: false } : p; }));
-        function checkPrice(price) {
-            setPriceAlerts(function (prev) { return prev.map(function (p) { return p.id === pa.id ? { ...p, currentPrice: price.toFixed(2) } : p; }); });
-            var met = (pa.condition === "above" && price >= pa.targetPrice) || (pa.condition === "below" && price <= pa.targetPrice);
-            if (met && !lastPriceTrigRef.current[sid]) {
-                lastPriceTrigRef.current[sid] = true;
-                var condStr = pa.condition === "above" ? "sube a" : "baja a";
-                var desc = (pa.description ? pa.description + " — " : "") + pa.displayName + " " + condStr + " $" + pa.targetPrice.toFixed(2) + " ($" + price.toFixed(2) + " actual)";
-                sendAlert(pa.displayName, "precio", null, "price_target", null, null, desc, price);
-            }
-            if (!met)
-                lastPriceTrigRef.current[sid] = false;
-        }
-        if (pa.isCrypto) {
-            var ws = new WebSocket("wss://stream.binance.com:9443/ws/" + pa.symbol.toLowerCase() + "@miniTicker");
-            ws.onmessage = function (e) {
-                var d = JSON.parse(e.data);
-                checkPrice(parseFloat(d.c));
-            };
-            ws.onerror = function () { savePriceAlerts(priceAlertsRef.current.map(function (p) { return p.id === pa.id ? { ...p, active: false, error: true } : p; })); };
-            priceWsRefs.current[sid] = ws;
+    function exportAlerts() {
+        const data = JSON.stringify(alertsRef.current.map(function (a) { return { ...a, active: false, currentRsi: null, currentPrice: null, error: false }; }));
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(data).then(function () { alert("Alertas copiadas al portapapeles. Pegalas en el movil con el boton Importar."); }).catch(function () { setImportText(data); setShowImport(true); });
         }
         else {
-            function pollStock() {
-                getStockData(pa.symbol, "1d").then(function (data) {
-                    if (data)
-                        checkPrice(parseFloat(data.price));
-                });
-            }
-            pollStock();
-            pricePollRefs.current[sid] = setInterval(pollStock, 60000);
+            setImportText(data);
+            setShowImport(true);
         }
     }
-    function stopPriceAlert(pa) {
-        var sid = pa.id.toString();
-        if (priceWsRefs.current[sid]) {
-            priceWsRefs.current[sid].close();
-            delete priceWsRefs.current[sid];
+    function importAlerts() {
+        try {
+            const parsed = JSON.parse(importText);
+            if (!Array.isArray(parsed))
+                throw new Error("formato invalido");
+            const imported = parsed.map(function (a) { return { ...a, active: false, currentRsi: null, currentPrice: null, error: false }; });
+            saveAlerts(imported);
+            setShowImport(false);
+            setImportText("");
+            alert(imported.length + " alertas importadas. Pulsa Iniciar en cada una.");
         }
-        if (pricePollRefs.current[sid]) {
-            clearInterval(pricePollRefs.current[sid]);
-            delete pricePollRefs.current[sid];
+        catch (e) {
+            alert("Error al importar: JSON invalido");
         }
-        savePriceAlerts(priceAlertsRef.current.map(function (p) { return p.id === pa.id ? { ...p, active: false, currentPrice: null } : p; }));
-    }
-    function removePriceAlert(pa) {
-        stopPriceAlert(pa);
-        savePriceAlerts(priceAlertsRef.current.filter(function (p) { return p.id !== pa.id; }));
     }
     return (React.createElement("div", null,
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
             React.createElement("div", null,
                 React.createElement("div", { style: { fontSize: 11, color: "#f0b429", fontWeight: 700, letterSpacing: 1 } }, "ALERTAS RSI / EMA"),
                 React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 2 } }, "Tiempo real via Binance WebSocket")),
-            React.createElement("button", { onClick: function () { setShowForm(!showForm); }, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "8px 14px", borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva alerta")),
+            React.createElement("div", { style: { display: "flex", gap: 5 } },
+                alerts.length > 0 && React.createElement("button", { onClick: exportAlerts, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "7px 10px", borderRadius: 6, fontSize: 8, cursor: "pointer" } }, "Exportar"),
+                React.createElement("button", { onClick: function () { setShowImport(!showImport); setImportText(""); }, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "7px 10px", borderRadius: 6, fontSize: 8, cursor: "pointer" } }, "Importar"),
+                React.createElement("button", { onClick: function () { setShowForm(!showForm); }, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "8px 14px", borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva"))),
+        showImport && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(136,170,255,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
+            React.createElement("div", { style: { fontSize: 9, color: "#88aaff", fontWeight: 700, marginBottom: 6 } }, "IMPORTAR ALERTAS"),
+            React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 6 } }, "Copia el texto exportado desde otro dispositivo y pegalo aqui:"),
+            React.createElement("textarea", { value: importText, onChange: function (e) { setImportText(e.target.value); }, placeholder: '[{"id":...}]', style: { ...S.inp, width: "100%", minHeight: 70, padding: 8, fontSize: 9, fontFamily: "monospace", resize: "vertical", boxSizing: "border-box" } }),
+            React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8 } },
+                React.createElement("button", { onClick: importAlerts, style: { flex: 2, padding: "8px", background: "#88aaff", color: "#0a0a0f", border: "none", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "IMPORTAR"),
+                React.createElement("button", { onClick: function () { setShowImport(false); setImportText(""); }, style: { flex: 1, padding: "8px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
         showForm && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.35)", borderRadius: 8, padding: 14, marginBottom: 12 } },
             React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 12 } }, "NUEVA ALERTA"),
             React.createElement("div", { style: { marginBottom: 10 } },
@@ -2362,97 +2304,6 @@ function AlertasTab({ S }) {
                     React.createElement("button", { onClick: function () { removeAlert(alert); }, style: { flex: 1, padding: "8px", background: "transparent", border: "1px solid #333", color: "#444", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Eliminar")),
                 alert.error && React.createElement("div", { style: { fontSize: 8, color: "#ff4444", marginTop: 5 } }, "Error de conexion. Verifica tu internet.")));
         }),
-        React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
-            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700 } }, "ALERTAS DE PRECIO"),
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 2 } }, "Notificacion cuando el activo alcance tu precio objetivo")),
-                React.createElement("button", { onClick: function () { setShowPriceForm(!showPriceForm); }, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "6px 10px", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva")),
-            showPriceForm && (React.createElement("div", { style: { background: "#0d0d16", borderRadius: 6, padding: 12, marginBottom: 10, border: "1px solid rgba(240,180,41,.2)" } },
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 } },
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "ACTIVO"),
-                        React.createElement("select", { value: priceForm.symbol, onChange: function (e) {
-                                var opts = {
-                                    "BTCUSDT": { d: "BTC/USD", c: true }, "ETHUSDT": { d: "ETH/USD", c: true }, "SOLUSDT": { d: "SOL/USD", c: true },
-                                    "LINKUSDT": { d: "LINK/USD", c: true }, "BNBUSDT": { d: "BNB/USD", c: true }, "XRPUSDT": { d: "XRP/USD", c: true },
-                                    "NVDA": { d: "NVDA", c: false }, "MSTR": { d: "MSTR", c: false }, "GOOGL": { d: "GOOGL", c: false },
-                                    "AAPL": { d: "AAPL", c: false }, "AMD": { d: "AMD", c: false }, "TSLA": { d: "TSLA", c: false },
-                                    "META": { d: "META", c: false }, "MARA": { d: "MARA", c: false }, "SPY": { d: "SPY", c: false }
-                                };
-                                var o = opts[e.target.value] || { d: e.target.value, c: true };
-                                setPriceForm({ ...priceForm, symbol: e.target.value, displayName: o.d, isCrypto: o.c });
-                            }, style: { ...S.inp, padding: "5px", fontSize: 9 } },
-                            React.createElement("optgroup", { label: "Crypto (tiempo real)" },
-                                React.createElement("option", { value: "BTCUSDT" }, "BTC/USD"),
-                                React.createElement("option", { value: "ETHUSDT" }, "ETH/USD"),
-                                React.createElement("option", { value: "SOLUSDT" }, "SOL/USD"),
-                                React.createElement("option", { value: "LINKUSDT" }, "LINK/USD"),
-                                React.createElement("option", { value: "BNBUSDT" }, "BNB/USD"),
-                                React.createElement("option", { value: "XRPUSDT" }, "XRP/USD")),
-                            React.createElement("optgroup", { label: "Acciones (cada 60s)" },
-                                React.createElement("option", { value: "NVDA" }, "NVDA"),
-                                React.createElement("option", { value: "MSTR" }, "MSTR"),
-                                React.createElement("option", { value: "GOOGL" }, "GOOGL"),
-                                React.createElement("option", { value: "AAPL" }, "AAPL"),
-                                React.createElement("option", { value: "AMD" }, "AMD"),
-                                React.createElement("option", { value: "TSLA" }, "TSLA"),
-                                React.createElement("option", { value: "META" }, "META"),
-                                React.createElement("option", { value: "MARA" }, "MARA"),
-                                React.createElement("option", { value: "SPY" }, "SPY")))),
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "CONDICION"),
-                        React.createElement("select", { value: priceForm.condition, onChange: function (e) { setPriceForm({ ...priceForm, condition: e.target.value }); }, style: { ...S.inp, padding: "5px", fontSize: 9 } },
-                            React.createElement("option", { value: "below" }, "Precio baja hasta (\u2264)"),
-                            React.createElement("option", { value: "above" }, "Precio sube hasta (\u2265)")))),
-                React.createElement("div", { style: { marginBottom: 8 } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#f0b429", marginBottom: 3 } }, "PRECIO OBJETIVO (USD)"),
-                    React.createElement("input", { type: "number", min: "0", step: "any", placeholder: "ej: 84000", value: priceForm.targetPrice, onChange: function (e) { setPriceForm({ ...priceForm, targetPrice: e.target.value }); }, style: { ...S.inp, padding: "8px", fontSize: 18, textAlign: "center", fontWeight: 700, color: "#f0b429" } })),
-                React.createElement("div", { style: { marginBottom: 8 } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "NOTA (opcional)"),
-                    React.createElement("input", { style: S.inp, placeholder: "Ej: Soporte BTC zona de entrada", value: priceForm.description, onChange: function (e) { setPriceForm({ ...priceForm, description: e.target.value }); } })),
-                priceForm.targetPrice && (React.createElement("div", { style: { background: "rgba(240,180,41,.08)", border: "1px solid rgba(240,180,41,.2)", borderRadius: 5, padding: "8px 10px", marginBottom: 8, fontSize: 9, color: "#f0b429" } },
-                    "Notificar cuando ",
-                    priceForm.displayName,
-                    " ",
-                    priceForm.condition === "below" ? "baje a" : "suba a",
-                    " $",
-                    parseFloat(priceForm.targetPrice).toFixed(2),
-                    priceForm.isCrypto ? " · Binance WebSocket (tiempo real)" : " · Yahoo Finance (cada 60s)")),
-                React.createElement("div", { style: { display: "flex", gap: 6 } },
-                    React.createElement("button", { onClick: addPriceAlert, style: { flex: 2, padding: "8px", background: "#f0b429", color: "#0a0a0f", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: "pointer" } }, "GUARDAR ALERTA"),
-                    React.createElement("button", { onClick: function () { setShowPriceForm(false); }, style: { flex: 1, padding: "8px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
-            priceAlerts.length === 0 && !showPriceForm && (React.createElement("div", { style: { fontSize: 9, color: "#333", textAlign: "center", padding: "10px 0" } }, "Sin alertas de precio. Pulsa + Nueva para configurar una.")),
-            priceAlerts.map(function (pa) {
-                var condColor = pa.condition === "below" ? "#00ff88" : "#f0b429";
-                var condLabel = pa.condition === "below" ? "BAJE A" : "SUBA A";
-                var priceReached = pa.currentPrice && ((pa.condition === "above" && parseFloat(pa.currentPrice) >= pa.targetPrice) || (pa.condition === "below" && parseFloat(pa.currentPrice) <= pa.targetPrice));
-                return (React.createElement("div", { key: pa.id, style: { background: "#0d0d16", border: "1px solid " + (pa.active ? "rgba(240,180,41,.35)" : pa.error ? "rgba(255,68,68,.2)" : "rgba(240,180,41,.15)"), borderRadius: 6, padding: "10px 12px", marginBottom: 6 } },
-                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
-                        React.createElement("div", null,
-                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                                React.createElement("div", { style: { width: 7, height: 7, borderRadius: "50%", background: pa.active ? "#f0b429" : "#333" } }),
-                                React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: condColor } }, pa.displayName),
-                                React.createElement("span", { style: { fontSize: 8, color: "#444" } }, pa.isCrypto ? "WS Binance" : "Yahoo 60s")),
-                            pa.description && React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 3, marginLeft: 13 } }, pa.description)),
-                        React.createElement("div", { style: { textAlign: "right" } },
-                            pa.currentPrice && (React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: priceReached ? "#00ff88" : "#888" } },
-                                "$",
-                                pa.currentPrice)),
-                            pa.active && !pa.currentPrice && React.createElement("div", { style: { fontSize: 9, color: "#555" } }, "..."))),
-                    React.createElement("div", { style: { background: "rgba(240,180,41,.06)", borderRadius: 4, padding: "6px 10px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                        React.createElement("span", { style: { fontSize: 9, color: "#555" } },
-                            "Notificar cuando ",
-                            condLabel,
-                            ":"),
-                        React.createElement("span", { style: { fontSize: 18, fontWeight: 700, color: condColor } },
-                            "$",
-                            pa.targetPrice.toFixed(2))),
-                    React.createElement("div", { style: { display: "flex", gap: 6 } },
-                        !pa.active ? (React.createElement("button", { onClick: function () { startPriceAlert(pa); }, style: { flex: 2, padding: "7px", background: "rgba(240,180,41,.1)", border: "1px solid #f0b429", color: "#f0b429", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "INICIAR MONITOR")) : (React.createElement("button", { onClick: function () { stopPriceAlert(pa); }, style: { flex: 2, padding: "7px", background: "rgba(255,68,68,.1)", border: "1px solid #ff4444", color: "#ff4444", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "DETENER")),
-                        React.createElement("button", { onClick: function () { removePriceAlert(pa); }, style: { flex: 1, padding: "7px", background: "transparent", border: "1px solid #333", color: "#444", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Eliminar")),
-                    pa.error && React.createElement("div", { style: { fontSize: 8, color: "#ff4444", marginTop: 4 } }, "Error de conexion.")));
-            })),
         logs.length > 0 && (React.createElement("div", { style: { background: "#111118", border: "1px solid #1e1e2e", borderRadius: 8, padding: 12, marginTop: 4 } },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
                 React.createElement("div", { style: { fontSize: 9, color: "#f0b429", fontWeight: 700 } }, "HISTORIAL DE ALERTAS"),
