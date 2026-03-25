@@ -1830,25 +1830,22 @@ function AlertasTab({ S }) {
         { symbol: "ADAUSDT", label: "ADA/USD" },
     ];
     const INTERVALS = [
-        { value: "1h", label: "1 hora" },
-        { value: "4h", label: "4 horas" },
+        { value: "1h", label: "1H" },
+        { value: "4h", label: "4H" },
         { value: "1d", label: "Diario" },
         { value: "1w", label: "Semanal" },
     ];
+    // --- State ---
     const [alerts, setAlerts] = useState([]);
-    const [customAlerts, setCustomAlerts] = useState([]);
-    const customAlertsRef = useRef([]);
-    const [showCustomForm, setShowCustomForm] = useState(false);
-    const [customForm, setCustomForm] = useState({ symbol: "BTCUSDT", label: "BTC/USD", interval: "4h", condition: "below", threshold: 30, type: "rsi", crossType: "golden", description: "" });
+    const alertsRef = useRef([]);
+    const [showForm, setShowForm] = useState(false);
+    const [draft, setDraft] = useState({ symbol: "BTCUSDT", label: "BTC/USD", interval: "4h", rsiEnabled: true, rsiThreshold: 30, rsiCondition: "below", emaGoldenEnabled: false, emaDeathEnabled: false, ema200GoldenEnabled: false, ema200DeathEnabled: false });
     const [logs, setLogs] = useState([]);
     const [notifPerm, setNotifPerm] = useState("default");
     const wsRefs = useRef({});
     const closesRef = useRef({});
-    const lastCrossRef = useRef({});
-    const lastCustomRef = useRef({});
+    const lastTrigRef = useRef({});
     const [emaData, setEmaData] = useState({});
-    const [showNewAlertForm, setShowNewAlertForm] = useState(false);
-    const [newAlertDraft, setNewAlertDraft] = useState({ symbol: "BTCUSDT", label: "BTC/USD", interval: "4h", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false });
     const [priceAlerts, setPriceAlerts] = useState([]);
     const priceAlertsRef = useRef([]);
     const priceWsRefs = useRef({});
@@ -1856,19 +1853,15 @@ function AlertasTab({ S }) {
     const lastPriceTrigRef = useRef({});
     const [showPriceForm, setShowPriceForm] = useState(false);
     const [priceForm, setPriceForm] = useState({ symbol: "BTCUSDT", displayName: "BTC/USD", isCrypto: true, targetPrice: "", condition: "below", description: "" });
+    function saveAlerts(arr) {
+        alertsRef.current = arr;
+        setAlerts(arr);
+        localStorage.setItem("td-alerts-v2", JSON.stringify(arr));
+    }
     useEffect(() => {
         if ("Notification" in window)
             setNotifPerm(Notification.permission);
-        // Load saved alerts - if none, init the 4 default BTC alerts
-        try {
-            const savedCustom = localStorage.getItem("td-custom-alerts");
-            if (savedCustom) {
-                const ca = JSON.parse(savedCustom);
-                customAlertsRef.current = ca;
-                setCustomAlerts(ca);
-            }
-        }
-        catch (e) { }
+        // Price alerts (always load)
         try {
             const savedPA = localStorage.getItem("td-price-alerts");
             if (savedPA) {
@@ -1879,49 +1872,46 @@ function AlertasTab({ S }) {
             }
         }
         catch (e) { }
+        // Load new-format alerts
         try {
-            const saved = localStorage.getItem("td-rsi-alerts");
+            const saved = localStorage.getItem("td-alerts-v2");
             if (saved) {
                 const parsed = JSON.parse(saved);
                 if (parsed.length > 0) {
-                    // Migrate: add notify fields to old alerts that don't have them
-                    const migrated = parsed.map(a => ({
-                        notifyRsi: true, notifyEma7_25: true, notifyEma50_200: false, ...a, active: false, rsi: null
-                    }));
-                    setAlerts(migrated);
+                    const loaded = parsed.map(function (a) { return { ...a, currentRsi: null, currentPrice: null, error: false }; });
+                    alertsRef.current = loaded;
+                    setAlerts(loaded);
+                    // Auto-restart monitors that were active before page close
+                    setTimeout(function () { loaded.forEach(function (a) { if (a.active)
+                        startAlert(a); }); }, 700);
                     return;
                 }
             }
-            // First time: create the 4 BTC alerts automatically
-            const defaults = [
-                { id: 1, symbol: "BTCUSDT", label: "BTC/USD", interval: "1h", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false, active: false, rsi: null },
-                { id: 2, symbol: "BTCUSDT", label: "BTC/USD", interval: "4h", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false, active: false, rsi: null },
-                { id: 3, symbol: "BTCUSDT", label: "BTC/USD", interval: "1d", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false, active: false, rsi: null },
-                { id: 4, symbol: "BTCUSDT", label: "BTC/USD", interval: "1w", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false, active: false, rsi: null },
-            ];
-            setAlerts(defaults);
-            localStorage.setItem("td-rsi-alerts", JSON.stringify(defaults));
+        }
+        catch (e) { }
+        // Migrate from old format (td-rsi-alerts)
+        try {
+            const oldSaved = localStorage.getItem("td-rsi-alerts");
+            if (oldSaved) {
+                const old = JSON.parse(oldSaved);
+                if (old.length > 0) {
+                    const migrated = old.map(function (a) {
+                        return {
+                            id: a.id, symbol: a.symbol, label: a.label, interval: a.interval,
+                            rsiEnabled: a.notifyRsi !== false, rsiThreshold: a.oversold || 30, rsiCondition: "below",
+                            emaGoldenEnabled: false, emaDeathEnabled: false, ema200GoldenEnabled: false, ema200DeathEnabled: false,
+                            active: false, currentRsi: null, currentPrice: null, error: false
+                        };
+                    });
+                    alertsRef.current = migrated;
+                    setAlerts(migrated);
+                    localStorage.setItem("td-alerts-v2", JSON.stringify(migrated));
+                    return;
+                }
+            }
         }
         catch (e) { }
     }, []);
-    function saveAlerts(newAlerts) {
-        setAlerts(newAlerts);
-        localStorage.setItem("td-rsi-alerts", JSON.stringify(newAlerts));
-    }
-    function saveCustomAlerts(arr) {
-        customAlertsRef.current = arr;
-        setCustomAlerts(arr);
-        localStorage.setItem("td-custom-alerts", JSON.stringify(arr));
-    }
-    function addCustomAlert() {
-        const isRsi = customForm.type === "rsi";
-        if (isRsi && !customForm.threshold)
-            return;
-        const na = { ...customForm, id: Date.now(), triggered: false };
-        saveCustomAlerts([...customAlerts, na]);
-        setShowCustomForm(false);
-        setCustomForm({ symbol: "BTCUSDT", label: "BTC/USD", interval: "4h", condition: "below", threshold: 30, type: "rsi", crossType: "golden", description: "" });
-    }
     function requestNotif() {
         if (!("Notification" in window)) {
             alert("Tu navegador no soporta notificaciones");
@@ -1964,39 +1954,35 @@ function AlertasTab({ S }) {
     function sendAlert(label, interval, rsi, type, e1, e2, customDesc, price) {
         const isPriceAlert = type === "price_target";
         const tf = isPriceAlert ? "Precio" : interval === "1h" ? "1H" : interval === "4h" ? "4H" : interval === "1d" ? "Diario" : "Semanal";
-        const priceStr = price != null ? " | $" + parseFloat(price).toFixed(2) : "";
+        const priceStr = price != null ? " | $" + parseFloat(price).toLocaleString("es-ES", { maximumFractionDigits: 2 }) : "";
         var title = "Alerta Trading";
         var body = "";
-        if (type === "oversold") {
-            title = "RSI Sobreventa";
-            body = label + " " + tf + " — RSI SOBREVENTA " + rsi + priceStr;
-        }
-        else if (type === "overbought") {
-            title = "RSI Sobrecompra";
-            body = label + " " + tf + " — RSI SOBRECOMPRA " + rsi + priceStr;
+        if (type === "rsi_custom") {
+            title = "Alerta RSI";
+            body = label + " " + tf + " — " + (customDesc || "RSI " + rsi) + priceStr;
         }
         else if (type === "golden") {
-            title = "Cruce EMA 7/25";
-            body = label + " " + tf + " — CRUCE DORADO EMA7 > EMA25" + priceStr;
+            title = "Cruce Dorado EMA 7/25";
+            body = label + " " + tf + " — EMA7 cruza EMA25 al alza" + priceStr;
         }
         else if (type === "death") {
-            title = "Cruce EMA 7/25";
-            body = label + " " + tf + " — CRUCE MUERTE EMA7 < EMA25" + priceStr;
+            title = "Cruce Muerte EMA 7/25";
+            body = label + " " + tf + " — EMA7 cruza EMA25 a la baja" + priceStr;
         }
         else if (type === "ema200_golden") {
-            title = "Cruce EMA 50/200";
-            body = label + " " + tf + " — CRUCE DORADO EMA50 > EMA200" + priceStr;
+            title = "Cruce Dorado EMA 50/200";
+            body = label + " " + tf + " — EMA50 cruza EMA200 al alza" + priceStr;
         }
         else if (type === "ema200_death") {
-            title = "Cruce EMA 50/200";
-            body = label + " " + tf + " — CRUCE MUERTE EMA50 < EMA200" + priceStr;
+            title = "Cruce Muerte EMA 50/200";
+            body = label + " " + tf + " — EMA50 cruza EMA200 a la baja" + priceStr;
         }
         else if (type === "price_target") {
             title = "Precio Objetivo";
             body = customDesc || label + " — PRECIO ALCANZADO $" + parseFloat(price).toFixed(2);
         }
         else if (customDesc) {
-            title = "Alerta Personalizada";
+            title = "Alerta";
             body = label + " " + tf + " — " + customDesc + priceStr;
         }
         else {
@@ -2004,7 +1990,7 @@ function AlertasTab({ S }) {
             body = label + " " + tf + " — " + type + priceStr;
         }
         const log = { id: Date.now(), label, interval: tf, rsi, type, e1: e1 ? e1.toFixed(0) : null, e2: e2 ? e2.toFixed(0) : null, price: price != null ? parseFloat(price).toFixed(2) : null, body, time: new Date().toLocaleTimeString("es-ES") };
-        setLogs(prev => [log, ...prev.slice(0, 49)]);
+        setLogs(function (prev) { return [log, ...prev.slice(0, 49)]; });
         if (Notification.permission === "granted") {
             const notifOpts = { body: body, icon: "https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png", requireInteraction: true, silent: false };
             function doNotif() { try {
@@ -2037,17 +2023,21 @@ function AlertasTab({ S }) {
         }
     }
     function startAlert(alert) {
+        const sid = alert.id.toString();
+        // Close existing WS for this alert if any
+        if (wsRefs.current[sid])
+            wsRefs.current[sid].close();
         const key = alert.symbol + alert.interval;
-        if (wsRefs.current[key])
-            wsRefs.current[key].close();
-        closesRef.current[key] = [];
-        // Fetch 250 historical candles (needed for EMA 200)
+        if (!closesRef.current[key])
+            closesRef.current[key] = [];
+        // Mark as active and persist so auto-restart works on next load
+        saveAlerts(alertsRef.current.map(function (a) { return a.id === alert.id ? { ...a, active: true, error: false } : a; }));
         fetch("https://api.binance.com/api/v3/klines?symbol=" + alert.symbol + "&interval=" + alert.interval + "&limit=250")
-            .then(r => r.json())
-            .then(data => {
-            closesRef.current[key] = data.map(k => parseFloat(k[4]));
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+            closesRef.current[key] = data.map(function (k) { return parseFloat(k[4]); });
             const ws = new WebSocket("wss://stream.binance.com:9443/ws/" + alert.symbol.toLowerCase() + "@kline_" + alert.interval);
-            ws.onmessage = e => {
+            ws.onmessage = function (e) {
                 const d = JSON.parse(e.data);
                 const k = d.k;
                 const closePrice = parseFloat(k.c);
@@ -2072,130 +2062,97 @@ function AlertasTab({ S }) {
                 const relation = ema7 && ema25 ? (ema7 > ema25 ? "above" : "below") : null;
                 const relation50_200 = ema50 && ema200 ? (ema50 > ema200 ? "above" : "below") : null;
                 // Update UI
-                setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, rsi, active: true } : a));
+                setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, currentRsi: rsi, currentPrice: closePrice, active: true } : a; }); });
                 if (ema7 && ema25) {
-                    setEmaData(prev => ({ ...prev, [alert.id]: { ema7, ema25, relation, cross: cross7_25, ema50, ema200, relation50_200, cross50_200 } }));
+                    setEmaData(function (prev) { return { ...prev, [alert.id]: { ema7, ema25, relation, cross: cross7_25, ema50, ema200, relation50_200, cross50_200 } }; });
                 }
-                // RSI alerts — solo si notifyRsi activado
-                if (alert.notifyRsi !== false && rsi !== null) {
-                    const rsiOSKey = key + "_rsiOS";
-                    const rsiOBKey = key + "_rsiOB";
-                    if (rsi <= alert.oversold) {
-                        if (lastCrossRef.current[rsiOSKey] !== true) {
-                            lastCrossRef.current[rsiOSKey] = true;
-                            sendAlert(alert.label, alert.interval, rsi, "oversold", ema7, ema25, null, closePrice);
-                        }
+                const ak = sid + "_";
+                // RSI custom threshold
+                if (alert.rsiEnabled && rsi !== null) {
+                    const rsiKey = ak + "rsi";
+                    const triggered = (alert.rsiCondition === "below" && rsi <= alert.rsiThreshold) || (alert.rsiCondition === "above" && rsi >= alert.rsiThreshold);
+                    if (triggered && !lastTrigRef.current[rsiKey]) {
+                        lastTrigRef.current[rsiKey] = true;
+                        const condLabel = alert.rsiCondition === "below" ? "SOBREVENTA" : "SOBRECOMPRA";
+                        sendAlert(alert.label, alert.interval, rsi, "rsi_custom", ema7, ema25, "RSI " + condLabel + " " + rsi + " (umbral " + alert.rsiThreshold + ")", closePrice);
                     }
-                    else {
-                        lastCrossRef.current[rsiOSKey] = false;
-                    }
-                    if (rsi >= alert.overbought) {
-                        if (lastCrossRef.current[rsiOBKey] !== true) {
-                            lastCrossRef.current[rsiOBKey] = true;
-                            sendAlert(alert.label, alert.interval, rsi, "overbought", ema7, ema25, null, closePrice);
-                        }
-                    }
-                    else {
-                        lastCrossRef.current[rsiOBKey] = false;
+                    if (!triggered)
+                        lastTrigRef.current[rsiKey] = false;
+                }
+                // EMA 7/25 golden
+                if (cross7_25 === "golden" && alert.emaGoldenEnabled) {
+                    if (!lastTrigRef.current[ak + "g725"]) {
+                        lastTrigRef.current[ak + "g725"] = true;
+                        sendAlert(alert.label, alert.interval, rsi, "golden", ema7, ema25, null, closePrice);
                     }
                 }
-                // EMA 7/25 cross alert — solo si notifyEma7_25 activado
-                if (alert.notifyEma7_25 !== false && cross7_25) {
-                    const crossKey = key + "_cross7_25";
-                    if (lastCrossRef.current[crossKey] !== cross7_25) {
-                        lastCrossRef.current[crossKey] = cross7_25;
-                        sendAlert(alert.label, alert.interval, rsi, cross7_25, ema7, ema25, null, closePrice);
+                else if (cross7_25 !== "golden") {
+                    lastTrigRef.current[ak + "g725"] = false;
+                }
+                // EMA 7/25 death
+                if (cross7_25 === "death" && alert.emaDeathEnabled) {
+                    if (!lastTrigRef.current[ak + "d725"]) {
+                        lastTrigRef.current[ak + "d725"] = true;
+                        sendAlert(alert.label, alert.interval, rsi, "death", ema7, ema25, null, closePrice);
                     }
                 }
-                // EMA 50/200 cross alert — solo si notifyEma50_200 activado
-                if (alert.notifyEma50_200 !== false && cross50_200) {
-                    const crossKey200 = key + "_cross50_200";
-                    if (lastCrossRef.current[crossKey200] !== cross50_200) {
-                        lastCrossRef.current[crossKey200] = cross50_200;
-                        sendAlert(alert.label, alert.interval, rsi, "ema200_" + cross50_200, ema50, ema200, null, closePrice);
+                else if (cross7_25 !== "death") {
+                    lastTrigRef.current[ak + "d725"] = false;
+                }
+                // EMA 50/200 golden
+                if (cross50_200 === "golden" && alert.ema200GoldenEnabled) {
+                    if (!lastTrigRef.current[ak + "g200"]) {
+                        lastTrigRef.current[ak + "g200"] = true;
+                        sendAlert(alert.label, alert.interval, rsi, "ema200_golden", ema50, ema200, null, closePrice);
                     }
                 }
-                // Check custom alerts using ref (avoids stale closure)
-                customAlertsRef.current.forEach(function (ca) {
-                    if (ca.symbol !== alert.symbol || ca.interval !== alert.interval)
-                        return;
-                    const ck = ca.id + "_" + alert.symbol + alert.interval;
-                    var triggered = false;
-                    var desc = "";
-                    if (ca.type === "rsi" || !ca.type) {
-                        const thresh = parseFloat(ca.threshold);
-                        triggered = (ca.condition === "below" && rsi !== null && rsi <= thresh) || (ca.condition === "above" && rsi !== null && rsi >= thresh);
-                        desc = ca.description || ("RSI " + (ca.condition === "below" ? "por debajo de" : "por encima de") + " " + thresh);
-                        if (triggered && lastCustomRef.current[ck] !== true) {
-                            lastCustomRef.current[ck] = true;
-                            sendAlert(alert.label, alert.interval, rsi, "custom_rsi", ema7, ema25, desc, closePrice);
-                        }
-                        if (!triggered)
-                            lastCustomRef.current[ck] = false;
+                else if (cross50_200 !== "golden") {
+                    lastTrigRef.current[ak + "g200"] = false;
+                }
+                // EMA 50/200 death
+                if (cross50_200 === "death" && alert.ema200DeathEnabled) {
+                    if (!lastTrigRef.current[ak + "d200"]) {
+                        lastTrigRef.current[ak + "d200"] = true;
+                        sendAlert(alert.label, alert.interval, rsi, "ema200_death", ema50, ema200, null, closePrice);
                     }
-                    else if (ca.type === "ema_7_25") {
-                        const crossMatch = ca.crossType === "any" ? (cross7_25 !== null) : (cross7_25 === ca.crossType);
-                        if (crossMatch && lastCustomRef.current[ck] !== cross7_25) {
-                            lastCustomRef.current[ck] = cross7_25;
-                            desc = ca.description || (ca.crossType === "golden" ? "Cruce Dorado EMA7/EMA25" : ca.crossType === "death" ? "Cruce Muerte EMA7/EMA25" : "Cruce EMA7/EMA25");
-                            sendAlert(alert.label, alert.interval, rsi, "custom_ema7_25_" + cross7_25, ema7, ema25, desc, closePrice);
-                        }
-                        if (!cross7_25)
-                            lastCustomRef.current[ck] = null;
-                    }
-                    else if (ca.type === "ema_50_200") {
-                        const crossMatch200 = ca.crossType === "any" ? (cross50_200 !== null) : (cross50_200 === ca.crossType);
-                        if (crossMatch200 && lastCustomRef.current[ck] !== cross50_200) {
-                            lastCustomRef.current[ck] = cross50_200;
-                            desc = ca.description || (ca.crossType === "golden" ? "Cruce Dorado EMA50/EMA200" : ca.crossType === "death" ? "Cruce Muerte EMA50/EMA200" : "Cruce EMA50/EMA200");
-                            sendAlert(alert.label, alert.interval, rsi, "custom_ema50_200_" + cross50_200, ema50, ema200, desc, closePrice);
-                        }
-                        if (!cross50_200)
-                            lastCustomRef.current[ck] = null;
-                    }
-                });
+                }
+                else if (cross50_200 !== "death") {
+                    lastTrigRef.current[ak + "d200"] = false;
+                }
             };
-            ws.onerror = () => setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, active: false, error: true } : a));
-            wsRefs.current[key] = ws;
-            setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, active: true, error: false } : a));
+            ws.onerror = function () {
+                setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
+            };
+            wsRefs.current[sid] = ws;
         })
-            .catch(() => setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, active: false, error: true } : a)));
+            .catch(function () {
+            setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
+        });
     }
     function stopAlert(alert) {
-        const key = alert.symbol + alert.interval;
-        if (wsRefs.current[key])
-            wsRefs.current[key].close();
-        delete wsRefs.current[key];
-        setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, active: false, rsi: null } : a));
+        const sid = alert.id.toString();
+        if (wsRefs.current[sid]) {
+            wsRefs.current[sid].close();
+            delete wsRefs.current[sid];
+        }
+        saveAlerts(alertsRef.current.map(function (a) { return a.id === alert.id ? { ...a, active: false, currentRsi: null, currentPrice: null, error: false } : a; }));
     }
     function addAlert() {
         const na = {
-            id: Date.now(), symbol: newAlertDraft.symbol, label: newAlertDraft.label,
-            interval: newAlertDraft.interval, oversold: newAlertDraft.oversold, overbought: newAlertDraft.overbought,
-            notifyRsi: newAlertDraft.notifyRsi, notifyEma7_25: newAlertDraft.notifyEma7_25, notifyEma50_200: newAlertDraft.notifyEma50_200,
-            active: false, rsi: null
+            id: Date.now(), symbol: draft.symbol, label: draft.label, interval: draft.interval,
+            rsiEnabled: draft.rsiEnabled, rsiThreshold: draft.rsiThreshold, rsiCondition: draft.rsiCondition,
+            emaGoldenEnabled: draft.emaGoldenEnabled, emaDeathEnabled: draft.emaDeathEnabled,
+            ema200GoldenEnabled: draft.ema200GoldenEnabled, ema200DeathEnabled: draft.ema200DeathEnabled,
+            active: false, currentRsi: null, currentPrice: null, error: false
         };
-        saveAlerts([...alerts, na]);
-        setShowNewAlertForm(false);
+        const updated = [...alertsRef.current, na];
+        saveAlerts(updated);
+        setShowForm(false);
         startAlert(na);
-    }
-    function initDefaultAlerts() {
-        // Stop existing monitors first
-        alerts.forEach(a => stopAlert(a));
-        const defaults = [
-            { id: Date.now() + 1, symbol: "BTCUSDT", label: "BTC/USD", interval: "1h", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false, active: false, rsi: null },
-            { id: Date.now() + 2, symbol: "BTCUSDT", label: "BTC/USD", interval: "4h", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false, active: false, rsi: null },
-            { id: Date.now() + 3, symbol: "BTCUSDT", label: "BTC/USD", interval: "1d", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false, active: false, rsi: null },
-            { id: Date.now() + 4, symbol: "BTCUSDT", label: "BTC/USD", interval: "1w", oversold: 30, overbought: 70, notifyRsi: true, notifyEma7_25: false, notifyEma50_200: false, active: false, rsi: null },
-        ];
-        saveAlerts(defaults);
-    }
-    function updateAlert(id, field, val) {
-        saveAlerts(alerts.map(a => a.id === id ? { ...a, [field]: val } : a));
     }
     function removeAlert(alert) {
         stopAlert(alert);
-        saveAlerts(alerts.filter(a => a.id !== alert.id));
+        saveAlerts(alertsRef.current.filter(function (a) { return a.id !== alert.id; }));
     }
     function savePriceAlerts(arr) {
         priceAlertsRef.current = arr;
@@ -2275,206 +2232,119 @@ function AlertasTab({ S }) {
         savePriceAlerts(priceAlertsRef.current.filter(function (p) { return p.id !== pa.id; }));
     }
     return (React.createElement("div", null,
-        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 } },
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
             React.createElement("div", null,
                 React.createElement("div", { style: { fontSize: 11, color: "#f0b429", fontWeight: 700, letterSpacing: 1 } }, "ALERTAS RSI / EMA"),
                 React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 2 } }, "Tiempo real via Binance WebSocket")),
-            React.createElement("div", { style: { display: "flex", gap: 6 } },
-                React.createElement("button", { onClick: () => setShowNewAlertForm(!showNewAlertForm), style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "8px 12px", borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva"),
-                React.createElement("button", { onClick: initDefaultAlerts, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "8px 10px", borderRadius: 6, fontSize: 9, cursor: "pointer" } }, "Reset"))),
-        showNewAlertForm && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
-            React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 10 } }, "NUEVA ALERTA"),
-            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 } },
+            React.createElement("button", { onClick: function () { setShowForm(!showForm); }, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "8px 14px", borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva alerta")),
+        showForm && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.35)", borderRadius: 8, padding: 14, marginBottom: 12 } },
+            React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 12 } }, "NUEVA ALERTA"),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
                 React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "ACTIVO"),
-                    React.createElement("select", { value: newAlertDraft.symbol, onChange: e => {
-                            const s = SYMBOLS.find(x => x.symbol === e.target.value) || { symbol: e.target.value, label: e.target.value };
-                            setNewAlertDraft({ ...newAlertDraft, symbol: s.symbol, label: s.label });
-                        }, style: { ...S.inp, padding: "5px", fontSize: 9 } }, SYMBOLS.map(s => React.createElement("option", { key: s.symbol, value: s.symbol }, s.label)))),
+                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 4 } }, "ACTIVO"),
+                    React.createElement("select", { value: draft.symbol, onChange: function (e) {
+                            const s = SYMBOLS.find(function (x) { return x.symbol === e.target.value; }) || { symbol: e.target.value, label: e.target.value };
+                            setDraft({ ...draft, symbol: s.symbol, label: s.label });
+                        }, style: { ...S.inp, padding: "7px", fontSize: 10 } }, SYMBOLS.map(function (s) { return React.createElement("option", { key: s.symbol, value: s.symbol }, s.label); }))),
                 React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "TEMPORALIDAD"),
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 3 } }, INTERVALS.map(iv => {
-                        const act = newAlertDraft.interval === iv.value;
-                        return React.createElement("button", { key: iv.value, onClick: () => setNewAlertDraft({ ...newAlertDraft, interval: iv.value }), style: { padding: "5px 2px", borderRadius: 4, border: "1px solid " + (act ? "#f0b429" : "#333"), background: act ? "rgba(240,180,41,.15)" : "transparent", color: act ? "#f0b429" : "#555", fontSize: 9, fontWeight: act ? 700 : 400, cursor: "pointer" } }, iv.label);
+                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 4 } }, "TEMPORALIDAD"),
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 3 } }, INTERVALS.map(function (iv) {
+                        const act = draft.interval === iv.value;
+                        return React.createElement("button", { key: iv.value, onClick: function () { setDraft({ ...draft, interval: iv.value }); }, style: { padding: "7px 2px", borderRadius: 5, border: "1px solid " + (act ? "#f0b429" : "#333"), background: act ? "rgba(240,180,41,.15)" : "transparent", color: act ? "#f0b429" : "#555", fontSize: 9, fontWeight: act ? 700 : 400, cursor: "pointer" } }, iv.label);
                     })))),
-            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 } },
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 8, color: "#00ff88", marginBottom: 3 } }, "SOBREVENTA (RSI <)"),
-                    React.createElement("input", { type: "number", min: "1", max: "50", value: newAlertDraft.oversold, onChange: e => setNewAlertDraft({ ...newAlertDraft, oversold: +e.target.value }), style: { ...S.inp, padding: "5px", fontSize: 16, textAlign: "center", fontWeight: 700, color: "#00ff88" } })),
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 8, color: "#ff4444", marginBottom: 3 } }, "SOBRECOMPRA (RSI >)"),
-                    React.createElement("input", { type: "number", min: "50", max: "99", value: newAlertDraft.overbought, onChange: e => setNewAlertDraft({ ...newAlertDraft, overbought: +e.target.value }), style: { ...S.inp, padding: "5px", fontSize: 16, textAlign: "center", fontWeight: 700, color: "#ff4444" } }))),
-            React.createElement("div", { style: { marginBottom: 10 } },
-                React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 5 } }, "QUE NOTIFICACIONES QUIERES RECIBIR"),
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 } }, [
-                    { k: "notifyRsi", l: "RSI", sub: "Sobreventa / Sobrecompra", c: "#00ff88" },
-                    { k: "notifyEma7_25", l: "EMA 7/25", sub: "Cruce dorado / muerte", c: "#88aaff" },
-                    { k: "notifyEma50_200", l: "EMA 50/200", sub: "Cruce dorado / muerte", c: "#ffc864" },
-                ].map(t => {
-                    const act = newAlertDraft[t.k];
-                    return (React.createElement("button", { key: t.k, onClick: () => setNewAlertDraft({ ...newAlertDraft, [t.k]: !act }), style: { padding: "8px 4px", borderRadius: 6, border: "1px solid " + (act ? t.c : "#333"), background: act ? "rgba(255,255,255,.04)" : "transparent", cursor: "pointer", textAlign: "center" } },
-                        React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: act ? t.c : "#444" } },
-                            act ? "🔔" : "🔕",
-                            " ",
-                            t.l),
-                        React.createElement("div", { style: { fontSize: 7, color: "#444", marginTop: 2 } }, t.sub)));
-                }))),
+            React.createElement("div", { style: { background: "rgba(0,255,136,.04)", border: "1px solid rgba(0,255,136,.2)", borderRadius: 6, padding: 10, marginBottom: 8 } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: draft.rsiEnabled ? 10 : 0 } },
+                    React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: draft.rsiEnabled ? "#00ff88" : "#444" } }, "RSI 14"),
+                    React.createElement("button", { onClick: function () { setDraft({ ...draft, rsiEnabled: !draft.rsiEnabled }); }, style: { padding: "4px 10px", borderRadius: 4, border: "1px solid " + (draft.rsiEnabled ? "#00ff88" : "#333"), background: "transparent", color: draft.rsiEnabled ? "#00ff88" : "#555", fontSize: 8, fontWeight: 700, cursor: "pointer" } }, draft.rsiEnabled ? "🔔 ACTIVADO" : "🔕 SILENCIADO")),
+                draft.rsiEnabled && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" } },
+                    React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 4 } }, "NOTIFICAR CUANDO RSI"),
+                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 } },
+                            React.createElement("button", { onClick: function () { setDraft({ ...draft, rsiCondition: "below" }); }, style: { padding: "7px 4px", borderRadius: 5, border: "1px solid " + (draft.rsiCondition === "below" ? "#00ff88" : "#333"), background: draft.rsiCondition === "below" ? "rgba(0,255,136,.1)" : "transparent", color: draft.rsiCondition === "below" ? "#00ff88" : "#555", fontSize: 8, fontWeight: draft.rsiCondition === "below" ? 700 : 400, cursor: "pointer" } }, "RSI por debajo"),
+                            React.createElement("button", { onClick: function () { setDraft({ ...draft, rsiCondition: "above" }); }, style: { padding: "7px 4px", borderRadius: 5, border: "1px solid " + (draft.rsiCondition === "above" ? "#ff4444" : "#333"), background: draft.rsiCondition === "above" ? "rgba(255,68,68,.1)" : "transparent", color: draft.rsiCondition === "above" ? "#ff4444" : "#555", fontSize: 8, fontWeight: draft.rsiCondition === "above" ? 700 : 400, cursor: "pointer" } }, "RSI por encima"))),
+                    React.createElement("div", { style: { textAlign: "center" } },
+                        React.createElement("div", { style: { fontSize: 8, color: draft.rsiCondition === "below" ? "#00ff88" : "#ff4444", marginBottom: 3 } },
+                            "VALOR (",
+                            draft.rsiCondition === "below" ? "≤" : "≥",
+                            ")"),
+                        React.createElement("input", { type: "number", min: "1", max: "99", value: draft.rsiThreshold, onChange: function (e) { setDraft({ ...draft, rsiThreshold: +e.target.value }); }, style: { ...S.inp, width: 56, padding: "5px", fontSize: 22, textAlign: "center", fontWeight: 700, color: draft.rsiCondition === "below" ? "#00ff88" : "#ff4444" } }))))),
+            React.createElement("div", { style: { background: "rgba(136,170,255,.04)", border: "1px solid rgba(136,170,255,.2)", borderRadius: 6, padding: 10, marginBottom: 8 } },
+                React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#88aaff", marginBottom: 8 } }, "EMA 7 / 25"),
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 } },
+                    React.createElement("button", { onClick: function () { setDraft({ ...draft, emaGoldenEnabled: !draft.emaGoldenEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.emaGoldenEnabled ? "#ffd700" : "#333"), background: draft.emaGoldenEnabled ? "rgba(255,215,0,.08)" : "transparent", color: draft.emaGoldenEnabled ? "#ffd700" : "#555", fontSize: 8, fontWeight: draft.emaGoldenEnabled ? 700 : 400, cursor: "pointer" } },
+                        draft.emaGoldenEnabled ? "🔔" : "🔕",
+                        " Cruce Dorado"),
+                    React.createElement("button", { onClick: function () { setDraft({ ...draft, emaDeathEnabled: !draft.emaDeathEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.emaDeathEnabled ? "#cc44cc" : "#333"), background: draft.emaDeathEnabled ? "rgba(204,68,204,.08)" : "transparent", color: draft.emaDeathEnabled ? "#cc44cc" : "#555", fontSize: 8, fontWeight: draft.emaDeathEnabled ? 700 : 400, cursor: "pointer" } },
+                        draft.emaDeathEnabled ? "🔔" : "🔕",
+                        " Cruce Muerte"))),
+            React.createElement("div", { style: { background: "rgba(255,200,100,.04)", border: "1px solid rgba(255,200,100,.2)", borderRadius: 6, padding: 10, marginBottom: 12 } },
+                React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#ffc864", marginBottom: 8 } }, "EMA 50 / 200"),
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 } },
+                    React.createElement("button", { onClick: function () { setDraft({ ...draft, ema200GoldenEnabled: !draft.ema200GoldenEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.ema200GoldenEnabled ? "#ffd700" : "#333"), background: draft.ema200GoldenEnabled ? "rgba(255,215,0,.08)" : "transparent", color: draft.ema200GoldenEnabled ? "#ffd700" : "#555", fontSize: 8, fontWeight: draft.ema200GoldenEnabled ? 700 : 400, cursor: "pointer" } },
+                        draft.ema200GoldenEnabled ? "🔔" : "🔕",
+                        " Cruce Dorado"),
+                    React.createElement("button", { onClick: function () { setDraft({ ...draft, ema200DeathEnabled: !draft.ema200DeathEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.ema200DeathEnabled ? "#cc44cc" : "#333"), background: draft.ema200DeathEnabled ? "rgba(204,68,204,.08)" : "transparent", color: draft.ema200DeathEnabled ? "#cc44cc" : "#555", fontSize: 8, fontWeight: draft.ema200DeathEnabled ? 700 : 400, cursor: "pointer" } },
+                        draft.ema200DeathEnabled ? "🔔" : "🔕",
+                        " Cruce Muerte"))),
             React.createElement("div", { style: { display: "flex", gap: 6 } },
-                React.createElement("button", { onClick: addAlert, style: { flex: 2, padding: "9px", background: "#f0b429", color: "#0a0a0f", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: "pointer" } }, "CREAR Y ACTIVAR MONITOR"),
-                React.createElement("button", { onClick: () => setShowNewAlertForm(false), style: { flex: 1, padding: "9px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
+                React.createElement("button", { onClick: addAlert, style: { flex: 2, padding: "10px", background: "#f0b429", color: "#0a0a0f", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: "pointer" } }, "CREAR Y MONITORIZAR"),
+                React.createElement("button", { onClick: function () { setShowForm(false); }, style: { flex: 1, padding: "10px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
         React.createElement("div", { style: { background: "#111118", border: "1px solid " + (notifPerm === "granted" ? "rgba(0,255,136,.3)" : "rgba(240,180,41,.3)"), borderRadius: 8, padding: 12, marginBottom: 12 } },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: notifPerm === "granted" ? "#00ff88" : "#f0b429" } }, notifPerm === "granted" ? "✓ Notificaciones activadas" : "Notificaciones del navegador"),
                     React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 2 } }, notifPerm === "granted"
-                        ? "Recibiras alertas aunque la app este en segundo plano"
-                        : "Activa para recibir avisos cuando el RSI alcance los limites")),
+                        ? "Los monitores activos se reanudan al abrir la app"
+                        : "Activa para recibir alertas RSI y EMA en el movil")),
                 notifPerm !== "granted" && (React.createElement("button", { onClick: requestNotif, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "6px 12px", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "ACTIVAR")),
                 notifPerm === "granted" && (React.createElement("button", { onClick: sendTestNotif, style: { background: "transparent", border: "1px solid #00ff88", color: "#00ff88", padding: "6px 10px", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Probar")))),
-        alerts.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "30px 20px", color: "#333", fontSize: 10, lineHeight: 2 } }, "Sin alertas. Pulsa + NUEVA ALERTA para monitorizar un activo.")),
-        alerts.map(alert => {
-            const rsiColor = alert.rsi === null ? "#555" : alert.rsi <= alert.oversold ? "#00ff88" : alert.rsi >= alert.overbought ? "#ff4444" : "#e0e0e0";
+        alerts.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "30px 20px", color: "#333", fontSize: 10, lineHeight: 2 } }, "Sin alertas. Pulsa + Nueva alerta para empezar.")),
+        alerts.map(function (alert) {
+            const rsi = alert.currentRsi;
+            const rsiActive = alert.rsiEnabled && rsi !== null && ((alert.rsiCondition === "below" && rsi <= alert.rsiThreshold) || (alert.rsiCondition === "above" && rsi >= alert.rsiThreshold));
+            const rsiColor = rsi === null ? "#555" : rsiActive ? (alert.rsiCondition === "below" ? "#00ff88" : "#ff4444") : "#e0e0e0";
+            const intv = INTERVALS.find(function (i) { return i.value === alert.interval; }) || { label: alert.interval };
             return (React.createElement("div", { key: alert.id, style: { background: "#111118", border: "1px solid " + (alert.active ? "rgba(0,255,136,.25)" : alert.error ? "rgba(255,68,68,.25)" : "#1e1e2e"), borderRadius: 8, padding: 12, marginBottom: 8 } },
-                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
                     React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
                         React.createElement("div", { style: { width: 8, height: 8, borderRadius: "50%", background: alert.active ? "#00ff88" : alert.error ? "#ff4444" : "#555" } }),
                         React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: "#e0e0e0" } }, alert.label),
-                        React.createElement("span", { style: { fontSize: 10, color: "#f0b429", background: "rgba(240,180,41,.1)", padding: "2px 8px", borderRadius: 4 } }, alert.interval === "1h" ? "1H" : alert.interval === "4h" ? "4H" : alert.interval === "1d" ? "DIARIO" : "SEMANAL")),
-                    React.createElement("div", { style: { textAlign: "center" } },
-                        React.createElement("div", { style: { fontSize: 22, fontWeight: 700, color: rsiColor } }, alert.rsi !== null ? alert.rsi : "--"),
-                        React.createElement("div", { style: { fontSize: 7, color: "#444" } }, "RSI 14"))),
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 } },
-                    React.createElement("div", { style: { background: "rgba(0,255,136,.06)", border: "1px solid rgba(0,255,136,.2)", borderRadius: 6, padding: "8px", textAlign: "center" } },
-                        React.createElement("div", { style: { fontSize: 8, color: "#00ff88", marginBottom: 2 } }, "SOBREVENTA"),
-                        React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: "#00ff88" } }, "< " + alert.oversold),
-                        React.createElement("div", { style: { fontSize: 7, color: "#444" } }, "RSI por debajo = compra")),
-                    React.createElement("div", { style: { background: "rgba(255,68,68,.06)", border: "1px solid rgba(255,68,68,.2)", borderRadius: 6, padding: "8px", textAlign: "center" } },
-                        React.createElement("div", { style: { fontSize: 8, color: "#ff4444", marginBottom: 2 } }, "SOBRECOMPRA"),
-                        React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: "#ff4444" } }, "> " + alert.overbought),
-                        React.createElement("div", { style: { fontSize: 7, color: "#444" } }, "RSI por encima = venta"))),
-                React.createElement("div", { style: { marginBottom: 8 } },
-                    alert.rsi !== null && (React.createElement("div", { style: { marginBottom: 8 } },
-                        React.createElement("div", { style: { height: 8, borderRadius: 4, background: "#1e1e2e", position: "relative", overflow: "hidden" } },
-                            React.createElement("div", { style: { position: "absolute", left: 0, width: "30%", height: "100%", background: "rgba(0,255,136,.12)" } }),
-                            React.createElement("div", { style: { position: "absolute", right: 0, width: "30%", height: "100%", background: "rgba(255,68,68,.12)" } }),
-                            React.createElement("div", { style: {
-                                    position: "absolute",
-                                    left: "calc(" + Math.min(99, Math.max(1, alert.rsi)) + "% - 4px)",
-                                    top: 0, width: 8, height: "100%",
-                                    background: rsiColor, borderRadius: 2,
-                                    transition: "left .5s"
-                                } })),
-                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 8, marginTop: 3 } },
-                            React.createElement("span", { style: { color: "#00ff88" } },
-                                "SV <",
-                                alert.oversold),
-                            React.createElement("span", { style: { color: rsiColor, fontWeight: 700 } },
-                                "RSI ",
-                                alert.rsi),
-                            React.createElement("span", { style: { color: "#ff4444" } },
-                                "SC >",
-                                alert.overbought)))),
-                    React.createElement(EmaDisplay, { data: emaData[alert.id] })),
-                React.createElement("div", { style: { display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" } },
-                    [
-                        { k: "notifyRsi", l: "RSI", c: "#00ff88" },
-                        { k: "notifyEma7_25", l: "EMA 7/25", c: "#88aaff" },
-                        { k: "notifyEma50_200", l: "EMA 50/200", c: "#ffc864" },
-                    ].map(t => {
-                        const act = alert[t.k] !== false;
-                        return (React.createElement("button", { key: t.k, onClick: () => updateAlert(alert.id, t.k, !act), style: { padding: "4px 9px", borderRadius: 4, border: "1px solid " + (act ? t.c : "#2a2a3a"), background: act ? "rgba(255,255,255,.04)" : "transparent", color: act ? t.c : "#333", fontSize: 8, fontWeight: act ? 700 : 400, cursor: "pointer" } },
-                            act ? "🔔" : "🔕",
-                            " ",
-                            t.l));
-                    }),
-                    React.createElement("span", { style: { fontSize: 7, color: "#333", alignSelf: "center", marginLeft: 2 } }, "Toca para activar/silenciar")),
-                React.createElement("div", { style: { display: "flex", gap: 6 } },
-                    !alert.active ? (React.createElement("button", { onClick: () => startAlert(alert), style: { flex: 2, padding: "7px", background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", color: "#00ff88", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "INICIAR MONITOR")) : (React.createElement("button", { onClick: () => stopAlert(alert), style: { flex: 2, padding: "7px", background: "rgba(255,68,68,.1)", border: "1px solid #ff4444", color: "#ff4444", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "DETENER")),
-                    React.createElement("button", { onClick: () => removeAlert(alert), style: { flex: 1, padding: "7px", background: "transparent", border: "1px solid #333", color: "#444", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Eliminar")),
+                        React.createElement("span", { style: { fontSize: 10, color: "#f0b429", background: "rgba(240,180,41,.1)", padding: "2px 8px", borderRadius: 4 } }, intv.label)),
+                    React.createElement("div", { style: { textAlign: "right" } },
+                        React.createElement("div", { style: { fontSize: 22, fontWeight: 700, color: rsiColor, lineHeight: 1 } }, rsi !== null ? rsi : "--"),
+                        React.createElement("div", { style: { fontSize: 7, color: "#444" } }, "RSI 14"),
+                        alert.currentPrice != null && React.createElement("div", { style: { fontSize: 9, color: "#888", marginTop: 1 } },
+                            "$",
+                            parseFloat(alert.currentPrice).toLocaleString("es-ES", { maximumFractionDigits: 2 })))),
+                React.createElement("div", { style: { display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 } },
+                    alert.rsiEnabled && (React.createElement("span", { style: { fontSize: 8, background: rsiActive ? "rgba(0,255,136,.15)" : "rgba(0,255,136,.06)", color: rsiActive ? "#00ff88" : "#3a6644", padding: "3px 8px", borderRadius: 10, border: "1px solid " + (rsiActive ? "rgba(0,255,136,.5)" : "rgba(0,255,136,.15)") } },
+                        "RSI ",
+                        alert.rsiCondition === "below" ? "≤" : "≥",
+                        " ",
+                        alert.rsiThreshold)),
+                    alert.emaGoldenEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,215,0,.08)", color: "#ffd700", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,215,0,.25)" } }, "Dorado 7/25"),
+                    alert.emaDeathEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(204,68,204,.08)", color: "#cc44cc", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(204,68,204,.25)" } }, "Muerte 7/25"),
+                    alert.ema200GoldenEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,215,0,.08)", color: "#ffd700", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,215,0,.25)" } }, "Dorado 50/200"),
+                    alert.ema200DeathEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(204,68,204,.08)", color: "#cc44cc", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(204,68,204,.25)" } }, "Muerte 50/200"),
+                    !alert.rsiEnabled && !alert.emaGoldenEnabled && !alert.emaDeathEnabled && !alert.ema200GoldenEnabled && !alert.ema200DeathEnabled && (React.createElement("span", { style: { fontSize: 8, color: "#333" } }, "Sin notificaciones"))),
+                rsi !== null && (React.createElement("div", { style: { marginBottom: 8 } },
+                    React.createElement("div", { style: { height: 6, borderRadius: 3, background: "#1e1e2e", position: "relative", overflow: "hidden" } },
+                        React.createElement("div", { style: { position: "absolute", left: 0, width: "30%", height: "100%", background: "rgba(0,255,136,.08)" } }),
+                        React.createElement("div", { style: { position: "absolute", right: 0, width: "30%", height: "100%", background: "rgba(255,68,68,.08)" } }),
+                        alert.rsiEnabled && React.createElement("div", { style: { position: "absolute", left: alert.rsiThreshold + "%", top: 0, width: 1, height: "100%", background: alert.rsiCondition === "below" ? "rgba(0,255,136,.6)" : "rgba(255,68,68,.6)" } }),
+                        React.createElement("div", { style: { position: "absolute", left: "calc(" + Math.min(99, Math.max(1, rsi)) + "% - 3px)", top: 0, width: 6, height: "100%", background: rsiColor, borderRadius: 2, transition: "left .5s" } })),
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 7, marginTop: 2 } },
+                        React.createElement("span", { style: { color: "#444" } }, "0"),
+                        React.createElement("span", { style: { color: rsiColor, fontWeight: 700 } },
+                            "RSI ",
+                            rsi),
+                        React.createElement("span", { style: { color: "#444" } }, "100")))),
+                React.createElement(EmaDisplay, { data: emaData[alert.id] }),
+                React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8 } },
+                    !alert.active ? (React.createElement("button", { onClick: function () { startAlert(alert); }, style: { flex: 2, padding: "8px", background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", color: "#00ff88", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "\u25B6 INICIAR")) : (React.createElement("button", { onClick: function () { stopAlert(alert); }, style: { flex: 2, padding: "8px", background: "rgba(255,68,68,.1)", border: "1px solid #ff4444", color: "#ff4444", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "\u25A0 DETENER")),
+                    React.createElement("button", { onClick: function () { removeAlert(alert); }, style: { flex: 1, padding: "8px", background: "transparent", border: "1px solid #333", color: "#444", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Eliminar")),
                 alert.error && React.createElement("div", { style: { fontSize: 8, color: "#ff4444", marginTop: 5 } }, "Error de conexion. Verifica tu internet.")));
         }),
-        React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(136,170,255,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
-            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 10, color: "#88aaff", fontWeight: 700 } }, "ALERTAS PERSONALIZADAS"),
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 2 } }, "Notificaciones fuera de los umbrales estandar")),
-                React.createElement("button", { onClick: () => setShowCustomForm(!showCustomForm), style: { background: "#88aaff", color: "#0a0a0f", border: "none", padding: "6px 10px", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva")),
-            showCustomForm && (React.createElement("div", { style: { background: "#0d0d16", borderRadius: 6, padding: 12, marginBottom: 10, border: "1px solid rgba(136,170,255,.2)" } },
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 } },
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "ACTIVO"),
-                        React.createElement("select", { value: customForm.symbol, onChange: e => {
-                                const s = SYMBOLS.find(function (x) { return x.symbol === e.target.value; }) || { label: e.target.value };
-                                setCustomForm({ ...customForm, symbol: e.target.value, label: s.label || e.target.value });
-                            }, style: { ...S.inp, padding: "5px", fontSize: 9 } }, SYMBOLS.map(s => React.createElement("option", { key: s.symbol, value: s.symbol }, s.label)))),
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "TEMPORALIDAD"),
-                        React.createElement("select", { value: customForm.interval, onChange: e => setCustomForm({ ...customForm, interval: e.target.value }), style: { ...S.inp, padding: "5px", fontSize: 9 } }, [{ value: "4h", label: "4H" }, { value: "1d", label: "Diario" }, { value: "1w", label: "Semanal" }, { value: "1h", label: "1H" }].map(i => React.createElement("option", { key: i.value, value: i.value }, i.label))))),
-                React.createElement("div", { style: { marginBottom: 8 } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "TIPO DE ALERTA"),
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 } }, [{ v: "rsi", l: "RSI", c: "#00ff88" }, { v: "ema_7_25", l: "EMA 7/25", c: "#88aaff" }, { v: "ema_50_200", l: "EMA 50/200", c: "#ffc864" }].map(function (t) {
-                        const active = customForm.type === t.v;
-                        return (React.createElement("button", { key: t.v, onClick: () => setCustomForm({ ...customForm, type: t.v }), style: { padding: "7px 4px", borderRadius: 5, border: "1px solid " + (active ? t.c : "#333"), background: active ? "rgba(136,170,255,.1)" : "transparent", color: active ? t.c : "#555", fontSize: 9, fontWeight: active ? 700 : 400, cursor: "pointer" } }, t.l));
-                    }))),
-                (customForm.type === "rsi" || !customForm.type) && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 } },
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "CONDICION"),
-                        React.createElement("select", { value: customForm.condition, onChange: e => setCustomForm({ ...customForm, condition: e.target.value }), style: { ...S.inp, padding: "5px", fontSize: 9 } },
-                            React.createElement("option", { value: "below" }, "Sobreventa (RSI menor o igual a)"),
-                            React.createElement("option", { value: "above" }, "Sobrecompra (RSI mayor o igual a)"))),
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 8, color: customForm.condition === "below" ? "#00ff88" : "#ff4444", marginBottom: 3 } }, customForm.condition === "below" ? "UMBRAL SOBREVENTA" : "UMBRAL SOBRECOMPRA"),
-                        React.createElement("input", { type: "number", min: "1", max: "99", value: customForm.threshold, onChange: e => setCustomForm({ ...customForm, threshold: +e.target.value }), style: { ...S.inp, padding: "5px", fontSize: 16, textAlign: "center", fontWeight: 700 } })))),
-                (customForm.type === "ema_7_25" || customForm.type === "ema_50_200") && (React.createElement("div", { style: { marginBottom: 8 } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "TIPO DE CRUCE"),
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 } }, [{ v: "golden", l: "Cruce Dorado", c: "#ffd700" }, { v: "death", l: "Cruce Muerte", c: "#cc44cc" }, { v: "any", l: "Cualquiera", c: "#888" }].map(function (ct) {
-                        const active = customForm.crossType === ct.v;
-                        return (React.createElement("button", { key: ct.v, onClick: () => setCustomForm({ ...customForm, crossType: ct.v }), style: { padding: "7px 4px", borderRadius: 5, border: "1px solid " + (active ? ct.c : "#333"), background: active ? "rgba(255,255,255,.05)" : "transparent", color: active ? ct.c : "#555", fontSize: 9, fontWeight: active ? 700 : 400, cursor: "pointer" } }, ct.l));
-                    })),
-                    React.createElement("div", { style: { marginTop: 6, fontSize: 8, color: "#444" } }, customForm.type === "ema_7_25"
-                        ? (customForm.crossType === "golden" ? "EMA7 cruza por encima de EMA25 (señal alcista)" : customForm.crossType === "death" ? "EMA7 cruza por debajo de EMA25 (señal bajista)" : "Cualquier cruce EMA7/EMA25")
-                        : (customForm.crossType === "golden" ? "EMA50 cruza por encima de EMA200 (Cruce Dorado)" : customForm.crossType === "death" ? "EMA50 cruza por debajo de EMA200 (Cruce de la Muerte)" : "Cualquier cruce EMA50/EMA200")))),
-                React.createElement("div", { style: { marginBottom: 8 } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 3 } }, "DESCRIPCION (opcional)"),
-                    React.createElement("input", { style: S.inp, placeholder: "Ej: BTC soporte semanal RSI sobreventa", value: customForm.description, onChange: e => setCustomForm({ ...customForm, description: e.target.value }) })),
-                React.createElement("div", { style: { background: "rgba(136,170,255,.08)", border: "1px solid rgba(136,170,255,.2)", borderRadius: 5, padding: "8px 10px", marginBottom: 8, fontSize: 9, color: "#88aaff" } }, "Notificar cuando " + customForm.label + " " + ((INTERVALS.find(function (i) { return i.value === customForm.interval; }) || { label: customForm.interval }).label) + " — " + ((customForm.type === "rsi" || !customForm.type)
-                    ? ("RSI " + (customForm.condition === "below" ? "menor o igual a" : "mayor o igual a") + " " + customForm.threshold)
-                    : customForm.type === "ema_7_25"
-                        ? (customForm.crossType === "golden" ? "Cruce Dorado EMA7/EMA25" : customForm.crossType === "death" ? "Cruce Muerte EMA7/EMA25" : "Cualquier cruce EMA7/EMA25")
-                        : (customForm.crossType === "golden" ? "Cruce Dorado EMA50/EMA200" : customForm.crossType === "death" ? "Cruce Muerte EMA50/EMA200" : "Cualquier cruce EMA50/EMA200"))),
-                React.createElement("div", { style: { fontSize: 8, color: "#555", background: "rgba(255,255,255,.02)", border: "1px solid #1e1e2e", borderRadius: 4, padding: "6px 8px", marginBottom: 8 } }, "Esta alerta se activara automaticamente cuando el monitor de la temporalidad este en marcha"),
-                React.createElement("div", { style: { display: "flex", gap: 6 } },
-                    React.createElement("button", { onClick: addCustomAlert, style: { flex: 2, padding: "8px", background: "#88aaff", color: "#0a0a0f", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: "pointer" } }, "GUARDAR ALERTA"),
-                    React.createElement("button", { onClick: () => setShowCustomForm(false), style: { flex: 1, padding: "8px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
-            customAlerts.length === 0 && !showCustomForm && (React.createElement("div", { style: { fontSize: 9, color: "#333", textAlign: "center", padding: "10px 0" } }, "Sin alertas personalizadas. Pulsa + Nueva para crear una.")),
-            customAlerts.map(ca => {
-                const itvLabel = (INTERVALS.find(function (i) { return i.value === ca.interval; }) || { label: ca.interval }).label;
-                var condText = "";
-                var condColor = "#88aaff";
-                if (ca.type === "rsi" || !ca.type) {
-                    condText = "RSI " + (ca.condition === "below" ? "menor o igual a" : "mayor o igual a") + " " + ca.threshold;
-                    condColor = ca.condition === "below" ? "#00ff88" : "#ff4444";
-                }
-                else if (ca.type === "ema_7_25") {
-                    condText = ca.crossType === "golden" ? "Cruce Dorado EMA7/EMA25" : ca.crossType === "death" ? "Cruce Muerte EMA7/EMA25" : "Cualquier cruce EMA7/EMA25";
-                    condColor = ca.crossType === "golden" ? "#ffd700" : "#cc44cc";
-                }
-                else if (ca.type === "ema_50_200") {
-                    condText = ca.crossType === "golden" ? "Cruce Dorado EMA50/EMA200" : ca.crossType === "death" ? "Cruce Muerte EMA50/EMA200" : "Cualquier cruce EMA50/EMA200";
-                    condColor = ca.crossType === "golden" ? "#ffd700" : "#cc44cc";
-                }
-                return (React.createElement("div", { key: ca.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#0d0d16", borderRadius: 6, marginBottom: 4, border: "1px solid rgba(136,170,255,.15)" } },
-                    React.createElement("div", null,
-                        React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: "#88aaff" } }, ca.label),
-                        React.createElement("span", { style: { fontSize: 9, color: "#f0b429", marginLeft: 6, background: "rgba(240,180,41,.1)", padding: "1px 6px", borderRadius: 3 } }, itvLabel),
-                        React.createElement("div", { style: { fontSize: 9, color: condColor, marginTop: 3, fontWeight: 700 } },
-                            condText,
-                            ca.description && React.createElement("span", { style: { color: "#555", fontWeight: 400 } },
-                                " \u00B7 ",
-                                ca.description))),
-                    React.createElement("button", { onClick: () => saveCustomAlerts(customAlerts.filter(function (x) { return x.id !== ca.id; })), style: { background: "transparent", border: "none", color: "#333", cursor: "pointer", fontSize: 16, marginLeft: 8 } }, "\u2715")));
-            }),
-            customAlerts.length > 0 && (React.createElement("div", { style: { fontSize: 8, color: "#555", background: "rgba(255,255,255,.02)", border: "1px solid #1e1e2e", borderRadius: 4, marginTop: 8, padding: "6px 8px", textAlign: "center" } }, "Estas alertas se activan automaticamente con el monitor de su temporalidad"))),
         React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
                 React.createElement("div", null,
