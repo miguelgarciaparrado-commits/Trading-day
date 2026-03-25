@@ -705,6 +705,7 @@ export default function App(){
                 {l:"PERDIDA TOTAL",v:fmtNum(h0Total+ethT),c:h0Total+ethT>=0?"#00ff88":"#ff4444"},
                 {l:"OPS TOTALES",v:hist.length,c:"#e0e0e0"},
                 {l:"TASA GANADORA",v:Math.round(wins/hist.length*100)+"%",c:"#f0b429"},
+                {l:"RATIO MEDIO",v:(()=>{const w=hist.filter(h=>h.result>0);const l=hist.filter(h=>h.result<0);const aw=w.length?w.reduce((a,h)=>a+h.result,0)/w.length:0;const al=l.length?Math.abs(l.reduce((a,h)=>a+h.result,0)/l.length):0;return al>0?"1 : "+(aw/al).toFixed(2):"--";})(),c:"#88aaff"},
                 {l:"ROI HISTORICO",v:(()=>{const inv=hist.reduce((a,h)=>a+(h.cap||0),0);return inv>0?(h0Total/inv*100).toFixed(1)+"%":"--";})(),c:h0Total>=0?"#00ff88":"#ff4444"},
                 {l:"ROI ETH LEGADO",v:((pr.ETH-3621.58)/3621.58*100).toFixed(1)+"%",c:pr.ETH>=3621.58?"#00ff88":"#ff4444"},
                 {l:"ROI ACTIVAS",v:(()=>{const inv=pos.reduce((a,p)=>a+p.capital,0);return inv>0?(actPnl/inv*100).toFixed(1)+"%":"--";})(),c:actPnl>=0?"#00ff88":"#ff4444"},
@@ -3472,9 +3473,8 @@ function HorariosTab({horarios,SH,S,fmtNum}){
 
   const[showForm,setShowForm]=useState(false);
   const[form,setForm]=useState({
-    hora:"19:30",activo:"BTC/USDT",
-    tendenciaInicio:"",tendenciaFin:"",
-    resultado:"",notas:""
+    horaInicio:"19:30",horaFin:"20:00",activo:"BTC/USDT",
+    tendenciaInicio:"",tendenciaFin:"",notas:""
   });
 
   function getFecha(){
@@ -3497,7 +3497,7 @@ function HorariosTab({horarios,SH,S,fmtNum}){
   }
 
   function guardar(){
-    if(!form.resultado){alert("Selecciona el resultado: Acierto, Fallo o Pendiente");return;}
+    if(!form.tendenciaInicio||!form.tendenciaFin){alert("Selecciona como empieza y como acaba el movimiento");return;}
     const fecha=getFecha();
     const entry={
       ...form,
@@ -3506,7 +3506,7 @@ function HorariosTab({horarios,SH,S,fmtNum}){
       diaSemana:getDOW(fecha)
     };
     SH([entry,...horarios]);
-    setForm({hora:"19:30",activo:"BTC/USDT",tendenciaInicio:"",tendenciaFin:"",resultado:"",notas:""});
+    setForm({horaInicio:"19:30",horaFin:"20:00",activo:"BTC/USDT",tendenciaInicio:"",tendenciaFin:"",notas:""});
     setShowForm(false);
   }
 
@@ -3523,14 +3523,14 @@ function HorariosTab({horarios,SH,S,fmtNum}){
     return pb.localeCompare(pa);
   });
 
-  // Stats por dia de semana
+  // Stats por dia de semana (patrones de inicio/fin)
   const statsDOW={};
   horarios.forEach(h=>{
     const d=h.diaSemana||getDOW(h.fecha)||"?";
-    if(!statsDOW[d])statsDOW[d]={total:0,aciertos:0,fallos:0};
+    if(!statsDOW[d])statsDOW[d]={total:0,giros:{},inicios:{}};
     statsDOW[d].total++;
-    if(h.resultado==="Acierto")statsDOW[d].aciertos++;
-    if(h.resultado==="Fallo")statsDOW[d].fallos++;
+    const giro=(h.tendenciaInicio||"?")+"→"+(h.tendenciaFin||"?");
+    statsDOW[d].giros[giro]=(statsDOW[d].giros[giro]||0)+1;
   });
 
   return(
@@ -3565,69 +3565,62 @@ function HorariosTab({horarios,SH,S,fmtNum}){
             REGISTRAR HOY — {getFechaLarga(getFecha())}
           </div>
 
-          {/* Hora y activo */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+          {/* Activo */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:9,color:"#555",marginBottom:3}}>ACTIVO</div>
+            <input style={S.inp} value={form.activo} onChange={e=>setForm({...form,activo:e.target.value})}/>
+          </div>
+
+          {/* INICIO del movimiento */}
+          <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.15)",borderRadius:6,padding:"10px",marginBottom:10}}>
+            <div style={{fontSize:9,color:"#00ff88",fontWeight:700,marginBottom:8,letterSpacing:1}}>INICIO DEL MOVIMIENTO</div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,color:"#555",marginBottom:3}}>HORA DE INICIO</div>
+              <input style={{...S.inp,fontSize:16,fontWeight:700,textAlign:"center"}} type="time" value={form.horaInicio}
+                onChange={e=>setForm({...form,horaInicio:e.target.value})}/>
+            </div>
             <div>
-              <div style={{fontSize:9,color:"#555",marginBottom:3}}>HORA EXACTA</div>
-              <input style={S.inp} type="time" value={form.hora}
-                onChange={e=>setForm({...form,hora:e.target.value})}/>
+              <div style={{fontSize:8,color:"#555",marginBottom:5}}>COMO EMPIEZA</div>
+              <div style={{display:"flex",gap:6}}>
+                {["Alcista","Bajista","Lateral"].map(d=>(
+                  <button key={d} onClick={()=>setForm({...form,tendenciaInicio:d})}
+                    style={{flex:1,padding:"8px 4px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",
+                      border:"1px solid "+(d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#555"),
+                      background:form.tendenciaInicio===d?(d==="Alcista"?"rgba(0,255,136,.2)":d==="Bajista"?"rgba(255,68,68,.2)":"rgba(136,136,136,.2)"):"transparent",
+                      color:d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#888"
+                    }}>{d}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* FIN del movimiento */}
+          <div style={{background:"rgba(240,180,41,.04)",border:"1px solid rgba(240,180,41,.15)",borderRadius:6,padding:"10px",marginBottom:10}}>
+            <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:8,letterSpacing:1}}>FIN DEL MOVIMIENTO</div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,color:"#555",marginBottom:3}}>HORA DE FIN</div>
+              <input style={{...S.inp,fontSize:16,fontWeight:700,textAlign:"center"}} type="time" value={form.horaFin}
+                onChange={e=>setForm({...form,horaFin:e.target.value})}/>
             </div>
             <div>
-              <div style={{fontSize:9,color:"#555",marginBottom:3}}>ACTIVO</div>
-              <input style={S.inp} value={form.activo}
-                onChange={e=>setForm({...form,activo:e.target.value})}/>
-            </div>
-          </div>
-
-          {/* Tendencia inicio */}
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:9,color:"#555",marginBottom:5}}>TENDENCIA ANTES DEL CAMBIO</div>
-            <div style={{display:"flex",gap:6}}>
-              {["Alcista","Bajista","Lateral"].map(d=>(
-                <button key={d} onClick={()=>setForm({...form,tendenciaInicio:d})}
-                  style={{flex:1,padding:"8px 4px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",
-                    border:"1px solid "+(d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#555"),
-                    background:form.tendenciaInicio===d?(d==="Alcista"?"rgba(0,255,136,.2)":d==="Bajista"?"rgba(255,68,68,.2)":"rgba(136,136,136,.2)"):"transparent",
-                    color:d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#888"
-                  }}>{d}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* Tendencia fin */}
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:9,color:"#555",marginBottom:5}}>GIRO A (despues del cambio)</div>
-            <div style={{display:"flex",gap:6}}>
-              {["Alcista","Bajista","Lateral"].map(d=>(
-                <button key={d} onClick={()=>setForm({...form,tendenciaFin:d})}
-                  style={{flex:1,padding:"8px 4px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",
-                    border:"1px solid "+(d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#555"),
-                    background:form.tendenciaFin===d?(d==="Alcista"?"rgba(0,255,136,.2)":d==="Bajista"?"rgba(255,68,68,.2)":"rgba(136,136,136,.2)"):"transparent",
-                    color:d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#888"
-                  }}>{d}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* Resultado */}
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:9,color:"#555",marginBottom:5}}>RESULTADO DEL PATRON *</div>
-            <div style={{display:"flex",gap:6}}>
-              {[["Acierto","#00ff88"],["Fallo","#ff4444"],["Pendiente","#888"]].map(([r,col])=>(
-                <button key={r} onClick={()=>setForm({...form,resultado:r})}
-                  style={{flex:1,padding:"10px 4px",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer",
-                    border:"2px solid "+(form.resultado===r?col:"#2a2a3a"),
-                    background:form.resultado===r?col+"22":"transparent",
-                    color:col
-                  }}>{r}</button>
-              ))}
+              <div style={{fontSize:8,color:"#555",marginBottom:5}}>COMO ACABA</div>
+              <div style={{display:"flex",gap:6}}>
+                {["Alcista","Bajista","Lateral"].map(d=>(
+                  <button key={d} onClick={()=>setForm({...form,tendenciaFin:d})}
+                    style={{flex:1,padding:"8px 4px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",
+                      border:"1px solid "+(d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#555"),
+                      background:form.tendenciaFin===d?(d==="Alcista"?"rgba(0,255,136,.2)":d==="Bajista"?"rgba(255,68,68,.2)":"rgba(136,136,136,.2)"):"transparent",
+                      color:d==="Alcista"?"#00ff88":d==="Bajista"?"#ff4444":"#888"
+                    }}>{d}</button>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Notas */}
           <div style={{marginBottom:12}}>
             <div style={{fontSize:9,color:"#555",marginBottom:3}}>NOTAS (opcional)</div>
-            <input style={S.inp} placeholder="Que observaste, como fue el movimiento..."
+            <input style={S.inp} placeholder="Que observaste, contexto del movimiento..."
               value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})}/>
           </div>
 
@@ -3635,12 +3628,12 @@ function HorariosTab({horarios,SH,S,fmtNum}){
             onClick={guardar}
             style={{
               width:"100%",padding:"12px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",
-              background:form.resultado?"#f0b429":"#2a2a3a",
-              color:form.resultado?"#0a0a0f":"#555",
+              background:(form.tendenciaInicio&&form.tendenciaFin)?"#f0b429":"#2a2a3a",
+              color:(form.tendenciaInicio&&form.tendenciaFin)?"#0a0a0f":"#555",
               border:"none"
             }}
           >
-            {form.resultado?"GUARDAR OBSERVACION":"Selecciona el resultado primero"}
+            {(form.tendenciaInicio&&form.tendenciaFin)?"GUARDAR OBSERVACION":"Selecciona como empieza y como acaba"}
           </button>
         </div>
       )}
@@ -3649,27 +3642,27 @@ function HorariosTab({horarios,SH,S,fmtNum}){
       {Object.keys(statsDOW).length>0&&(
         <div style={{background:"#111118",border:"1px solid #1e1e2e",borderRadius:8,padding:12,marginBottom:12}}>
           <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:10,letterSpacing:1}}>
-            ESTADISTICAS POR DIA DE LA SEMANA
+            PATRONES POR DIA DE LA SEMANA
           </div>
           {["Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo"]
             .filter(d=>statsDOW[d])
             .map(dow=>{
               const s=statsDOW[dow];
-              const rate=s.total>0?Math.round(s.aciertos/s.total*100):0;
               const col=DOW_COL[dow]||"#888";
+              const topGiro=Object.entries(s.giros).sort((a,b)=>b[1]-a[1])[0];
               return(
-                <div key={dow} style={{marginBottom:8,padding:"8px 10px",background:"#0d0d16",borderRadius:6,border:"1px solid "+col+"33"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                    <span style={{fontSize:11,fontWeight:700,color:col}}>{dow}</span>
-                    <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                      <span style={{fontSize:9,color:"#00ff88"}}>{s.aciertos} ok</span>
-                      <span style={{fontSize:9,color:"#ff4444"}}>{s.fallos} fallo</span>
-                      <span style={{fontSize:16,fontWeight:700,color:rate>=70?"#00ff88":rate>=50?"#f0b429":"#ff4444"}}>{rate}%</span>
+                <div key={dow} style={{marginBottom:6,padding:"8px 10px",background:"#0d0d16",borderRadius:6,border:"1px solid "+col+"33"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <span style={{fontSize:11,fontWeight:700,color:col}}>{dow}</span>
+                      <span style={{fontSize:8,color:"#555",marginLeft:6}}>{s.total} registros</span>
                     </div>
-                  </div>
-                  <div style={{height:5,borderRadius:3,background:"#1e1e2e",overflow:"hidden",display:"flex"}}>
-                    <div style={{width:rate+"%",background:"#00ff88",transition:"width .5s"}}/>
-                    <div style={{width:(s.total>0?Math.round(s.fallos/s.total*100):0)+"%",background:"#ff4444"}}/>
+                    {topGiro&&(
+                      <div style={{fontSize:8,color:"#888"}}>
+                        Patron mas frecuente: <span style={{color:"#f0b429",fontWeight:700}}>{topGiro[0]}</span>
+                        <span style={{color:"#555",marginLeft:4}}>({topGiro[1]}x)</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -3690,8 +3683,6 @@ function HorariosTab({horarios,SH,S,fmtNum}){
           </div>
           {fechasOrdenadas.map(fecha=>{
             const grupo=byFecha[fecha];
-            const nAciertos=grupo.entries.filter(e=>e.resultado==="Acierto").length;
-            const nFallos=grupo.entries.filter(e=>e.resultado==="Fallo").length;
             const col=DOW_COL[grupo.dow]||"#888";
             return(
               <div key={fecha} style={{background:"#111118",border:"1px solid #1e1e2e",borderRadius:8,marginBottom:8,overflow:"hidden"}}>
@@ -3701,38 +3692,39 @@ function HorariosTab({horarios,SH,S,fmtNum}){
                     <span style={{fontSize:12,fontWeight:700,color:col}}>{grupo.dow}</span>
                     <span style={{fontSize:10,color:"#666",marginLeft:8}}>{getFechaLarga(fecha)}</span>
                   </div>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    {nAciertos>0&&<span style={{fontSize:9,color:"#00ff88",fontWeight:700}}>{nAciertos} ok</span>}
-                    {nFallos>0&&<span style={{fontSize:9,color:"#ff4444",fontWeight:700}}>{nFallos} fallo</span>}
-                  </div>
+                  <span style={{fontSize:9,color:"#555"}}>{grupo.entries.length} registro{grupo.entries.length!==1?"s":""}</span>
                 </div>
                 {/* Entradas del dia */}
                 {grupo.entries.map(h=>(
-                  <div key={h.id} style={{padding:"8px 12px",borderBottom:"1px solid #1a1a2a"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                        <span style={{fontSize:13,fontWeight:700,color:"#f0b429"}}>{h.hora}</span>
-                        <span style={{fontSize:9,color:"#e0e0e0"}}>{h.activo}</span>
-                        {h.tendenciaInicio&&h.tendenciaFin&&(
-                          <span style={{fontSize:9,color:"#555"}}>
-                            <span style={{color:h.tendenciaInicio==="Alcista"?"#00ff88":"#ff4444"}}>{h.tendenciaInicio}</span>
-                            <span style={{color:"#444"}}> → </span>
-                            <span style={{color:h.tendenciaFin==="Alcista"?"#00ff88":"#ff4444"}}>{h.tendenciaFin}</span>
-                          </span>
-                        )}
+                  <div key={h.id} style={{padding:"10px 12px",borderBottom:"1px solid #1a1a2a"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div style={{flex:1}}>
+                        {/* Inicio → Fin */}
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                          <span style={{fontSize:9,color:"#555"}}>INICIO</span>
+                          <span style={{fontSize:13,fontWeight:700,color:"#00ff88"}}>{h.horaInicio||h.hora||"--"}</span>
+                          {h.tendenciaInicio&&(
+                            <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:3,
+                              background:h.tendenciaInicio==="Alcista"?"rgba(0,255,136,.12)":h.tendenciaInicio==="Bajista"?"rgba(255,68,68,.12)":"rgba(136,136,136,.12)",
+                              color:h.tendenciaInicio==="Alcista"?"#00ff88":h.tendenciaInicio==="Bajista"?"#ff4444":"#888"
+                            }}>{h.tendenciaInicio}</span>
+                          )}
+                          <span style={{fontSize:10,color:"#333",margin:"0 2px"}}>→</span>
+                          <span style={{fontSize:9,color:"#555"}}>FIN</span>
+                          <span style={{fontSize:13,fontWeight:700,color:"#f0b429"}}>{h.horaFin||"--"}</span>
+                          {h.tendenciaFin&&(
+                            <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:3,
+                              background:h.tendenciaFin==="Alcista"?"rgba(0,255,136,.12)":h.tendenciaFin==="Bajista"?"rgba(255,68,68,.12)":"rgba(136,136,136,.12)",
+                              color:h.tendenciaFin==="Alcista"?"#00ff88":h.tendenciaFin==="Bajista"?"#ff4444":"#888"
+                            }}>{h.tendenciaFin}</span>
+                          )}
+                        </div>
+                        {h.activo&&<div style={{fontSize:9,color:"#555",marginBottom:2}}>{h.activo}</div>}
+                        {h.notas&&<div style={{fontSize:9,color:"#444",marginTop:2}}>{h.notas}</div>}
                       </div>
-                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                        <span style={{
-                          fontSize:9,fontWeight:700,
-                          color:h.resultado==="Acierto"?"#00ff88":h.resultado==="Fallo"?"#ff4444":"#888",
-                          border:"1px solid "+(h.resultado==="Acierto"?"#00ff8844":h.resultado==="Fallo"?"#ff444444":"#55544"),
-                          padding:"2px 7px",borderRadius:3
-                        }}>{h.resultado}</span>
-                        <button onClick={()=>SH(horarios.filter(x=>x.id!==h.id))}
-                          style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:12,lineHeight:1}}>✕</button>
-                      </div>
+                      <button onClick={()=>SH(horarios.filter(x=>x.id!==h.id))}
+                        style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:12,marginLeft:8}}>✕</button>
                     </div>
-                    {h.notas&&<div style={{fontSize:9,color:"#444",marginTop:4}}>{h.notas}</div>}
                   </div>
                 ))}
               </div>
