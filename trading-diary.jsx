@@ -1205,9 +1205,9 @@ export default function App(){
           <HorariosTab horarios={horarios} SH={SH} S={S} fmtNum={fmtNum}/>
         )}
 
-        {tab==="Alertas"&&(
+        <div style={{display:tab==="Alertas"?"block":"none"}}>
           <AlertasTab S={S}/>
-        )}
+        </div>
 
         {tab==="Chat"&&(
           <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save}/>
@@ -1943,6 +1943,8 @@ function AlertasTab({S}){
   const lastCrossRef=useRef({});
   const lastCustomRef=useRef({});
   const[emaData,setEmaData]=useState({});
+  const[showNewAlertForm,setShowNewAlertForm]=useState(false);
+  const[newAlertDraft,setNewAlertDraft]=useState({symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false});
   const[priceAlerts,setPriceAlerts]=useState([]);
   const priceAlertsRef=useRef([]);
   const priceWsRefs=useRef({});
@@ -1971,14 +1973,21 @@ function AlertasTab({S}){
       const saved=localStorage.getItem("td-rsi-alerts");
       if(saved){
         const parsed=JSON.parse(saved);
-        if(parsed.length>0){setAlerts(parsed);return;}
+        if(parsed.length>0){
+          // Migrate: add notify fields to old alerts that don't have them
+          const migrated=parsed.map(a=>({
+            notifyRsi:true,notifyEma7_25:true,notifyEma50_200:false,...a,active:false,rsi:null
+          }));
+          setAlerts(migrated);
+          return;
+        }
       }
       // First time: create the 4 BTC alerts automatically
       const defaults=[
-        {id:1,symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",oversold:30,overbought:70,active:false,rsi:null},
-        {id:2,symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",oversold:30,overbought:70,active:false,rsi:null},
-        {id:3,symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",oversold:30,overbought:70,active:false,rsi:null},
-        {id:4,symbol:"BTCUSDT",label:"BTC/USD",interval:"1w",oversold:30,overbought:70,active:false,rsi:null},
+        {id:1,symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false,active:false,rsi:null},
+        {id:2,symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false,active:false,rsi:null},
+        {id:3,symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false,active:false,rsi:null},
+        {id:4,symbol:"BTCUSDT",label:"BTC/USD",interval:"1w",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false,active:false,rsi:null},
       ];
       setAlerts(defaults);
       localStorage.setItem("td-rsi-alerts",JSON.stringify(defaults));
@@ -2014,10 +2023,15 @@ function AlertasTab({S}){
   }
 
   function sendTestNotif(){
-    new Notification("Trading Diary - Alertas RSI",{
-      body:"Las notificaciones funcionan correctamente",
-      icon:"https://cdn.iconscout.com/icon/free/png-256/free-trading-2742759-2274860.png"
-    });
+    const title="Trading Diary";
+    const opts={body:"Notificaciones funcionando en tu dispositivo",icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",silent:false};
+    function doNotif(){try{new Notification(title,opts);}catch(e){console.warn("Notif fallback",e);}}
+    if("serviceWorker" in navigator){
+      navigator.serviceWorker.getRegistration().then(function(reg){
+        if(reg){try{reg.showNotification(title,opts);}catch(e){doNotif();}}
+        else{doNotif();}
+      }).catch(doNotif);
+    }else{doNotif();}
   }
 
   function sendAlert(label,interval,rsi,type,e1,e2,customDesc,price){
@@ -2038,16 +2052,14 @@ function AlertasTab({S}){
     const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,price:price!=null?parseFloat(price).toFixed(2):null,body,time:new Date().toLocaleTimeString("es-ES")};
     setLogs(prev=>[log,...prev.slice(0,49)]);
     if(Notification.permission==="granted"){
-      try{
-        new Notification(title,{
-          body:body,
-          icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",
-          requireInteraction:true,
-          vibrate:[200,100,200]
-        });
-      }catch(ex){
-        new Notification(title,{body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png"});
-      }
+      const notifOpts={body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",requireInteraction:true,silent:false};
+      function doNotif(){try{new Notification(title,notifOpts);}catch(ex){try{new Notification(title,{body:body});}catch(e){}}}
+      if("serviceWorker" in navigator){
+        navigator.serviceWorker.getRegistration().then(function(reg){
+          if(reg){try{reg.showNotification(title,notifOpts);}catch(e){doNotif();}}
+          else{doNotif();}
+        }).catch(doNotif);
+      }else{doNotif();}
     }
   }
 
@@ -2087,8 +2099,8 @@ function AlertasTab({S}){
             setEmaData(prev=>({...prev,[alert.id]:{ema7,ema25,relation,cross:cross7_25,ema50,ema200,relation50_200,cross50_200}}));
           }
 
-          // RSI alerts (standard)
-          if(rsi!==null){
+          // RSI alerts — solo si notifyRsi activado
+          if(alert.notifyRsi!==false&&rsi!==null){
             const rsiOSKey=key+"_rsiOS";
             const rsiOBKey=key+"_rsiOB";
             if(rsi<=alert.oversold){
@@ -2105,8 +2117,8 @@ function AlertasTab({S}){
             } else { lastCrossRef.current[rsiOBKey]=false; }
           }
 
-          // EMA 7/25 cross alert
-          if(cross7_25){
+          // EMA 7/25 cross alert — solo si notifyEma7_25 activado
+          if(alert.notifyEma7_25!==false&&cross7_25){
             const crossKey=key+"_cross7_25";
             if(lastCrossRef.current[crossKey]!==cross7_25){
               lastCrossRef.current[crossKey]=cross7_25;
@@ -2114,8 +2126,8 @@ function AlertasTab({S}){
             }
           }
 
-          // EMA 50/200 cross alert
-          if(cross50_200){
+          // EMA 50/200 cross alert — solo si notifyEma50_200 activado
+          if(alert.notifyEma50_200!==false&&cross50_200){
             const crossKey200=key+"_cross50_200";
             if(lastCrossRef.current[crossKey200]!==cross50_200){
               lastCrossRef.current[crossKey200]=cross50_200;
@@ -2172,19 +2184,25 @@ function AlertasTab({S}){
   }
 
   function addAlert(){
-    const newAlert={
-      id:Date.now(),symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",
-      oversold:30,overbought:70,active:false,rsi:null
+    const na={
+      id:Date.now(),symbol:newAlertDraft.symbol,label:newAlertDraft.label,
+      interval:newAlertDraft.interval,oversold:newAlertDraft.oversold,overbought:newAlertDraft.overbought,
+      notifyRsi:newAlertDraft.notifyRsi,notifyEma7_25:newAlertDraft.notifyEma7_25,notifyEma50_200:newAlertDraft.notifyEma50_200,
+      active:false,rsi:null
     };
-    saveAlerts([...alerts,newAlert]);
+    saveAlerts([...alerts,na]);
+    setShowNewAlertForm(false);
+    startAlert(na);
   }
 
   function initDefaultAlerts(){
+    // Stop existing monitors first
+    alerts.forEach(a=>stopAlert(a));
     const defaults=[
-      {id:Date.now()+1,symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",oversold:30,overbought:70,active:false,rsi:null},
-      {id:Date.now()+2,symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",oversold:30,overbought:70,active:false,rsi:null},
-      {id:Date.now()+3,symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",oversold:30,overbought:70,active:false,rsi:null},
-      {id:Date.now()+4,symbol:"BTCUSDT",label:"BTC/USD",interval:"1w",oversold:30,overbought:70,active:false,rsi:null},
+      {id:Date.now()+1,symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false,active:false,rsi:null},
+      {id:Date.now()+2,symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false,active:false,rsi:null},
+      {id:Date.now()+3,symbol:"BTCUSDT",label:"BTC/USD",interval:"1d",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false,active:false,rsi:null},
+      {id:Date.now()+4,symbol:"BTCUSDT",label:"BTC/USD",interval:"1w",oversold:30,overbought:70,notifyRsi:true,notifyEma7_25:false,notifyEma50_200:false,active:false,rsi:null},
     ];
     saveAlerts(defaults);
   }
@@ -2271,11 +2289,79 @@ function AlertasTab({S}){
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
         <div>
-          <div style={{fontSize:11,color:"#f0b429",fontWeight:700,letterSpacing:1}}>ALERTAS RSI</div>
-          <div style={{fontSize:9,color:"#555",marginTop:2}}>Notificaciones en tiempo real via Binance</div>
+          <div style={{fontSize:11,color:"#f0b429",fontWeight:700,letterSpacing:1}}>ALERTAS RSI / EMA</div>
+          <div style={{fontSize:9,color:"#555",marginTop:2}}>Tiempo real via Binance WebSocket</div>
         </div>
-        <button onClick={initDefaultAlerts} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"8px 12px",borderRadius:6,fontSize:9,cursor:"pointer"}}>Resetear</button>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>setShowNewAlertForm(!showNewAlertForm)} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"8px 12px",borderRadius:6,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva</button>
+          <button onClick={initDefaultAlerts} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"8px 10px",borderRadius:6,fontSize:9,cursor:"pointer"}}>Reset</button>
+        </div>
       </div>
+
+      {/* Formulario nueva alerta */}
+      {showNewAlertForm&&(
+        <div style={{background:"#111118",border:"1px solid rgba(240,180,41,.3)",borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:10}}>NUEVA ALERTA</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+            <div>
+              <div style={{fontSize:8,color:"#555",marginBottom:3}}>ACTIVO</div>
+              <select value={newAlertDraft.symbol} onChange={e=>{
+                const s=SYMBOLS.find(x=>x.symbol===e.target.value)||{symbol:e.target.value,label:e.target.value};
+                setNewAlertDraft({...newAlertDraft,symbol:s.symbol,label:s.label});
+              }} style={{...S.inp,padding:"5px",fontSize:9}}>
+                {SYMBOLS.map(s=><option key={s.symbol} value={s.symbol}>{s.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:8,color:"#555",marginBottom:3}}>TEMPORALIDAD</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:3}}>
+                {INTERVALS.map(iv=>{
+                  const act=newAlertDraft.interval===iv.value;
+                  return <button key={iv.value} onClick={()=>setNewAlertDraft({...newAlertDraft,interval:iv.value})}
+                    style={{padding:"5px 2px",borderRadius:4,border:"1px solid "+(act?"#f0b429":"#333"),background:act?"rgba(240,180,41,.15)":"transparent",color:act?"#f0b429":"#555",fontSize:9,fontWeight:act?700:400,cursor:"pointer"}}>{iv.label}</button>;
+                })}
+              </div>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
+            <div>
+              <div style={{fontSize:8,color:"#00ff88",marginBottom:3}}>SOBREVENTA (RSI &lt;)</div>
+              <input type="number" min="1" max="50" value={newAlertDraft.oversold}
+                onChange={e=>setNewAlertDraft({...newAlertDraft,oversold:+e.target.value})}
+                style={{...S.inp,padding:"5px",fontSize:16,textAlign:"center",fontWeight:700,color:"#00ff88"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:8,color:"#ff4444",marginBottom:3}}>SOBRECOMPRA (RSI &gt;)</div>
+              <input type="number" min="50" max="99" value={newAlertDraft.overbought}
+                onChange={e=>setNewAlertDraft({...newAlertDraft,overbought:+e.target.value})}
+                style={{...S.inp,padding:"5px",fontSize:16,textAlign:"center",fontWeight:700,color:"#ff4444"}}/>
+            </div>
+          </div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:8,color:"#555",marginBottom:5}}>QUE NOTIFICACIONES QUIERES RECIBIR</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+              {[
+                {k:"notifyRsi",l:"RSI",sub:"Sobreventa / Sobrecompra",c:"#00ff88"},
+                {k:"notifyEma7_25",l:"EMA 7/25",sub:"Cruce dorado / muerte",c:"#88aaff"},
+                {k:"notifyEma50_200",l:"EMA 50/200",sub:"Cruce dorado / muerte",c:"#ffc864"},
+              ].map(t=>{
+                const act=newAlertDraft[t.k];
+                return(
+                  <button key={t.k} onClick={()=>setNewAlertDraft({...newAlertDraft,[t.k]:!act})}
+                    style={{padding:"8px 4px",borderRadius:6,border:"1px solid "+(act?t.c:"#333"),background:act?"rgba(255,255,255,.04)":"transparent",cursor:"pointer",textAlign:"center"}}>
+                    <div style={{fontSize:9,fontWeight:700,color:act?t.c:"#444"}}>{act?"🔔":"🔕"} {t.l}</div>
+                    <div style={{fontSize:7,color:"#444",marginTop:2}}>{t.sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={addAlert} style={{flex:2,padding:"9px",background:"#f0b429",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>CREAR Y ACTIVAR MONITOR</button>
+            <button onClick={()=>setShowNewAlertForm(false)} style={{flex:1,padding:"9px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* Notificaciones permission */}
       <div style={{background:"#111118",border:"1px solid "+(notifPerm==="granted"?"rgba(0,255,136,.3)":"rgba(240,180,41,.3)"),borderRadius:8,padding:12,marginBottom:12}}>
@@ -2361,6 +2447,24 @@ function AlertasTab({S}){
               )}
               {/* EMA 7/25 */}
               <EmaDisplay data={emaData[alert.id]}/>
+            </div>
+
+            {/* Toggles: que notificaciones enviar */}
+            <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+              {[
+                {k:"notifyRsi",l:"RSI",c:"#00ff88"},
+                {k:"notifyEma7_25",l:"EMA 7/25",c:"#88aaff"},
+                {k:"notifyEma50_200",l:"EMA 50/200",c:"#ffc864"},
+              ].map(t=>{
+                const act=alert[t.k]!==false;
+                return(
+                  <button key={t.k} onClick={()=>updateAlert(alert.id,t.k,!act)}
+                    style={{padding:"4px 9px",borderRadius:4,border:"1px solid "+(act?t.c:"#2a2a3a"),background:act?"rgba(255,255,255,.04)":"transparent",color:act?t.c:"#333",fontSize:8,fontWeight:act?700:400,cursor:"pointer"}}>
+                    {act?"🔔":"🔕"} {t.l}
+                  </button>
+                );
+              })}
+              <span style={{fontSize:7,color:"#333",alignSelf:"center",marginLeft:2}}>Toca para activar/silenciar</span>
             </div>
 
             {/* Acciones */}
@@ -2491,8 +2595,8 @@ function AlertasTab({S}){
                     : (customForm.crossType==="golden"?"Cruce Dorado EMA50/EMA200":customForm.crossType==="death"?"Cruce Muerte EMA50/EMA200":"Cualquier cruce EMA50/EMA200")
               )}
             </div>
-            <div style={{fontSize:8,color:"#f0b429",background:"rgba(240,180,41,.08)",border:"1px solid rgba(240,180,41,.2)",borderRadius:4,padding:"6px 8px",marginBottom:8}}>
-              Inicia el monitor de la temporalidad correspondiente para activar esta alerta
+            <div style={{fontSize:8,color:"#555",background:"rgba(255,255,255,.02)",border:"1px solid #1e1e2e",borderRadius:4,padding:"6px 8px",marginBottom:8}}>
+              Esta alerta se activara automaticamente cuando el monitor de la temporalidad este en marcha
             </div>
             <div style={{display:"flex",gap:6}}>
               <button onClick={addCustomAlert} style={{flex:2,padding:"8px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>GUARDAR ALERTA</button>
@@ -2538,8 +2642,8 @@ function AlertasTab({S}){
         })}
 
         {customAlerts.length>0&&(
-          <div style={{fontSize:8,color:"#f0b429",background:"rgba(240,180,41,.06)",border:"1px solid rgba(240,180,41,.15)",borderRadius:4,marginTop:8,padding:"6px 8px",textAlign:"center"}}>
-            Inicia el monitor de cada temporalidad para activar las alertas
+          <div style={{fontSize:8,color:"#555",background:"rgba(255,255,255,.02)",border:"1px solid #1e1e2e",borderRadius:4,marginTop:8,padding:"6px 8px",textAlign:"center"}}>
+            Estas alertas se activan automaticamente con el monitor de su temporalidad
           </div>
         )}
       </div>
