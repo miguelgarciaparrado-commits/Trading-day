@@ -1082,12 +1082,34 @@ export default function App(){
                       <div style={{fontSize:12,fontWeight:700,color:"#ff4444"}}>{isBE?"$0.00":fmtNum(-mL)}</div>
                       {isBE&&<div style={{fontSize:8,color:"#00ff88",marginTop:2}}>RIESGO CERO</div>}
                     </div>
-                    <div style={{background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"9px 11px"}}>
-                      <div style={{fontSize:8,color:"#555",marginBottom:3}}>TAKE PROFIT</div>
-                      <div style={{fontSize:14,fontWeight:700,color:"#00cc66"}}>{p.tp?fmtP(p.tp):"--"}</div>
-                      <div style={{fontSize:12,fontWeight:700,color:"#00ff88"}}>{mG?fmtNum(mG):"--"}</div>
-                      {mG&&mL&&!isBE&&<div style={{fontSize:8,color:"#555",marginTop:2}}>Ratio 1:{Math.round(mG/mL)}</div>}
-                    </div>
+                    {p.tpLevels&&p.tpLevels.length>0?(
+                      <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"9px 11px"}}>
+                        <div style={{fontSize:8,color:"#555",marginBottom:5}}>VENTAS PARCIALES</div>
+                        {p.tpLevels.map(function(lvl){
+                          var lvlG=p.capital*lvl.pct/100*Math.abs(lvl.price-p.entry)/p.entry;
+                          return(
+                            <div key={lvl.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3,opacity:lvl.hit?0.45:1}}>
+                              <div>
+                                <span style={{fontSize:10,fontWeight:700,color:lvl.hit?"#444":"#00cc66"}}>{fmtP(lvl.price)}</span>
+                                <span style={{fontSize:8,color:"#555",marginLeft:4}}>{lvl.pct}%</span>
+                                {lvl.hit&&<span style={{fontSize:8,color:"#00ff88",marginLeft:4}}>✓ cerrado</span>}
+                              </div>
+                              <span style={{fontSize:10,fontWeight:700,color:lvl.hit?"#444":"#00ff88"}}>{fmtNum(lvlG)}</span>
+                            </div>
+                          );
+                        })}
+                        {p.capitalRemaining!==undefined&&p.capitalRemaining<p.capital&&(
+                          <div style={{fontSize:8,color:"#f0b429",borderTop:"1px solid #1a1a2a",paddingTop:4,marginTop:4}}>Capital restante: ${Math.round(p.capitalRemaining).toLocaleString()}</div>
+                        )}
+                      </div>
+                    ):(
+                      <div style={{background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"9px 11px"}}>
+                        <div style={{fontSize:8,color:"#555",marginBottom:3}}>TAKE PROFIT</div>
+                        <div style={{fontSize:14,fontWeight:700,color:"#00cc66"}}>{p.tp?fmtP(p.tp):"--"}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:"#00ff88"}}>{mG?fmtNum(mG):"--"}</div>
+                        {mG&&mL&&!isBE&&<div style={{fontSize:8,color:"#555",marginTop:2}}>Ratio 1:{Math.round(mG/mL)}</div>}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -4308,6 +4330,38 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
           <input style={S.inp} type="number" placeholder={ph} value={f[k]||""} onChange={e=>setF({...f,[k]:e.target.value})}/>
         </div>
       ))}
+      {/* Ventas parciales */}
+      <div style={{marginBottom:9}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={S.lbl}>VENTAS PARCIALES</div>
+          <button type="button" onClick={addTpLevel} style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>+ Añadir nivel</button>
+        </div>
+        {(f.tpLevels||[]).length===0&&(
+          <div style={{fontSize:8,color:"#333",padding:"4px 0"}}>Sin ventas parciales — el TP único cierra toda la posición.</div>
+        )}
+        {(f.tpLevels||[]).map(function(lvl,i){
+          var totalPct=(f.tpLevels||[]).reduce(function(a,l){return a+(+l.pct||0);},0);
+          return(
+            <div key={lvl.id} style={{display:"grid",gridTemplateColumns:"1fr 80px auto",gap:5,marginBottom:6,alignItems:"end"}}>
+              <div>
+                <div style={{fontSize:7,color:"#555",marginBottom:2}}>PRECIO NIVEL {i+1} ({isShort?"↓ por debajo":"↑ por encima"})</div>
+                <input type="number" value={lvl.price||""} onChange={function(e){updateTpLevel(lvl.id,"price",e.target.value);}}
+                  style={{...S.inp,padding:"5px 8px",fontSize:10}} placeholder={isShort?"ej: 69000":"ej: 72000"}/>
+              </div>
+              <div>
+                <div style={{fontSize:7,color:totalPct>100?"#ff4444":"#555",marginBottom:2}}>% POSICIÓN</div>
+                <input type="number" min="1" max="100" value={lvl.pct||""} onChange={function(e){updateTpLevel(lvl.id,"pct",e.target.value);}}
+                  style={{...S.inp,padding:"5px 8px",fontSize:10,color:totalPct>100?"#ff4444":"#e0e0e0"}} placeholder="50"/>
+              </div>
+              <button type="button" onClick={function(){removeTpLevel(lvl.id);}} style={{background:"transparent",border:"1px solid #333",color:"#555",padding:"7px 8px",borderRadius:4,fontSize:11,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+          );
+        })}
+        {(f.tpLevels||[]).length>0&&(function(){
+          var tot=(f.tpLevels||[]).reduce(function(a,l){return a+(+l.pct||0);},0);
+          return <div style={{fontSize:8,color:tot>100?"#ff4444":tot===100?"#00ff88":"#f0b429",textAlign:"right",marginTop:2}}>Total: {tot}%{tot>100?" ⚠ supera 100%":tot===100?" ✓":""}</div>;
+        })()}
+      </div>
       {hasCalc&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
           <div style={{background:slValid?"rgba(255,68,68,.06)":"rgba(255,136,68,.1)",border:slValid?"none":"1px solid rgba(255,136,68,.4)",borderRadius:4,padding:"8px 10px"}}>
