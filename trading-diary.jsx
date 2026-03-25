@@ -286,17 +286,24 @@ export default function App(){
           if(r.ok){const d=await r.json();newPr[pair.key]=parseFloat(parseFloat(d.price).toFixed(2));}
         }catch(e){}
       }),
-      // Acciones y ETFs via Yahoo Finance
+      // Acciones y ETFs via Yahoo Finance (prueba varios endpoints por si alguno falla por CORS)
       ...[...stockSymbols].map(async function(sym){
-        try{
-          const r=await fetch("https://query2.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d");
-          if(r.ok){
+        const endpoints=[
+          "https://query1.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
+          "https://query2.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
+          "https://query1.finance.yahoo.com/v7/finance/quote?symbols="+sym,
+        ];
+        for(var i=0;i<endpoints.length;i++){
+          try{
+            const r=await fetch(endpoints[i],{credentials:"omit"});
+            if(!r.ok)continue;
             const d=await r.json();
             const meta=d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
-            if(meta&&meta.regularMarketPrice)
-              newPr[sym]=parseFloat(meta.regularMarketPrice.toFixed(2));
-          }
-        }catch(e){}
+            if(meta&&meta.regularMarketPrice){newPr[sym]=parseFloat(meta.regularMarketPrice.toFixed(2));break;}
+            const q=d.quoteResponse&&d.quoteResponse.result&&d.quoteResponse.result[0];
+            if(q&&q.regularMarketPrice){newPr[sym]=parseFloat(q.regularMarketPrice.toFixed(2));break;}
+          }catch(e){}
+        }
       })
     ]);
 
@@ -3900,24 +3907,52 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
   const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
   async function checkLivePrice(){
     if(!f.asset)return;
-    const base=f.asset.replace(/\/.*$/,"").toUpperCase();
+    // Extraer solo el ticker limpio: "TLT", "BTC/USDT" → "BTC", ignorar nombres largos
+    const raw=f.asset.trim();
+    const base=raw.replace(/\/.*$/,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,10);
+    if(!base){setLiveCheck("error");return;}
     setLiveCheck("loading");
-    try{
-      if(CRYPTO_BINANCE[base]){
+    // Actualizar campo con ticker limpio
+    setF(function(prev){return{...prev,asset:base};});
+    // 1. Intentar Binance para crypto
+    if(CRYPTO_BINANCE[base]){
+      try{
         const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+CRYPTO_BINANCE[base]);
-        if(!r.ok)throw new Error("not found");
+        if(r.ok){const d=await r.json();setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}
+      }catch(e){}
+    }
+    // 2. Intentar Binance de todas formas con USDT (por si es crypto no listada)
+    try{
+      const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+base+"USDT");
+      if(r.ok){const d=await r.json();if(d.price){setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}}
+    }catch(e){}
+    // 3. Yahoo Finance — probar query1 y query2, v8 y v7
+    const yahooEndpoints=[
+      "https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
+      "https://query2.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
+      "https://query1.finance.yahoo.com/v7/finance/quote?symbols="+base,
+      "https://query2.finance.yahoo.com/v7/finance/quote?symbols="+base,
+    ];
+    for(var i=0;i<yahooEndpoints.length;i++){
+      try{
+        const r=await fetch(yahooEndpoints[i],{credentials:"omit"});
+        if(!r.ok)continue;
         const d=await r.json();
-        setLiveCheck({price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});
-      }else{
-        const r=await fetch("https://query2.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d");
-        if(!r.ok)throw new Error("not found");
-        const d=await r.json();
+        // Formato v8/chart
         const meta=d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
         if(meta&&meta.regularMarketPrice){
-          setLiveCheck({price:meta.regularMarketPrice.toFixed(2),name:(meta.shortName||meta.symbol||base)+" (Yahoo)"});
-        }else{throw new Error("no price");}
-      }
-    }catch(e){setLiveCheck("error");}
+          setLiveCheck({ticker:meta.symbol||base,price:meta.regularMarketPrice.toFixed(2),name:(meta.shortName||meta.symbol||base)+" (Yahoo)"});
+          return;
+        }
+        // Formato v7/quote
+        const q=d.quoteResponse&&d.quoteResponse.result&&d.quoteResponse.result[0];
+        if(q&&q.regularMarketPrice){
+          setLiveCheck({ticker:q.symbol||base,price:q.regularMarketPrice.toFixed(2),name:(q.shortName||q.symbol||base)+" (Yahoo)"});
+          return;
+        }
+      }catch(e){}
+    }
+    setLiveCheck("error");
   }
   function doSavePosForm(){
     if(!f.asset||!f.capital||!f.entry)return;
@@ -3937,20 +3972,23 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>ACTIVO</div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <input style={{...S.inp,flex:1}} placeholder="BTC/USDT, TLT, AAPL, SOL..." value={f.asset} onChange={function(e){setF({...f,asset:e.target.value.toUpperCase()});setLiveCheck(null);}}/>
+          <input style={{...S.inp,flex:1}} placeholder="Ticker: TLT · AAPL · BTC · SOL..." value={f.asset} onChange={function(e){setF({...f,asset:e.target.value.toUpperCase()});setLiveCheck(null);}}/>
           <button onClick={checkLivePrice} disabled={!f.asset||liveCheck==="loading"}
             style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>
-            {liveCheck==="loading"?"...":"⚡ Check"}
+            {liveCheck==="loading"?"⏳":"⚡ Check"}
           </button>
         </div>
+        <div style={{fontSize:8,color:"#444",marginTop:3}}>Escribe el ticker del activo (TLT, AAPL, MSFT…), no el nombre completo</div>
         {liveCheck&&liveCheck!=="loading"&&liveCheck!=="error"&&(
-          <div style={{marginTop:5,padding:"5px 8px",background:"rgba(0,255,136,.08)",border:"1px solid rgba(0,255,136,.25)",borderRadius:4,fontSize:9,color:"#00ff88"}}>
-            ✓ Encontrado: <strong>{liveCheck.name}</strong> — precio actual <strong>${liveCheck.price}</strong>
+          <div style={{marginTop:5,padding:"6px 8px",background:"rgba(0,255,136,.08)",border:"1px solid rgba(0,255,136,.3)",borderRadius:4,fontSize:9,color:"#00ff88"}}>
+            <div>✓ <strong>{liveCheck.name}</strong></div>
+            <div style={{marginTop:2}}>Ticker: <strong>{liveCheck.ticker}</strong> · Precio actual: <strong>${liveCheck.price}</strong></div>
           </div>
         )}
         {liveCheck==="error"&&(
-          <div style={{marginTop:5,padding:"5px 8px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.25)",borderRadius:4,fontSize:9,color:"#ff4444"}}>
-            ✗ Símbolo no encontrado. Prueba con el ticker exacto (ej: TLT, AAPL, BTC)
+          <div style={{marginTop:5,padding:"6px 8px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.25)",borderRadius:4,fontSize:9,color:"#ff4444"}}>
+            <div>✗ No encontrado. Asegúrate de usar el ticker exacto:</div>
+            <div style={{marginTop:2,color:"#888"}}>ETF bonos 20Y → <strong>TLT</strong> · Apple → <strong>AAPL</strong> · Bitcoin → <strong>BTC</strong></div>
           </div>
         )}
       </div>
