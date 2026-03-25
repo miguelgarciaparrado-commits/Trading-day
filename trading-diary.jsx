@@ -1632,6 +1632,53 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
   const listRef=useRef(null);
   const fileInputRef=useRef(null);
 
+  // ── Predicciones ──
+  const[predictions,setPredictions]=useState(function(){
+    try{var s=localStorage.getItem("td-predictions");if(s)return JSON.parse(s);}catch(e){}
+    return[];
+  });
+  const[showPredictions,setShowPredictions]=useState(false);
+  const[savingMsgIdx,setSavingMsgIdx]=useState(null); // index del mensaje que se quiere guardar
+  const[predNote,setPredNote]=useState("");
+
+  function savePredictions(arr){
+    setPredictions(arr);
+    try{localStorage.setItem("td-predictions",JSON.stringify(arr));}catch(e){}
+  }
+
+  function saveMessageAsPrediction(msg,note){
+    const asset=detectedInfo?detectedInfo.display:marketData?marketData.asset:"";
+    const tf=detectedInfo?detectedInfo.tf:marketData?marketData.tf:"";
+    const now=new Date();
+    const pred={
+      id:Date.now(),
+      savedDate:now.toLocaleDateString("es-ES"),
+      savedTime:now.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),
+      timestamp:now.getTime(),
+      asset,tf,
+      content:msg.content,
+      note:note||"",
+      status:"pending"
+    };
+    savePredictions([pred,...predictions]);
+    setSavingMsgIdx(null);
+    setPredNote("");
+  }
+
+  function resolvePrediction(id,status){
+    savePredictions(predictions.map(function(p){
+      return p.id===id?{...p,status,resolvedDate:new Date().toLocaleDateString("es-ES")}:p;
+    }));
+  }
+
+  function deletePrediction(id){
+    savePredictions(predictions.filter(function(p){return p.id!==id;}));
+  }
+
+  function daysSince(timestamp){
+    return Math.floor((Date.now()-timestamp)/(1000*60*60*24));
+  }
+
   function handleImageFile(e){
     var file=e.target.files[0];
     if(!file)return;
@@ -1708,16 +1755,35 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       return "["+ct+"/"+j.type+"] "+j.text.slice(0,80);
     }).join(" | ");
 
+    // Predicciones pendientes con días transcurridos
+    var predContext="";
+    var pendingPreds=predictions.filter(function(p){return p.status==="pending";});
+    if(pendingPreds.length>0){
+      predContext="\n\n=== PREDICCIONES PENDIENTES (lo que dijiste en conversaciones anteriores) ===\n"+
+        "IMPORTANTE: El trader puede estar preguntando sobre una de estas predicciones.\n"+
+        "Si hace referencia a algo que dijiste antes, compara con los datos actuales y recalcula.\n";
+      pendingPreds.slice(0,5).forEach(function(p){
+        var days=Math.floor((Date.now()-p.timestamp)/(1000*60*60*24));
+        var hours=Math.floor((Date.now()-p.timestamp)/(1000*60*60));
+        var timeStr=days>=1?days+" dias":hours+" horas";
+        predContext+="["+p.savedDate+" — hace "+timeStr+"] "+
+          (p.asset?"("+p.asset+(p.tf?" "+p.tf:"")+"): ":"")+
+          p.content.slice(0,300).replace(/\n/g," ")+
+          (p.note?" | NOTA TRADER: "+p.note:"")+"\n";
+      });
+    }
+
     return "Eres analista tecnico de trading. Tu mision es dar analisis puros de mercado.\n\n"+
-      mdContext+"\n\n"+
+      mdContext+predContext+"\n\n"+
       "=== REGLAS DE RESPUESTA ===\n"+
       "1. Tu analisis se basa EXCLUSIVAMENTE en los datos de mercado arriba (RSI, EMAs, soportes, resistencias, FVGs)\n"+
       "2. Si el usuario adjunta un grafico/imagen, analiza visualmente la estructura, patrones y niveles que ves\n"+
       "3. Combina el grafico (si hay) con los datos en tiempo real\n"+
-      "4. NO menciones el historial de operaciones del trader ni sus patrones en el analisis tecnico\n"+
-      "5. Responde en espanol, directo y tecnico, max 200 palabras\n"+
-      "6. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
-      "7. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n"+
+      "4. Si hay PREDICCIONES PENDIENTES y el usuario hace referencia a una conversacion anterior, compara lo que dijiste con los datos ACTUALES y recalcula tiempos y precios\n"+
+      "5. NO menciones el historial de operaciones del trader ni sus patrones en el analisis tecnico\n"+
+      "6. Responde en espanol, directo y tecnico, max 250 palabras\n"+
+      "7. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
+      "8. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n"+
       "=== PERFIL (SOLO para EVALUACION_TRADER al final) ===\n"+
       "Nivel trader: "+sc+"/100 | Tasa ganadora: "+winRate+"% | P&L: $"+totalPnl+"\n"+
       "SL respetados: "+slRate+"% | Cierre anticipado: "+earlyPctC+"% | Revancha: "+(ps.revenge||0)+"x\n"+
@@ -1876,17 +1942,78 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
             <span style={{fontSize:9,color:"#333"}}>Nombra un activo y temporalidad en tu mensaje</span>
           )}
         </div>
-        <button
-          onClick={clearChat}
-          title="Borrar historial del chat"
-          style={{background:"transparent",border:"1px solid #1e1e2e",color:"#444",padding:"5px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}
-        >Limpiar</button>
-        <button
-          onClick={function(){setShowKeyInput(!showKeyInput);setTmpKey(apiKey);}}
-          title="Configurar API Key"
-          style={{background:apiKey?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(apiKey?"#00ff88":"#ff4444"),color:apiKey?"#00ff88":"#ff4444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}
-        >🔑</button>
+        <button onClick={function(){setShowPredictions(!showPredictions);}}
+          title="Predicciones guardadas"
+          style={{background:predictions.filter(function(p){return p.status==="pending";}).length>0?"rgba(136,170,255,.12)":"transparent",border:"1px solid "+(predictions.filter(function(p){return p.status==="pending";}).length>0?"rgba(136,170,255,.4)":"#1e1e2e"),color:predictions.filter(function(p){return p.status==="pending";}).length>0?"#88aaff":"#444",padding:"5px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>
+          🧠 {predictions.filter(function(p){return p.status==="pending";}).length||""}
+        </button>
+        <button onClick={clearChat} title="Borrar historial del chat"
+          style={{background:"transparent",border:"1px solid #1e1e2e",color:"#444",padding:"5px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>Limpiar</button>
+        <button onClick={function(){setShowKeyInput(!showKeyInput);setTmpKey(apiKey);}} title="Configurar API Key"
+          style={{background:apiKey?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(apiKey?"#00ff88":"#ff4444"),color:apiKey?"#00ff88":"#ff4444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}>🔑</button>
       </div>
+
+      {/* Panel de predicciones guardadas */}
+      {showPredictions&&(
+        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:10,marginBottom:8,maxHeight:240,overflowY:"auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:9,color:"#88aaff",fontWeight:700}}>PREDICCIONES GUARDADAS</div>
+            <span style={{fontSize:8,color:"#444"}}>El bot las recibe como contexto en cada mensaje</span>
+          </div>
+          {predictions.length===0&&(
+            <div style={{fontSize:9,color:"#333",textAlign:"center",padding:"10px 0"}}>
+              Sin predicciones. Pulsa 💾 en cualquier respuesta del bot para guardarla.
+            </div>
+          )}
+          {predictions.map(function(p){
+            var days=daysSince(p.timestamp);
+            var statusColor=p.status==="pending"?"#88aaff":p.status==="hit"?"#00ff88":"#ff4444";
+            var statusLabel=p.status==="pending"?"pendiente":p.status==="hit"?"acertada":"fallida";
+            return(
+              <div key={p.id} style={{background:"#0d0d16",borderRadius:6,padding:"8px 10px",marginBottom:6,border:"1px solid rgba(136,170,255,.12)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:8,color:statusColor,border:"1px solid "+statusColor,padding:"1px 5px",borderRadius:3}}>{statusLabel}</span>
+                    {p.asset&&<span style={{fontSize:8,color:"#f0b429"}}>{p.asset}{p.tf?" "+p.tf:""}</span>}
+                    <span style={{fontSize:8,color:"#444"}}>{p.savedDate}</span>
+                    <span style={{fontSize:8,color:days>7?"#ff4444":days>3?"#f0b429":"#555"}}>hace {days===0?"hoy":days+" dias"}</span>
+                  </div>
+                  <button onClick={function(){deletePrediction(p.id);}} style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:12,lineHeight:1}}>✕</button>
+                </div>
+                <div style={{fontSize:9,color:"#888",lineHeight:1.5,marginBottom:p.note?4:0,whiteSpace:"pre-wrap"}}>{p.content.slice(0,200)}{p.content.length>200?"…":""}</div>
+                {p.note&&<div style={{fontSize:8,color:"#f0b429",marginBottom:4}}>Nota: {p.note}</div>}
+                {p.status==="pending"&&(
+                  <div style={{display:"flex",gap:4,marginTop:6}}>
+                    <button onClick={function(){resolvePrediction(p.id,"hit");}}
+                      style={{flex:1,padding:"4px",background:"rgba(0,255,136,.08)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",borderRadius:4,fontSize:8,cursor:"pointer",fontWeight:700}}>✓ Acertada</button>
+                    <button onClick={function(){resolvePrediction(p.id,"missed");}}
+                      style={{flex:1,padding:"4px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.3)",color:"#ff4444",borderRadius:4,fontSize:8,cursor:"pointer",fontWeight:700}}>✗ Fallida</button>
+                    <button onClick={function(){setInput("Han pasado "+days+" dias desde tu analisis sobre "+(p.asset||"este activo")+". Recalcula lo que dijiste en funcion del tiempo transcurrido y los datos actuales.");}}
+                      style={{flex:2,padding:"4px",background:"rgba(136,170,255,.08)",border:"1px solid rgba(136,170,255,.3)",color:"#88aaff",borderRadius:4,fontSize:8,cursor:"pointer"}}>↩ Preguntar update</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Form guardar predicción */}
+      {savingMsgIdx!==null&&(
+        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.4)",borderRadius:6,padding:10,marginBottom:6}}>
+          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:6}}>GUARDAR COMO PREDICCION</div>
+          <input style={{...S.inp,width:"100%",fontSize:9,padding:"6px 8px",marginBottom:6,boxSizing:"border-box"}}
+            placeholder="Nota opcional: ej. 'BTC banderin bajista, objetivo 74500'"
+            value={predNote}
+            onChange={function(e){setPredNote(e.target.value);}}/>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={function(){saveMessageAsPrediction(messages[savingMsgIdx],predNote);}}
+              style={{flex:2,padding:"7px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>GUARDAR</button>
+            <button onClick={function(){setSavingMsgIdx(null);setPredNote("");}}
+              style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div ref={listRef} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,paddingBottom:8}}>
@@ -1903,9 +2030,14 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
               {m.image&&<img src={"data:"+m.image.mediaType+";base64,"+m.image.base64} style={{display:"block",maxWidth:"100%",maxHeight:220,borderRadius:6,marginBottom:8,objectFit:"contain"}}/>}
               {m.content}
             </div>
-            <span style={{fontSize:8,color:"#333",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
-              {m.role==="user"?"Tu":"Claude"} · {m.time}
-            </span>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
+              <span style={{fontSize:8,color:"#333"}}>{m.role==="user"?"Tu":"Claude"} · {m.time}</span>
+              {m.role==="assistant"&&i>0&&(
+                <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);}}
+                  title="Guardar como prediccion"
+                  style={{background:"transparent",border:"none",color:"#444",cursor:"pointer",fontSize:10,padding:"0 2px",lineHeight:1}}>💾</button>
+              )}
+            </div>
           </div>
         );})}
         {loading&&(
