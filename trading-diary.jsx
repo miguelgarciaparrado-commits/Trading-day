@@ -327,6 +327,7 @@ export default function App(){
     D.current.pr=newPr;
     setPr(newPr);
     SPr(newPr);
+    autoCheckPositions(newPr);
     setLastPriceTime(new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
     setFetchingPrices(false);
   }
@@ -445,7 +446,7 @@ export default function App(){
 
   // - SETTERS (sync D ref then React state) -
   const SP=v=>{D.current.pats=v;setPats(v);save();};
-  const SPos=v=>{D.current.pos=v;setPos(v);save();};
+  const SPos=v=>{D.current.pos=v;setPos(v);try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:v,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:D.current.xhist||[],horarios:D.current.horarios||[],ethClosed:D.current.ethClosed||false}));}catch(e){}save();};
   const SJ=v=>{D.current.jnl=v;setJnl(v);save();};
   const SPs=v=>{D.current.ps=v;setPs(v);save();};
   const SPr=v=>{D.current.pr=v;setPr(v);save();};
@@ -642,6 +643,91 @@ export default function App(){
     D.current.xhist=newX;D.current.pos=newPos2;D.current.ps=newPs;
     setXhist(newX);setPos(newPos2);setPs(newPs);save();
     setModal(m=>({...m,close:null,postData:{asset:p.asset,type:type,result:parseFloat(result.toFixed(2)),isBE:isBE}}));
+  }
+
+  function notifyAutoClose(asset,dir,type,price,result){
+    const isGain=result>=0;
+    const title=(isGain?"🎯 ":"🛑 ")+type+" — "+asset;
+    const body=dir+" "+(isGain?"+":"")+fmtNum(result)+" @ $"+parseFloat(price).toLocaleString();
+    if(typeof Notification!=="undefined"&&Notification.permission==="granted"){
+      try{new Notification(title,{body,requireInteraction:true});}catch(e){}
+    }
+    var tk=localStorage.getItem("td-tg-token");
+    var cid=localStorage.getItem("td-tg-chatid");
+    if(tk&&cid){
+      var txt=encodeURIComponent(title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES"));
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+txt).catch(function(){});
+    }
+  }
+
+  function autoCheckPositions(newPr){
+    if(!D.current.pos||!D.current.pos.length)return;
+    var changed=false;
+    var entries=[];
+    var psU={...D.current.ps};
+    var newPos=[];
+    for(var pi=0;pi<D.current.pos.length;pi++){
+      var p=D.current.pos[pi];
+      var base=p.asset.replace(/\/.*$/,"").toUpperCase();
+      var price=newPr[base];
+      if(!price||price<=0){newPos.push(p);continue;}
+      var isShort=p.dir==="Short";
+      var kept=true;
+      // SL check
+      if(p.sl){
+        var slHit=isShort?(price>=p.sl):(price<=p.sl);
+        if(slHit){
+          var isBE=p.be||p.sl===p.entry;
+          var slResult=isBE?0:-(p.capital*Math.abs(p.entry-p.sl)/p.entry);
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(slResult.toFixed(2)),date:today(),note:"🛑 SL auto @ $"+price.toLocaleString()});
+          psU.slOk=(psU.slOk||0)+1;
+          changed=true;
+          notifyAutoClose(p.asset,p.dir,"SL ejecutado",price,slResult);
+          kept=false;
+        }
+      }
+      if(!kept)continue;
+      // Partial TP levels
+      if(p.tpLevels&&p.tpLevels.length){
+        var updLevels=p.tpLevels.map(function(lvl){
+          if(lvl.hit)return lvl;
+          var hit=isShort?(price<=lvl.price):(price>=lvl.price);
+          if(!hit)return lvl;
+          var partCap=p.capital*lvl.pct/100;
+          var partResult=isShort?(partCap*(p.entry-lvl.price)/p.entry):(partCap*(lvl.price-p.entry)/p.entry);
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:partCap,result:parseFloat(partResult.toFixed(2)),date:today(),note:"🎯 TP parcial "+lvl.pct+"% @ $"+price.toLocaleString()});
+          psU.tpAuto=(psU.tpAuto||0)+1;
+          changed=true;
+          notifyAutoClose(p.asset,p.dir,"TP "+lvl.pct+"%",price,partResult);
+          return{...lvl,hit:true};
+        });
+        var allHit=updLevels.every(function(l){return l.hit;});
+        if(allHit){changed=true;continue;}
+        var someNew=updLevels.some(function(l,i){return l.hit&&!p.tpLevels[i].hit;});
+        if(someNew){
+          var remPct=updLevels.filter(function(l){return!l.hit;}).reduce(function(a,l){return a+l.pct;},0);
+          newPos.push({...p,tpLevels:updLevels,capitalRemaining:p.capital*remPct/100});
+          continue;
+        }
+      } else if(p.tp){
+        // Single TP
+        var tpHit=isShort?(price<=p.tp):(price>=p.tp);
+        if(tpHit){
+          var tpResult=p.capital*Math.abs(p.tp-p.entry)/p.entry;
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(tpResult.toFixed(2)),date:today(),note:"🎯 TP auto @ $"+price.toLocaleString()});
+          psU.tpAuto=(psU.tpAuto||0)+1;
+          changed=true;
+          notifyAutoClose(p.asset,p.dir,"TP alcanzado",price,tpResult);
+          continue;
+        }
+      }
+      newPos.push(p);
+    }
+    if(!changed)return;
+    var newX=[...entries,...(D.current.xhist||[])];
+    D.current.xhist=newX;D.current.pos=newPos;D.current.ps=psU;
+    setXhist(newX);setPos(newPos);setPs(psU);
+    save();
   }
 
   function closeEthLegacy(closePrice){
@@ -873,7 +959,7 @@ export default function App(){
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ACTIVAS</div>
-                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""},editPosId:null}))} style={{...S.btn(true),padding:"4px 10px",fontSize:9}}>+ NUEVA OPERACION</button>
+                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]},editPosId:null}))} style={{...S.btn(true),padding:"4px 10px",fontSize:9}}>+ NUEVA OPERACION</button>
               </div>
               {!ethClosed&&(
                 <div style={S.row}>
@@ -914,7 +1000,7 @@ export default function App(){
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ABIERTAS</div>
-              <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
+              <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
             </div>
             {/* ETH legado - restaurar si fue cerrado */}
             {ethClosed&&(
@@ -978,7 +1064,7 @@ export default function App(){
                     </div>
                     <div style={{display:"flex",gap:7,alignItems:"center"}}>
                       <span style={{fontSize:19,fontWeight:700,color:noLivePrice?"#ff8844":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"sin precio":fmtNum(g)}</span>
-                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||""},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
+                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[]},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
                       <button onClick={()=>setModal(m=>({...m,close:p}))} style={{background:"rgba(240,180,41,.15)",border:"1px solid #f0b429",color:"#f0b429",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>CERRAR</button>
                     </div>
                   </div>
@@ -1482,7 +1568,7 @@ export default function App(){
       {/* ═══ MODAL NUEVA/EDITAR OPERACION ═══ */}
       {modal.pos&&(
         <ModalPos
-          form={modal.posForm||{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:""}}
+          form={modal.posForm||{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]}}
           editId={modal.editPosId}
           currentPos={D.current.pos}
           PM={PM}
@@ -4067,6 +4153,9 @@ function HorariosTab({horarios,SH,S,fmtNum}){
 function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
   const[f,setF]=useState(form);
   const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {ticker,price,name} | "error"
+  function addTpLevel(){setF(function(prev){return{...prev,tpLevels:[...(prev.tpLevels||[]),{id:Date.now(),price:"",pct:""}]};});}
+  function removeTpLevel(id){setF(function(prev){return{...prev,tpLevels:(prev.tpLevels||[]).filter(function(l){return l.id!==id;})};});}
+  function updateTpLevel(id,key,val){setF(function(prev){return{...prev,tpLevels:(prev.tpLevels||[]).map(function(l){return l.id===id?{...l,[key]:val}:l;})};});}
   const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
 
   // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
@@ -4152,7 +4241,8 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
   }
   function doSavePosForm(){
     if(!f.asset||!f.capital||!f.entry)return;
-    const obj={...f,id:editId||Date.now(),capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,be:false};
+    var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
+    const obj={...f,id:editId||Date.now(),capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false};
     const nv=editId?currentPos.map(x=>x.id===editId?obj:x):[...currentPos,obj];
     SPos(nv);
     setModal(m=>({...m,pos:false,posForm:null,editPosId:null}));
