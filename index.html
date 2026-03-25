@@ -2237,7 +2237,7 @@ function AlertasTab({ S }) {
     const [draft, setDraft] = useState({ selectedSymbols: ["BTCUSDT"], interval: "4h", rsiEnabled: true, rsiThreshold: 30, rsiCondition: "below", emaGoldenEnabled: false, emaDeathEnabled: false, ema200GoldenEnabled: false, ema200DeathEnabled: false });
     const [logs, setLogs] = useState([]);
     const [notifPerm, setNotifPerm] = useState("default");
-    const [lastAlert, setLastAlert] = useState(null); // in-app banner
+    const [lastAlert, setLastAlert] = useState(null);
     const reconnectCountRef = useRef({});
     const wsRefs = useRef({});
     const closesRef = useRef({});
@@ -2245,6 +2245,42 @@ function AlertasTab({ S }) {
     const [emaData, setEmaData] = useState({});
     const [showImport, setShowImport] = useState(false);
     const [importText, setImportText] = useState("");
+    // Telegram config
+    const [tgToken, setTgToken] = useState(function () { return localStorage.getItem("td-tg-token") || ""; });
+    const [tgChatId, setTgChatId] = useState(function () { return localStorage.getItem("td-tg-chatid") || ""; });
+    const [showTgConfig, setShowTgConfig] = useState(false);
+    const [tgStatus, setTgStatus] = useState(null);
+    // Wake Lock — mantiene pantalla encendida cuando hay alertas activas
+    const wakeLockRef = useRef(null);
+    async function requestWakeLock() {
+        if (!("wakeLock" in navigator))
+            return;
+        try {
+            if (wakeLockRef.current)
+                return;
+            wakeLockRef.current = await navigator.wakeLock.request("screen");
+            wakeLockRef.current.addEventListener("release", function () { wakeLockRef.current = null; });
+        }
+        catch (e) { }
+    }
+    function releaseWakeLock() {
+        if (wakeLockRef.current) {
+            wakeLockRef.current.release().catch(function () { });
+            wakeLockRef.current = null;
+        }
+    }
+    // Re-acquire wake lock when tab becomes visible again
+    useEffect(function () {
+        function onVis() {
+            if (document.visibilityState === "visible") {
+                const hasActive = alertsRef.current.some(function (a) { return a.active; });
+                if (hasActive)
+                    requestWakeLock();
+            }
+        }
+        document.addEventListener("visibilitychange", onVis);
+        return function () { document.removeEventListener("visibilitychange", onVis); };
+    }, []);
     function saveAlerts(arr) {
         alertsRef.current = arr;
         setAlerts(arr);
@@ -2393,6 +2429,13 @@ function AlertasTab({ S }) {
             }
             catch (e) { }
         }
+        // Telegram
+        var tk = localStorage.getItem("td-tg-token");
+        var cid = localStorage.getItem("td-tg-chatid");
+        if (tk && cid) {
+            var tgText = encodeURIComponent("📊 " + title + "\n" + body + "\n⏰ " + new Date().toLocaleTimeString("es-ES"));
+            fetch("https://api.telegram.org/bot" + tk + "/sendMessage?chat_id=" + cid + "&text=" + tgText).catch(function () { });
+        }
         if (Notification.permission === "granted") {
             const notifOpts = { body: body, icon: "https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png", requireInteraction: true, silent: false };
             function doNotif() { try {
@@ -2425,6 +2468,7 @@ function AlertasTab({ S }) {
         }
     }
     function startAlert(alert) {
+        requestWakeLock(); // mantener pantalla encendida
         const sid = alert.id.toString();
         // Close existing WS for this alert if any
         if (wsRefs.current[sid])
@@ -2558,7 +2602,11 @@ function AlertasTab({ S }) {
             wsRefs.current[sid].close();
             delete wsRefs.current[sid];
         }
-        saveAlerts(alertsRef.current.map(function (a) { return a.id === alert.id ? { ...a, active: false, currentRsi: null, currentPrice: null, error: false } : a; }));
+        const updated = alertsRef.current.map(function (a) { return a.id === alert.id ? { ...a, active: false, currentRsi: null, currentPrice: null, error: false } : a; });
+        saveAlerts(updated);
+        // liberar wake lock si no quedan alertas activas
+        if (!updated.some(function (a) { return a.active; }))
+            releaseWakeLock();
     }
     function addAlert() {
         if (draft.selectedSymbols.length === 0)
@@ -2620,9 +2668,57 @@ function AlertasTab({ S }) {
                 React.createElement("div", { style: { fontSize: 11, color: "#f0b429", fontWeight: 700, letterSpacing: 1 } }, "ALERTAS RSI / EMA"),
                 React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 2 } }, "Tiempo real via Binance WebSocket")),
             React.createElement("div", { style: { display: "flex", gap: 5 } },
+                React.createElement("button", { onClick: function () { setShowTgConfig(!showTgConfig); }, title: "Notificaciones Telegram", style: { background: tgToken && tgChatId ? "rgba(0,136,204,.15)" : "transparent", border: "1px solid " + (tgToken && tgChatId ? "#0088cc" : "#2a2a3a"), color: tgToken && tgChatId ? "#0088cc" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, "\u2708\uFE0F"),
                 alerts.length > 0 && React.createElement("button", { onClick: exportAlerts, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "7px 10px", borderRadius: 6, fontSize: 8, cursor: "pointer" } }, "Exportar"),
                 React.createElement("button", { onClick: function () { setShowImport(!showImport); setImportText(""); }, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "7px 10px", borderRadius: 6, fontSize: 8, cursor: "pointer" } }, "Importar"),
                 React.createElement("button", { onClick: function () { setShowForm(!showForm); }, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "8px 14px", borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva"))),
+        showTgConfig && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(0,136,204,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
+            React.createElement("div", { style: { fontSize: 10, color: "#0088cc", fontWeight: 700, marginBottom: 4 } }, "\u2708\uFE0F NOTIFICACIONES TELEGRAM"),
+            React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 10, lineHeight: 1.6 } },
+                "Cuando salte una alerta, recibir\u00E1s un mensaje de Telegram aunque el m\u00F3vil est\u00E9 bloqueado.",
+                React.createElement("br", null),
+                "1. Abre Telegram \u2192 busca ",
+                React.createElement("strong", { style: { color: "#88aaff" } }, "@BotFather"),
+                " \u2192 /newbot \u2192 copia el token",
+                React.createElement("br", null),
+                "2. Busca ",
+                React.createElement("strong", { style: { color: "#88aaff" } }, "@userinfobot"),
+                " \u2192 /start \u2192 copia tu Chat ID"),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 } },
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 8, color: "#888", marginBottom: 3 } }, "TOKEN DEL BOT"),
+                    React.createElement("input", { value: tgToken, onChange: function (e) { setTgToken(e.target.value); }, placeholder: "123456:ABCdef...", style: { ...S.inp, width: "100%", fontSize: 9, padding: "5px 8px", boxSizing: "border-box" } })),
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 8, color: "#888", marginBottom: 3 } }, "CHAT ID"),
+                    React.createElement("input", { value: tgChatId, onChange: function (e) { setTgChatId(e.target.value); }, placeholder: "123456789", style: { ...S.inp, width: "100%", fontSize: 9, padding: "5px 8px", boxSizing: "border-box" } }))),
+            tgStatus && (React.createElement("div", { style: { fontSize: 9, marginBottom: 8, padding: "5px 8px", borderRadius: 4,
+                    background: tgStatus === "ok" ? "rgba(0,255,136,.08)" : "rgba(255,68,68,.08)",
+                    color: tgStatus === "ok" ? "#00ff88" : "#ff4444",
+                    border: "1px solid " + (tgStatus === "ok" ? "rgba(0,255,136,.3)" : "rgba(255,68,68,.3)") } }, tgStatus === "ok" ? "✓ Mensaje enviado a Telegram" : "✗ Error — revisa el token y el Chat ID")),
+            React.createElement("div", { style: { display: "flex", gap: 6 } },
+                React.createElement("button", { onClick: function () {
+                        localStorage.setItem("td-tg-token", tgToken.trim());
+                        localStorage.setItem("td-tg-chatid", tgChatId.trim());
+                        // Test message
+                        var tk = tgToken.trim();
+                        var cid = tgChatId.trim();
+                        if (!tk || !cid) {
+                            setTgStatus("error");
+                            return;
+                        }
+                        var txt = encodeURIComponent("✅ Trading Diary conectado!\n\nRecibirás alertas aquí cuando se disparen.");
+                        fetch("https://api.telegram.org/bot" + tk + "/sendMessage?chat_id=" + cid + "&text=" + txt)
+                            .then(function (r) { return r.json(); })
+                            .then(function (d) { setTgStatus(d.ok ? "ok" : "error"); })
+                            .catch(function () { setTgStatus("error"); });
+                    }, style: { flex: 2, padding: "7px", background: "#0088cc", color: "#fff", border: "none", borderRadius: 4, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "Guardar y probar"),
+                tgToken && React.createElement("button", { onClick: function () {
+                        localStorage.removeItem("td-tg-token");
+                        localStorage.removeItem("td-tg-chatid");
+                        setTgToken("");
+                        setTgChatId("");
+                        setTgStatus(null);
+                    }, style: { flex: 1, padding: "7px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "Desconectar")))),
         showImport && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(136,170,255,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
             React.createElement("div", { style: { fontSize: 9, color: "#88aaff", fontWeight: 700, marginBottom: 6 } }, "IMPORTAR ALERTAS"),
             React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 6 } }, "Copia el texto exportado desde otro dispositivo y pegalo aqui:"),

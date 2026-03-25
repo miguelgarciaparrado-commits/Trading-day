@@ -2401,7 +2401,7 @@ function AlertasTab({S}){
   const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiEnabled:true,rsiThreshold:30,rsiCondition:"below",emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false});
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
-  const[lastAlert,setLastAlert]=useState(null); // in-app banner
+  const[lastAlert,setLastAlert]=useState(null);
   const reconnectCountRef=useRef({});
   const wsRefs=useRef({});
   const closesRef=useRef({});
@@ -2409,6 +2409,37 @@ function AlertasTab({S}){
   const[emaData,setEmaData]=useState({});
   const[showImport,setShowImport]=useState(false);
   const[importText,setImportText]=useState("");
+
+  // Telegram config
+  const[tgToken,setTgToken]=useState(function(){return localStorage.getItem("td-tg-token")||"";});
+  const[tgChatId,setTgChatId]=useState(function(){return localStorage.getItem("td-tg-chatid")||"";});
+  const[showTgConfig,setShowTgConfig]=useState(false);
+  const[tgStatus,setTgStatus]=useState(null);
+
+  // Wake Lock — mantiene pantalla encendida cuando hay alertas activas
+  const wakeLockRef=useRef(null);
+  async function requestWakeLock(){
+    if(!("wakeLock" in navigator))return;
+    try{
+      if(wakeLockRef.current)return;
+      wakeLockRef.current=await navigator.wakeLock.request("screen");
+      wakeLockRef.current.addEventListener("release",function(){wakeLockRef.current=null;});
+    }catch(e){}
+  }
+  function releaseWakeLock(){
+    if(wakeLockRef.current){wakeLockRef.current.release().catch(function(){});wakeLockRef.current=null;}
+  }
+  // Re-acquire wake lock when tab becomes visible again
+  useEffect(function(){
+    function onVis(){
+      if(document.visibilityState==="visible"){
+        const hasActive=alertsRef.current.some(function(a){return a.active;});
+        if(hasActive)requestWakeLock();
+      }
+    }
+    document.addEventListener("visibilitychange",onVis);
+    return function(){document.removeEventListener("visibilitychange",onVis);};
+  },[]);
 
   function saveAlerts(arr){
     alertsRef.current=arr;
@@ -2507,6 +2538,13 @@ function AlertasTab({S}){
     setLastAlert({title,body,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})});
     setTimeout(function(){setLastAlert(null);},8000);
     if(navigator.vibrate){try{navigator.vibrate([300,150,300,150,300]);}catch(e){}}
+    // Telegram
+    var tk=localStorage.getItem("td-tg-token");
+    var cid=localStorage.getItem("td-tg-chatid");
+    if(tk&&cid){
+      var tgText=encodeURIComponent("📊 "+title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES"));
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+tgText).catch(function(){});
+    }
     if(Notification.permission==="granted"){
       const notifOpts={body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",requireInteraction:true,silent:false};
       function doNotif(){try{new Notification(title,notifOpts);}catch(ex){try{new Notification(title,{body:body});}catch(e){}}}
@@ -2520,6 +2558,7 @@ function AlertasTab({S}){
   }
 
   function startAlert(alert){
+    requestWakeLock(); // mantener pantalla encendida
     const sid=alert.id.toString();
     // Close existing WS for this alert if any
     if(wsRefs.current[sid])wsRefs.current[sid].close();
@@ -2619,7 +2658,10 @@ function AlertasTab({S}){
   function stopAlert(alert){
     const sid=alert.id.toString();
     if(wsRefs.current[sid]){wsRefs.current[sid].close();delete wsRefs.current[sid];}
-    saveAlerts(alertsRef.current.map(function(a){return a.id===alert.id?{...a,active:false,currentRsi:null,currentPrice:null,error:false}:a;}));
+    const updated=alertsRef.current.map(function(a){return a.id===alert.id?{...a,active:false,currentRsi:null,currentPrice:null,error:false}:a;});
+    saveAlerts(updated);
+    // liberar wake lock si no quedan alertas activas
+    if(!updated.some(function(a){return a.active;}))releaseWakeLock();
   }
 
   function addAlert(){
@@ -2686,11 +2728,65 @@ function AlertasTab({S}){
           <div style={{fontSize:9,color:"#555",marginTop:2}}>Tiempo real via Binance WebSocket</div>
         </div>
         <div style={{display:"flex",gap:5}}>
+          <button onClick={function(){setShowTgConfig(!showTgConfig);}} title="Notificaciones Telegram"
+            style={{background:tgToken&&tgChatId?"rgba(0,136,204,.15)":"transparent",border:"1px solid "+(tgToken&&tgChatId?"#0088cc":"#2a2a3a"),color:tgToken&&tgChatId?"#0088cc":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>✈️</button>
           {alerts.length>0&&<button onClick={exportAlerts} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Exportar</button>}
           <button onClick={function(){setShowImport(!showImport);setImportText("");}} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Importar</button>
           <button onClick={function(){setShowForm(!showForm);}} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"8px 14px",borderRadius:6,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva</button>
         </div>
       </div>
+
+      {/* Telegram config panel */}
+      {showTgConfig&&(
+        <div style={{background:"#111118",border:"1px solid rgba(0,136,204,.3)",borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{fontSize:10,color:"#0088cc",fontWeight:700,marginBottom:4}}>✈️ NOTIFICACIONES TELEGRAM</div>
+          <div style={{fontSize:8,color:"#555",marginBottom:10,lineHeight:1.6}}>
+            Cuando salte una alerta, recibirás un mensaje de Telegram aunque el móvil esté bloqueado.<br/>
+            1. Abre Telegram → busca <strong style={{color:"#88aaff"}}>@BotFather</strong> → /newbot → copia el token<br/>
+            2. Busca <strong style={{color:"#88aaff"}}>@userinfobot</strong> → /start → copia tu Chat ID
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div>
+              <div style={{fontSize:8,color:"#888",marginBottom:3}}>TOKEN DEL BOT</div>
+              <input value={tgToken} onChange={function(e){setTgToken(e.target.value);}}
+                placeholder="123456:ABCdef..."
+                style={{...S.inp,width:"100%",fontSize:9,padding:"5px 8px",boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:8,color:"#888",marginBottom:3}}>CHAT ID</div>
+              <input value={tgChatId} onChange={function(e){setTgChatId(e.target.value);}}
+                placeholder="123456789"
+                style={{...S.inp,width:"100%",fontSize:9,padding:"5px 8px",boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          {tgStatus&&(
+            <div style={{fontSize:9,marginBottom:8,padding:"5px 8px",borderRadius:4,
+              background:tgStatus==="ok"?"rgba(0,255,136,.08)":"rgba(255,68,68,.08)",
+              color:tgStatus==="ok"?"#00ff88":"#ff4444",
+              border:"1px solid "+(tgStatus==="ok"?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)")}}>
+              {tgStatus==="ok"?"✓ Mensaje enviado a Telegram":"✗ Error — revisa el token y el Chat ID"}
+            </div>
+          )}
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={function(){
+              localStorage.setItem("td-tg-token",tgToken.trim());
+              localStorage.setItem("td-tg-chatid",tgChatId.trim());
+              // Test message
+              var tk=tgToken.trim();var cid=tgChatId.trim();
+              if(!tk||!cid){setTgStatus("error");return;}
+              var txt=encodeURIComponent("✅ Trading Diary conectado!\n\nRecibirás alertas aquí cuando se disparen.");
+              fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+txt)
+                .then(function(r){return r.json();})
+                .then(function(d){setTgStatus(d.ok?"ok":"error");})
+                .catch(function(){setTgStatus("error");});
+            }} style={{flex:2,padding:"7px",background:"#0088cc",color:"#fff",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar y probar</button>
+            {tgToken&&<button onClick={function(){
+              localStorage.removeItem("td-tg-token");localStorage.removeItem("td-tg-chatid");
+              setTgToken("");setTgChatId("");setTgStatus(null);
+            }} style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Desconectar</button>}
+          </div>
+        </div>
+      )}
 
       {/* Import panel */}
       {showImport&&(
