@@ -1486,6 +1486,8 @@ export default function App(){
           editId={modal.editPosId}
           currentPos={D.current.pos}
           PM={PM}
+          pr={pr}
+          SPr={SPr}
           SPos={SPos}
           setModal={setModal}
           fmtNum={fmtNum}
@@ -3994,9 +3996,9 @@ function HorariosTab({horarios,SH,S,fmtNum}){
   );
 }
 
-function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
+function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
   const[f,setF]=useState(form);
-  const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {price,name} | "error"
+  const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {ticker,price,name} | "error"
   const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
 
   // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
@@ -4054,9 +4056,30 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
       const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+base+"USDT");
       if(r.ok){const d=await r.json();if(d.price){setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}}
     }catch(e){}
-    // 3. Stooq + Yahoo para acciones y ETFs
+    // 3. Stooq + Yahoo + proxy CORS para acciones y ETFs
     const result=await fetchStockPrice(base);
-    if(result){setLiveCheck({ticker:base,price:result.price,name:result.name});return;}
+    if(result){
+      const p=parseFloat(result.price);
+      if(SPr&&pr)SPr({...pr,[base]:p}); // actualizar precio en mapa global
+      setLiveCheck({ticker:base,price:result.price,name:result.name});
+      return;
+    }
+    // 4. Proxy CORS allorigins.win como último recurso
+    try{
+      var proxyUrl="https://api.allorigins.win/get?url="+encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d");
+      var rp=await fetch(proxyUrl);
+      if(rp.ok){
+        var dp=await rp.json();
+        var inner=typeof dp.contents==="string"?JSON.parse(dp.contents):dp.contents;
+        var meta=inner&&inner.chart&&inner.chart.result&&inner.chart.result[0]&&inner.chart.result[0].meta;
+        if(meta&&meta.regularMarketPrice){
+          var p2=parseFloat(meta.regularMarketPrice.toFixed(2));
+          if(SPr&&pr)SPr({...pr,[base]:p2});
+          setLiveCheck({ticker:base,price:p2.toFixed(2),name:(meta.shortName||base)+" (Yahoo)"});
+          return;
+        }
+      }
+    }catch(e){}
     setLiveCheck("error");
   }
   function doSavePosForm(){
@@ -4101,6 +4124,7 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
                 var val=parseFloat(document.getElementById("manualPriceInput").value);
                 if(isNaN(val)||val<=0)return;
                 var base=f.asset.replace(/\/.*$/,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,10)||f.asset;
+                if(SPr&&pr)SPr({...pr,[base]:val}); // guardar en mapa global
                 setLiveCheck({ticker:base,price:val.toFixed(2),name:base+" (Manual)"});
               }} style={{background:"rgba(255,136,68,.2)",border:"1px solid #ff8844",color:"#ff8844",padding:"5px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>Usar</button>
             </div>
@@ -4125,16 +4149,26 @@ function ModalPos({form,editId,currentPos,PM,SPos,setModal,fmtNum,S}){
       {hasCalc&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
           <div style={{background:"rgba(255,68,68,.06)",borderRadius:4,padding:"8px 10px"}}>
-            <div style={{fontSize:8,color:"#555",marginBottom:2}}>SL - PERDIDA MAXIMA</div>
-            <div style={{fontSize:11,fontWeight:700,color:"#ff4444"}}>{fmtNum(-risk)}</div>
+            <div style={{fontSize:8,color:"#555",marginBottom:2}}>SL - PÉRDIDA MÁXIMA</div>
+            {risk===0
+              ? <div style={{fontSize:10,fontWeight:700,color:"#00ff88"}}>RIESGO CERO<br/><span style={{fontSize:8,color:"#555",fontWeight:400}}>SL en precio de entrada</span></div>
+              : <div style={{fontSize:11,fontWeight:700,color:"#ff4444"}}>{fmtNum(-risk)}</div>
+            }
           </div>
           <div style={{background:"rgba(0,255,136,.06)",borderRadius:4,padding:"8px 10px"}}>
-            <div style={{fontSize:8,color:"#555",marginBottom:2}}>TP - GANANCIA MAXIMA</div>
+            <div style={{fontSize:8,color:"#555",marginBottom:2}}>TP - GANANCIA MÁXIMA</div>
             <div style={{fontSize:11,fontWeight:700,color:"#00ff88"}}>{fmtNum(reward)}</div>
           </div>
-          <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:ratio>=3?"#00ff88":ratio>=2?"#f0b429":"#ff4444",fontWeight:700}}>
-            {"Ratio R:B 1:"+ratio.toFixed(1)+" "+(ratio>=3?"Solido":ratio>=2?"Aceptable":"Insuficiente")}
-          </div>
+          {risk>0&&(
+            <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:ratio>=3?"#00ff88":ratio>=2?"#f0b429":"#ff4444",fontWeight:700}}>
+              {"Ratio R:B 1:"+ratio.toFixed(1)+" "+(ratio>=3?"Sólido":ratio>=2?"Aceptable":"Insuficiente")}
+            </div>
+          )}
+          {risk===0&&reward>0&&(
+            <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:"#00ff88",fontWeight:700}}>
+              Posición protegida — ganancia potencial {fmtNum(reward)}
+            </div>
+          )}
         </div>
       )}
       <div style={{display:"flex",gap:7,marginTop:12}}>

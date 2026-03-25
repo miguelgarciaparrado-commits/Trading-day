@@ -1454,7 +1454,7 @@ function App() {
                 React.createElement("div", { style: { display: "flex", gap: 7, marginTop: 12 } },
                     React.createElement("button", { onClick: () => { SPr({ ...pr, ...modal.tmpPr }); setModal(m => ({ ...m, prices: false, tmpPr: null })); }, style: { ...S.btn(true), flex: 1, padding: 8 } }, "GUARDAR"),
                     React.createElement("button", { onClick: () => setModal(m => ({ ...m, prices: false, tmpPr: null })), style: { ...S.btn(false), flex: 1 } }, "CANCELAR"))))),
-        modal.pos && (React.createElement(ModalPos, { form: modal.posForm || { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "" }, editId: modal.editPosId, currentPos: D.current.pos, PM: PM, SPos: SPos, setModal: setModal, fmtNum: fmtNum, S: S })),
+        modal.pos && (React.createElement(ModalPos, { form: modal.posForm || { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "" }, editId: modal.editPosId, currentPos: D.current.pos, PM: PM, pr: pr, SPr: SPr, SPos: SPos, setModal: setModal, fmtNum: fmtNum, S: S })),
         modal.pat && (React.createElement("div", { style: S.modal },
             React.createElement("div", { style: S.mc },
                 React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, modal.editPatId ? "EDITAR PATRON" : "NUEVO PATRON"),
@@ -3579,9 +3579,9 @@ function HorariosTab({ horarios, SH, S, fmtNum }) {
                             React.createElement("button", { onClick: () => SH(horarios.filter(x => x.id !== h.id)), style: { background: "transparent", border: "none", color: "#333", cursor: "pointer", fontSize: 12, marginLeft: 8 } }, "\u2715")))))));
             })))));
 }
-function ModalPos({ form, editId, currentPos, PM, SPos, setModal, fmtNum, S }) {
+function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNum, S }) {
     const [f, setF] = useState(form);
-    const [liveCheck, setLiveCheck] = useState(null); // null | "loading" | {price,name} | "error"
+    const [liveCheck, setLiveCheck] = useState(null); // null | "loading" | {ticker,price,name} | "error"
     const CRYPTO_BINANCE = { "BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT", "LINK": "LINKUSDT", "MARA": "MARAUSDT", "RGTI": "RGTIUSDT", "BNB": "BNBUSDT", "ADA": "ADAUSDT", "DOGE": "DOGEUSDT", "AVAX": "AVAXUSDT", "DOT": "DOTUSDT", "MATIC": "MATICUSDT", "RENDER": "RENDERUSDT", "MANA": "MANAUSDT", "URA": "URAUSDT" };
     // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
     async function fetchStockPrice(base) {
@@ -3659,12 +3659,33 @@ function ModalPos({ form, editId, currentPos, PM, SPos, setModal, fmtNum, S }) {
             }
         }
         catch (e) { }
-        // 3. Stooq + Yahoo para acciones y ETFs
+        // 3. Stooq + Yahoo + proxy CORS para acciones y ETFs
         const result = await fetchStockPrice(base);
         if (result) {
+            const p = parseFloat(result.price);
+            if (SPr && pr)
+                SPr({ ...pr, [base]: p }); // actualizar precio en mapa global
             setLiveCheck({ ticker: base, price: result.price, name: result.name });
             return;
         }
+        // 4. Proxy CORS allorigins.win como último recurso
+        try {
+            var proxyUrl = "https://api.allorigins.win/get?url=" + encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/" + base + "?interval=1d&range=1d");
+            var rp = await fetch(proxyUrl);
+            if (rp.ok) {
+                var dp = await rp.json();
+                var inner = typeof dp.contents === "string" ? JSON.parse(dp.contents) : dp.contents;
+                var meta = inner && inner.chart && inner.chart.result && inner.chart.result[0] && inner.chart.result[0].meta;
+                if (meta && meta.regularMarketPrice) {
+                    var p2 = parseFloat(meta.regularMarketPrice.toFixed(2));
+                    if (SPr && pr)
+                        SPr({ ...pr, [base]: p2 });
+                    setLiveCheck({ ticker: base, price: p2.toFixed(2), name: (meta.shortName || base) + " (Yahoo)" });
+                    return;
+                }
+            }
+        }
+        catch (e) { }
         setLiveCheck("error");
     }
     function doSavePosForm() {
@@ -3710,6 +3731,8 @@ function ModalPos({ form, editId, currentPos, PM, SPos, setModal, fmtNum, S }) {
                                 if (isNaN(val) || val <= 0)
                                     return;
                                 var base = f.asset.replace(/\/.*$/, "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10) || f.asset;
+                                if (SPr && pr)
+                                    SPr({ ...pr, [base]: val }); // guardar en mapa global
                                 setLiveCheck({ ticker: base, price: val.toFixed(2), name: base + " (Manual)" });
                             }, style: { background: "rgba(255,136,68,.2)", border: "1px solid #ff8844", color: "#ff8844", padding: "5px 10px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "Usar")),
                     React.createElement("div", { style: { marginTop: 5, color: "#555", fontSize: 8 } }, "Tickers v\u00E1lidos: TLT \u00B7 AAPL \u00B7 MSFT \u00B7 SPY \u00B7 NVDA \u00B7 cualquier s\u00EDmbolo de bolsa")))),
@@ -3721,12 +3744,20 @@ function ModalPos({ form, editId, currentPos, PM, SPos, setModal, fmtNum, S }) {
                 React.createElement("input", { style: S.inp, type: "number", placeholder: ph, value: f[k] || "", onChange: e => setF({ ...f, [k]: e.target.value }) })))),
             hasCalc && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
                 React.createElement("div", { style: { background: "rgba(255,68,68,.06)", borderRadius: 4, padding: "8px 10px" } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 2 } }, "SL - PERDIDA MAXIMA"),
-                    React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#ff4444" } }, fmtNum(-risk))),
+                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 2 } }, "SL - P\u00C9RDIDA M\u00C1XIMA"),
+                    risk === 0
+                        ? React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#00ff88" } },
+                            "RIESGO CERO",
+                            React.createElement("br", null),
+                            React.createElement("span", { style: { fontSize: 8, color: "#555", fontWeight: 400 } }, "SL en precio de entrada"))
+                        : React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#ff4444" } }, fmtNum(-risk))),
                 React.createElement("div", { style: { background: "rgba(0,255,136,.06)", borderRadius: 4, padding: "8px 10px" } },
-                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 2 } }, "TP - GANANCIA MAXIMA"),
+                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 2 } }, "TP - GANANCIA M\u00C1XIMA"),
                     React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#00ff88" } }, fmtNum(reward))),
-                React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: ratio >= 3 ? "#00ff88" : ratio >= 2 ? "#f0b429" : "#ff4444", fontWeight: 700 } }, "Ratio R:B 1:" + ratio.toFixed(1) + " " + (ratio >= 3 ? "Solido" : ratio >= 2 ? "Aceptable" : "Insuficiente")))),
+                risk > 0 && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: ratio >= 3 ? "#00ff88" : ratio >= 2 ? "#f0b429" : "#ff4444", fontWeight: 700 } }, "Ratio R:B 1:" + ratio.toFixed(1) + " " + (ratio >= 3 ? "Sólido" : ratio >= 2 ? "Aceptable" : "Insuficiente"))),
+                risk === 0 && reward > 0 && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: "#00ff88", fontWeight: 700 } },
+                    "Posici\u00F3n protegida \u2014 ganancia potencial ",
+                    fmtNum(reward))))),
             React.createElement("div", { style: { display: "flex", gap: 7, marginTop: 12 } },
                 React.createElement("button", { onClick: doSavePosForm, style: { ...S.btn(true), flex: 1, padding: 8 } }, editId ? "GUARDAR CAMBIOS" : "ANADIR"),
                 React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: false, posForm: null, editPosId: null })), style: { ...S.btn(false), flex: 1 } }, "CANCELAR")))));
