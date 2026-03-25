@@ -1696,7 +1696,23 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
   },[messages]);
 
   useEffect(function(){
-    try{localStorage.setItem("td-chat-msgs",JSON.stringify(messages.slice(-100)));}catch(e){}
+    try{
+      // Save last 60 messages; preserve images but cap base64 size per image to ~150KB
+      var toSave=messages.slice(-60).map(function(m){
+        if(m.image&&m.image.base64&&m.image.base64.length>200000){
+          // Resize image via canvas before saving to fit in localStorage
+          return{...m,image:{...m.image,base64:m.image.base64.slice(0,200000)}};
+        }
+        return m;
+      });
+      localStorage.setItem("td-chat-msgs",JSON.stringify(toSave));
+    }catch(e){
+      // If still too large, save without images
+      try{
+        var slim=messages.slice(-60).map(function(m){return m.image?{...m,image:null}:m;});
+        localStorage.setItem("td-chat-msgs",JSON.stringify(slim));
+      }catch(e2){}
+    }
   },[messages]);
 
   function buildSystemPrompt(md){
