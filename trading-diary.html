@@ -350,27 +350,30 @@ function App() {
     const [sv, setSv] = useState("saved");
     const [pr, setPr] = useState({ SOL: 91.33, BTC: 84000, ETH: 2000, MSTR: 300, GOOGL: 170, LINK: 9.20 });
     const [fetchingPrices, setFetchingPrices] = useState(false);
-    // Obtener precios en tiempo real desde Binance (sin CORS, sin API key)
+    // Obtener precios en tiempo real: Binance para crypto, Yahoo Finance para acciones/ETFs
     async function fetchPrices() {
         setFetchingPrices(true);
         const newPr = { ...D.current.pr };
-        // Detectar que cryptos necesitamos segun posiciones abiertas + ETH legado
-        const openAssets = D.current.pos.map(p => p.asset);
-        const needsSOL = openAssets.some(a => a.includes("SOL"));
-        const needsBTC = openAssets.some(a => a.includes("BTC"));
-        try {
-            // Binance API publica - permite llamadas desde browser
-            const pairs = [];
-            if (needsSOL)
-                pairs.push({ symbol: "SOLUSDT", key: "SOL" });
-            if (needsBTC)
-                pairs.push({ symbol: "BTCUSDT", key: "BTC" });
-            const needsLINK = openAssets.some(a => a.includes("LINK"));
-            if (needsLINK)
-                pairs.push({ symbol: "LINKUSDT", key: "LINK" });
-            // ETH siempre (posicion legado)
-            pairs.push({ symbol: "ETHUSDT", key: "ETH" });
-            await Promise.all(pairs.map(async function (pair) {
+        const openAssets = D.current.pos.map(function (p) { return p.asset; });
+        // Separar crypto (Binance) de acciones/ETFs (Yahoo Finance)
+        const CRYPTO_BASE = { "BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT", "LINK": "LINKUSDT", "MARA": "MARAUSDT", "RGTI": "RGTIUSDT" };
+        const cryptoPairs = [];
+        const stockSymbols = new Set();
+        // ETH siempre (posicion legado)
+        cryptoPairs.push({ symbol: "ETHUSDT", key: "ETH" });
+        openAssets.forEach(function (a) {
+            const base = a.replace(/\/.*$/, "").toUpperCase();
+            if (CRYPTO_BASE[base]) {
+                if (!cryptoPairs.some(function (p) { return p.key === base; }))
+                    cryptoPairs.push({ symbol: CRYPTO_BASE[base], key: base });
+            }
+            else {
+                stockSymbols.add(base);
+            }
+        });
+        await Promise.all([
+            // Crypto via Binance (sin CORS, sin API key)
+            ...cryptoPairs.map(async function (pair) {
                 try {
                     const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=" + pair.symbol);
                     if (r.ok) {
@@ -379,14 +382,24 @@ function App() {
                     }
                 }
                 catch (e) { }
-            }));
-            D.current.pr = newPr;
-            setPr(newPr);
-            SPr(newPr);
-        }
-        catch (e) {
-            console.warn("Binance error:", e.message);
-        }
+            }),
+            // Acciones y ETFs via Yahoo Finance
+            ...[...stockSymbols].map(async function (sym) {
+                try {
+                    const r = await fetch("https://query2.finance.yahoo.com/v8/finance/chart/" + sym + "?interval=1d&range=1d");
+                    if (r.ok) {
+                        const d = await r.json();
+                        const meta = d.chart && d.chart.result && d.chart.result[0] && d.chart.result[0].meta;
+                        if (meta && meta.regularMarketPrice)
+                            newPr[sym] = parseFloat(meta.regularMarketPrice.toFixed(2));
+                    }
+                }
+                catch (e) { }
+            })
+        ]);
+        D.current.pr = newPr;
+        setPr(newPr);
+        SPr(newPr);
         setFetchingPrices(false);
     }
     const [pos, setPos] = useState(P0);
@@ -668,7 +681,20 @@ function App() {
         setAiProfileLoading(false);
     }
     // - COMPUTED -
-    const PM = { "BTC/USD": pr.BTC, "BTC/USDT": pr.BTC, "ETH/USDT": pr.ETH, "SOL/USD": pr.SOL, "SOL/USDT": pr.SOL, "LINK/USD": pr.LINK || 9.20, "LINK/USDT": pr.LINK || 9.20, "MSTR": pr.MSTR, "GOOGL": pr.GOOGL, "GOOGL/USD": pr.GOOGL };
+    const PM = (function () {
+        var m = { "BTC/USD": pr.BTC, "BTC/USDT": pr.BTC, "ETH/USDT": pr.ETH, "ETH/USD": pr.ETH, "SOL/USD": pr.SOL, "SOL/USDT": pr.SOL, "LINK/USD": pr.LINK || 9.20, "LINK/USDT": pr.LINK || 9.20, "MSTR": pr.MSTR, "GOOGL": pr.GOOGL, "GOOGL/USD": pr.GOOGL };
+        // Incluir dinamicamente cualquier activo en pr (acciones, ETFs como TLT, etc.)
+        Object.keys(pr).forEach(function (k) {
+            if (!m[k])
+                m[k] = pr[k];
+            // Tambien mapear variantes con /USD y /USDT
+            if (!m[k + "/USD"])
+                m[k + "/USD"] = pr[k];
+            if (!m[k + "/USDT"])
+                m[k + "/USDT"] = pr[k];
+        });
+        return m;
+    })();
     const getPnL = p => { const c = PM[p.asset] || p.entry; const r = p.dir === "Short" ? (p.entry - c) / p.entry : (c - p.entry) / p.entry; return p.capital * r; };
     const hist = [...xhist, ...H0];
     // Base exacta de Quantfury (244 ops cerradas al 23/03/2026) + nuevos cierres via app
@@ -1353,9 +1379,21 @@ function App() {
                 React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 6 } }, "ACTUALIZAR PRECIOS"),
                 React.createElement("div", { style: { fontSize: 9, color: "#555", marginBottom: 14 } }, "Activos abiertos + ETH legado"),
                 (function () {
-                    var priceKeys = ["SOL", "BTC", "ETH", "MSTR", "GOOGL", "LINK"].filter(function (k) {
-                        return pos.some(function (p) { return p.asset.includes(k); }) || k === "ETH";
+                    // Detectar automaticamente todos los activos de posiciones abiertas
+                    var seenKeys = new Set();
+                    var priceKeys = [];
+                    pos.forEach(function (p) {
+                        var k = p.asset.replace(/\/.*$/, "").toUpperCase();
+                        if (!seenKeys.has(k)) {
+                            seenKeys.add(k);
+                            priceKeys.push(k);
+                        }
                     });
+                    // ETH siempre (posicion legado)
+                    if (!seenKeys.has("ETH")) {
+                        seenKeys.add("ETH");
+                        priceKeys.push("ETH");
+                    }
                     return priceKeys.map(function (k) {
                         return React.createElement(PriceField, { key: k, label: k, value: (modal.tmpPr && modal.tmpPr[k] !== undefined ? modal.tmpPr[k] : pr[k]) || 0, onChange: function (v) { setModal(function (m) { var t = Object.assign({}, m.tmpPr || pr); t[k] = v; return Object.assign({}, m, { tmpPr: t }); }); } });
                     });
