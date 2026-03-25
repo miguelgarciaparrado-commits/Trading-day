@@ -3421,8 +3421,9 @@ function PositionAdvisor({pos,PM,getPnL,fmtNum,S}){
       });
     }
 
-    // Sin TP definido
-    if(!p.tp||p.tp===0){
+    // Sin TP definido (tpLevels parciales también cuentan)
+    const hasTp=(p.tp&&p.tp!==0)||(p.tpLevels&&p.tpLevels.length>0);
+    if(!hasTp){
       tips.push({
         type:"warn",
         icon:"⚠",

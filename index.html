@@ -3272,8 +3272,9 @@ function PositionAdvisor({ pos, PM, getPnL, fmtNum, S }) {
                 text: "SL en breakeven. Riesgo cero. Deja trabajar la posicion sin intervenir. La paciencia es tu ventaja ahora."
             });
         }
-        // Sin TP definido
-        if (!p.tp || p.tp === 0) {
+        // Sin TP definido (tpLevels parciales también cuentan)
+        const hasTp = (p.tp && p.tp !== 0) || (p.tpLevels && p.tpLevels.length > 0);
+        if (!hasTp) {
             tips.push({
                 type: "warn",
                 icon: "⚠",
