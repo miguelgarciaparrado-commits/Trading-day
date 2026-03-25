@@ -1641,9 +1641,61 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
   const[savingMsgIdx,setSavingMsgIdx]=useState(null); // index del mensaje que se quiere guardar
   const[predNote,setPredNote]=useState("");
 
+  // ── Chat export/import ──
+  const[showChatImport,setShowChatImport]=useState(false);
+  const[chatImportText,setChatImportText]=useState("");
+
+  // ── Pinned messages ──
+  const[pinned,setPinned]=useState(function(){
+    try{var s=localStorage.getItem("td-pinned-msgs");if(s)return JSON.parse(s);}catch(e){}
+    return[];
+  });
+
   function savePredictions(arr){
     setPredictions(arr);
     try{localStorage.setItem("td-predictions",JSON.stringify(arr));}catch(e){}
+  }
+
+  function savePinned(arr){
+    setPinned(arr);
+    try{localStorage.setItem("td-pinned-msgs",JSON.stringify(arr));}catch(e){}
+  }
+
+  function togglePin(msg){
+    const key=(msg.role||"")+(msg.content||"").slice(0,60)+(msg.time||"");
+    const alreadyPinned=pinned.some(function(p){return p._key===key;});
+    if(alreadyPinned){
+      savePinned(pinned.filter(function(p){return p._key!==key;}));
+    }else{
+      savePinned([...pinned,{...msg,_key:key}].slice(-10));
+    }
+  }
+
+  function exportChatMessages(){
+    var toExport=messages.slice(-60).map(function(m){return m.image?{...m,image:null}:m;});
+    var data=JSON.stringify(toExport);
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(data).then(function(){alert("Chat copiado al portapapeles. Ve al otro dispositivo y usa Importar Chat.");}).catch(function(){setChatImportText(data);setShowChatImport(true);});
+    }else{setChatImportText(data);setShowChatImport(true);}
+  }
+
+  function importMergeChat(){
+    try{
+      var incoming=JSON.parse(chatImportText);
+      if(!Array.isArray(incoming))throw new Error("formato invalido");
+      var combined=[...messages,...incoming];
+      var seen=new Set();
+      var merged=combined.filter(function(m){
+        var key=(m.role||"")+(m.content||"").slice(0,50)+(m.time||"");
+        if(seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
+      setMessages(merged);
+      setShowChatImport(false);
+      setChatImportText("");
+      alert(merged.length+" mensajes tras fusionar ("+messages.length+" locales + "+incoming.length+" importados).");
+    }catch(e){alert("Error al importar: JSON invalido");}
   }
 
   function saveMessageAsPrediction(msg,note){
@@ -1789,8 +1841,17 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       });
     }
 
+    var pinnedContext="";
+    if(pinned.length>0){
+      pinnedContext="\n\n=== MENSAJES ANCLADOS (contexto permanente elegido por el trader) ===\n";
+      pinned.forEach(function(p){
+        pinnedContext+="["+p.time+"] "+(p.role==="user"?"TRADER":"BOT")+": "+
+          (p.content||"").slice(0,400).replace(/\n/g," ")+"\n";
+      });
+    }
+
     return "Eres analista tecnico de trading. Tu mision es dar analisis puros de mercado.\n\n"+
-      mdContext+predContext+"\n\n"+
+      mdContext+predContext+pinnedContext+"\n\n"+
       "=== REGLAS DE RESPUESTA ===\n"+
       "1. Tu analisis se basa EXCLUSIVAMENTE en los datos de mercado arriba (RSI, EMAs, soportes, resistencias, FVGs)\n"+
       "2. Si el usuario adjunta un grafico/imagen, analiza visualmente la estructura, patrones y niveles que ves\n"+
@@ -1963,11 +2024,30 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
           style={{background:predictions.filter(function(p){return p.status==="pending";}).length>0?"rgba(136,170,255,.12)":"transparent",border:"1px solid "+(predictions.filter(function(p){return p.status==="pending";}).length>0?"rgba(136,170,255,.4)":"#1e1e2e"),color:predictions.filter(function(p){return p.status==="pending";}).length>0?"#88aaff":"#444",padding:"5px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>
           🧠 {predictions.filter(function(p){return p.status==="pending";}).length||""}
         </button>
+        <button onClick={exportChatMessages} title="Exportar mensajes al portapapeles"
+          style={{background:"transparent",border:"1px solid #1e1e2e",color:"#444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}>📤</button>
+        <button onClick={function(){setShowChatImport(!showChatImport);setChatImportText("");}} title="Importar y fusionar mensajes de otro dispositivo"
+          style={{background:showChatImport?"rgba(136,170,255,.12)":"transparent",border:"1px solid "+(showChatImport?"rgba(136,170,255,.4)":"#1e1e2e"),color:showChatImport?"#88aaff":"#444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}>📥</button>
         <button onClick={clearChat} title="Borrar historial del chat"
           style={{background:"transparent",border:"1px solid #1e1e2e",color:"#444",padding:"5px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>Limpiar</button>
         <button onClick={function(){setShowKeyInput(!showKeyInput);setTmpKey(apiKey);}} title="Configurar API Key"
           style={{background:apiKey?"rgba(0,255,136,.1)":"rgba(255,68,68,.1)",border:"1px solid "+(apiKey?"#00ff88":"#ff4444"),color:apiKey?"#00ff88":"#ff4444",padding:"5px 8px",borderRadius:4,fontSize:11,cursor:"pointer"}}>🔑</button>
       </div>
+
+      {/* Chat import/merge panel */}
+      {showChatImport&&(
+        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:12,marginBottom:8}}>
+          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:4}}>FUSIONAR MENSAJES DE OTRO DISPOSITIVO</div>
+          <div style={{fontSize:8,color:"#555",marginBottom:6}}>En el otro dispositivo pulsa 📤 para copiar, luego pega aqui y pulsa Fusionar:</div>
+          <textarea value={chatImportText} onChange={function(e){setChatImportText(e.target.value);}}
+            placeholder='[{"role":"user","content":"..."}]'
+            style={{width:"100%",height:80,background:"#0d0d16",border:"1px solid #2a2a3a",color:"#e0e0e0",borderRadius:5,padding:"6px 8px",fontSize:9,boxSizing:"border-box",resize:"none"}}/>
+          <div style={{display:"flex",gap:6,marginTop:6}}>
+            <button onClick={importMergeChat} style={{flex:2,padding:"7px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Fusionar</button>
+            <button onClick={function(){setShowChatImport(false);setChatImportText("");}} style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {/* Panel de predicciones guardadas */}
       {showPredictions&&(
@@ -2004,7 +2084,12 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
                       style={{flex:1,padding:"4px",background:"rgba(0,255,136,.08)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",borderRadius:4,fontSize:8,cursor:"pointer",fontWeight:700}}>✓ Acertada</button>
                     <button onClick={function(){resolvePrediction(p.id,"missed");}}
                       style={{flex:1,padding:"4px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.3)",color:"#ff4444",borderRadius:4,fontSize:8,cursor:"pointer",fontWeight:700}}>✗ Fallida</button>
-                    <button onClick={function(){setInput("Han pasado "+days+" dias desde tu analisis sobre "+(p.asset||"este activo")+". Recalcula lo que dijiste en funcion del tiempo transcurrido y los datos actuales.");}}
+                    <button onClick={function(){
+                      var reminderMsg={role:"assistant",content:"📌 ANALISIS ANTERIOR ("+p.savedDate+", hace "+days+" días):\n\n"+p.content+(p.note?"\n\n[Nota: "+p.note+"]":""),time:p.savedTime,isReminder:true};
+                      setMessages(function(prev){return[...prev,reminderMsg];});
+                      setInput("Han pasado "+days+" dias desde este analisis"+(p.asset?" sobre "+p.asset:"")+(days===0?" (hoy mismo)":".")+". Recalcula en funcion del tiempo transcurrido y los datos actuales.");
+                      setShowPredictions(false);
+                    }}
                       style={{flex:2,padding:"4px",background:"rgba(136,170,255,.08)",border:"1px solid rgba(136,170,255,.3)",color:"#88aaff",borderRadius:4,fontSize:8,cursor:"pointer"}}>↩ Preguntar update</button>
                   </div>
                 )}
@@ -2053,6 +2138,15 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
                   title="Guardar como prediccion"
                   style={{background:"transparent",border:"none",color:"#444",cursor:"pointer",fontSize:10,padding:"0 2px",lineHeight:1}}>💾</button>
               )}
+              {i>0&&(function(){
+                var key=(m.role||"")+(m.content||"").slice(0,60)+(m.time||"");
+                var isPinned=pinned.some(function(p){return p._key===key;});
+                return(
+                  <button onClick={function(){togglePin(m);}}
+                    title={isPinned?"Desanclar mensaje":"Anclar: siempre en contexto del bot"}
+                    style={{background:"transparent",border:"none",color:isPinned?"#f0b429":"#333",cursor:"pointer",fontSize:10,padding:"0 2px",lineHeight:1}}>📌</button>
+                );
+              })()}
             </div>
           </div>
         );})}
@@ -2260,6 +2354,8 @@ function AlertasTab({S}){
   const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiEnabled:true,rsiThreshold:30,rsiCondition:"below",emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false});
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
+  const[lastAlert,setLastAlert]=useState(null); // in-app banner
+  const reconnectCountRef=useRef({});
   const wsRefs=useRef({});
   const closesRef=useRef({});
   const lastTrigRef=useRef({});
@@ -2361,6 +2457,9 @@ function AlertasTab({S}){
     else{title="Alerta";body=label+" "+tf+" — "+type+priceStr;}
     const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,price:price!=null?parseFloat(price).toFixed(2):null,body,time:new Date().toLocaleTimeString("es-ES")};
     setLogs(function(prev){return[log,...prev.slice(0,49)];});
+    setLastAlert({title,body,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})});
+    setTimeout(function(){setLastAlert(null);},8000);
+    if(navigator.vibrate){try{navigator.vibrate([300,150,300,150,300]);}catch(e){}}
     if(Notification.permission==="granted"){
       const notifOpts={body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",requireInteraction:true,silent:false};
       function doNotif(){try{new Notification(title,notifOpts);}catch(ex){try{new Notification(title,{body:body});}catch(e){}}}
@@ -2442,9 +2541,28 @@ function AlertasTab({S}){
           }else if(cross50_200!=="death"){lastTrigRef.current[ak+"d200"]=false;}
         };
         ws.onerror=function(){
-          setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+          // will be followed by onclose, handle reconnect there
+        };
+        ws.onclose=function(){
+          // If the alert is still supposed to be active, auto-reconnect
+          const stillActive=alertsRef.current.find(function(a){return a.id===alert.id&&a.active;});
+          if(!stillActive)return; // user stopped it
+          const cnt=(reconnectCountRef.current[sid]||0)+1;
+          reconnectCountRef.current[sid]=cnt;
+          if(cnt>10){
+            // too many retries, mark error
+            setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+            reconnectCountRef.current[sid]=0;
+            return;
+          }
+          const delay=Math.min(30000,3000*cnt);
+          setTimeout(function(){
+            const check=alertsRef.current.find(function(a){return a.id===alert.id&&a.active;});
+            if(check)startAlert(check);
+          },delay);
         };
         wsRefs.current[sid]=ws;
+        reconnectCountRef.current[sid]=0;
       })
       .catch(function(){
         setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
@@ -2501,6 +2619,19 @@ function AlertasTab({S}){
 
   return(
     <div>
+      {/* In-app alert banner */}
+      {lastAlert&&(
+        <div style={{background:"rgba(240,180,41,.15)",border:"1px solid rgba(240,180,41,.6)",borderRadius:8,padding:"10px 14px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",animation:"fadein .3s"}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"#f0b429"}}>{lastAlert.title}</div>
+            <div style={{fontSize:10,color:"#e0e0e0",marginTop:2}}>{lastAlert.body}</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+            <span style={{fontSize:8,color:"#888"}}>{lastAlert.time}</span>
+            <button onClick={function(){setLastAlert(null);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:12}}>✕</button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div>
