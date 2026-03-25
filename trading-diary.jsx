@@ -2753,9 +2753,26 @@ function AlertasTab({S}){
       </div>
 
       {/* Telegram config panel */}
-      {showTgConfig&&(
+      {/* Telegram — compacto si ya está configurado, expandible */}
+      {tgToken&&tgChatId&&!showTgConfig?(
+        <div style={{background:"rgba(0,136,204,.06)",border:"1px solid rgba(0,136,204,.25)",borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontSize:13}}>✈️</span>
+            <div>
+              <div style={{fontSize:9,fontWeight:700,color:"#0088cc"}}>Telegram conectado</div>
+              <div style={{fontSize:8,color:"#444"}}>Alertas enviadas como mensaje al dispararse</div>
+            </div>
+          </div>
+          <button onClick={function(){setShowTgConfig(true);}}
+            style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"4px 8px",borderRadius:4,fontSize:8,cursor:"pointer"}}>Editar</button>
+        </div>
+      ):(
+        showTgConfig&&(
         <div style={{background:"#111118",border:"1px solid rgba(0,136,204,.3)",borderRadius:8,padding:12,marginBottom:12}}>
-          <div style={{fontSize:10,color:"#0088cc",fontWeight:700,marginBottom:4}}>✈️ NOTIFICACIONES TELEGRAM</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:10,color:"#0088cc",fontWeight:700}}>✈️ NOTIFICACIONES TELEGRAM</div>
+            {tgToken&&tgChatId&&<button onClick={function(){setShowTgConfig(false);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:12}}>✕</button>}
+          </div>
           <div style={{fontSize:8,color:"#555",marginBottom:10,lineHeight:1.6}}>
             Cuando salte una alerta, recibirás un mensaje de Telegram aunque el móvil esté bloqueado.<br/>
             1. Abre Telegram → busca <strong style={{color:"#88aaff"}}>@BotFather</strong> → /newbot → copia el token<br/>
@@ -2780,28 +2797,31 @@ function AlertasTab({S}){
               background:tgStatus==="ok"?"rgba(0,255,136,.08)":"rgba(255,68,68,.08)",
               color:tgStatus==="ok"?"#00ff88":"#ff4444",
               border:"1px solid "+(tgStatus==="ok"?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)")}}>
-              {tgStatus==="ok"?"✓ Mensaje enviado a Telegram":"✗ Error — revisa el token y el Chat ID"}
+              {tgStatus==="ok"?"✓ Mensaje enviado — Telegram configurado correctamente":"✗ Error — revisa el token y el Chat ID"}
             </div>
           )}
           <div style={{display:"flex",gap:6}}>
             <button onClick={function(){
-              localStorage.setItem("td-tg-token",tgToken.trim());
-              localStorage.setItem("td-tg-chatid",tgChatId.trim());
-              // Test message
               var tk=tgToken.trim();var cid=tgChatId.trim();
               if(!tk||!cid){setTgStatus("error");return;}
+              localStorage.setItem("td-tg-token",tk);
+              localStorage.setItem("td-tg-chatid",cid);
               var txt=encodeURIComponent("✅ Trading Diary conectado!\n\nRecibirás alertas aquí cuando se disparen.");
               fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+txt)
                 .then(function(r){return r.json();})
-                .then(function(d){setTgStatus(d.ok?"ok":"error");})
+                .then(function(d){
+                  setTgStatus(d.ok?"ok":"error");
+                  if(d.ok)setTimeout(function(){setShowTgConfig(false);},1500);
+                })
                 .catch(function(){setTgStatus("error");});
             }} style={{flex:2,padding:"7px",background:"#0088cc",color:"#fff",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar y probar</button>
             {tgToken&&<button onClick={function(){
               localStorage.removeItem("td-tg-token");localStorage.removeItem("td-tg-chatid");
-              setTgToken("");setTgChatId("");setTgStatus(null);
+              setTgToken("");setTgChatId("");setTgStatus(null);setShowTgConfig(false);
             }} style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Desconectar</button>}
           </div>
         </div>
+        )
       )}
 
       {/* Import panel */}
@@ -2929,30 +2949,6 @@ function AlertasTab({S}){
           </div>
         </div>
       )}
-
-      {/* Notificaciones permission */}
-      <div style={{background:"#111118",border:"1px solid "+(notifPerm==="granted"?"rgba(0,255,136,.3)":"rgba(240,180,41,.3)"),borderRadius:8,padding:12,marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontSize:10,fontWeight:700,color:notifPerm==="granted"?"#00ff88":"#f0b429"}}>
-              {notifPerm==="granted"?"✓ Notificaciones activadas":"Notificaciones del navegador"}
-            </div>
-            <div style={{fontSize:9,color:"#555",marginTop:2}}>
-              {notifPerm==="granted"
-                ?"Recibiras alertas RSI y cruces EMA con precio incluido"
-                :/iPad|iPhone|iPod/.test(navigator.userAgent)
-                  ?"iOS: Añade a pantalla inicio para activar notificaciones"
-                  :"Android Chrome: pulsa ACTIVAR y acepta el permiso"}
-            </div>
-          </div>
-          {notifPerm!=="granted"&&(
-            <button onClick={requestNotif} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"6px 12px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>ACTIVAR</button>
-          )}
-          {notifPerm==="granted"&&(
-            <button onClick={sendTestNotif} style={{background:"transparent",border:"1px solid #00ff88",color:"#00ff88",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer"}}>Probar</button>
-          )}
-        </div>
-      </div>
 
       {/* Alertas configuradas */}
       {alerts.length===0&&(

@@ -2691,8 +2691,16 @@ function AlertasTab({ S }) {
                 alerts.length > 0 && React.createElement("button", { onClick: exportAlerts, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "7px 10px", borderRadius: 6, fontSize: 8, cursor: "pointer" } }, "Exportar"),
                 React.createElement("button", { onClick: function () { setShowImport(!showImport); setImportText(""); }, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "7px 10px", borderRadius: 6, fontSize: 8, cursor: "pointer" } }, "Importar"),
                 React.createElement("button", { onClick: function () { setShowForm(!showForm); }, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "8px 14px", borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva"))),
-        showTgConfig && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(0,136,204,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
-            React.createElement("div", { style: { fontSize: 10, color: "#0088cc", fontWeight: 700, marginBottom: 4 } }, "\u2708\uFE0F NOTIFICACIONES TELEGRAM"),
+        tgToken && tgChatId && !showTgConfig ? (React.createElement("div", { style: { background: "rgba(0,136,204,.06)", border: "1px solid rgba(0,136,204,.25)", borderRadius: 8, padding: "8px 12px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+            React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+                React.createElement("span", { style: { fontSize: 13 } }, "\u2708\uFE0F"),
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#0088cc" } }, "Telegram conectado"),
+                    React.createElement("div", { style: { fontSize: 8, color: "#444" } }, "Alertas enviadas como mensaje al dispararse"))),
+            React.createElement("button", { onClick: function () { setShowTgConfig(true); }, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "4px 8px", borderRadius: 4, fontSize: 8, cursor: "pointer" } }, "Editar"))) : (showTgConfig && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(0,136,204,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
+                React.createElement("div", { style: { fontSize: 10, color: "#0088cc", fontWeight: 700 } }, "\u2708\uFE0F NOTIFICACIONES TELEGRAM"),
+                tgToken && tgChatId && React.createElement("button", { onClick: function () { setShowTgConfig(false); }, style: { background: "transparent", border: "none", color: "#555", cursor: "pointer", fontSize: 12 } }, "\u2715")),
             React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 10, lineHeight: 1.6 } },
                 "Cuando salte una alerta, recibir\u00E1s un mensaje de Telegram aunque el m\u00F3vil est\u00E9 bloqueado.",
                 React.createElement("br", null),
@@ -2713,22 +2721,25 @@ function AlertasTab({ S }) {
             tgStatus && (React.createElement("div", { style: { fontSize: 9, marginBottom: 8, padding: "5px 8px", borderRadius: 4,
                     background: tgStatus === "ok" ? "rgba(0,255,136,.08)" : "rgba(255,68,68,.08)",
                     color: tgStatus === "ok" ? "#00ff88" : "#ff4444",
-                    border: "1px solid " + (tgStatus === "ok" ? "rgba(0,255,136,.3)" : "rgba(255,68,68,.3)") } }, tgStatus === "ok" ? "✓ Mensaje enviado a Telegram" : "✗ Error — revisa el token y el Chat ID")),
+                    border: "1px solid " + (tgStatus === "ok" ? "rgba(0,255,136,.3)" : "rgba(255,68,68,.3)") } }, tgStatus === "ok" ? "✓ Mensaje enviado — Telegram configurado correctamente" : "✗ Error — revisa el token y el Chat ID")),
             React.createElement("div", { style: { display: "flex", gap: 6 } },
                 React.createElement("button", { onClick: function () {
-                        localStorage.setItem("td-tg-token", tgToken.trim());
-                        localStorage.setItem("td-tg-chatid", tgChatId.trim());
-                        // Test message
                         var tk = tgToken.trim();
                         var cid = tgChatId.trim();
                         if (!tk || !cid) {
                             setTgStatus("error");
                             return;
                         }
+                        localStorage.setItem("td-tg-token", tk);
+                        localStorage.setItem("td-tg-chatid", cid);
                         var txt = encodeURIComponent("✅ Trading Diary conectado!\n\nRecibirás alertas aquí cuando se disparen.");
                         fetch("https://api.telegram.org/bot" + tk + "/sendMessage?chat_id=" + cid + "&text=" + txt)
                             .then(function (r) { return r.json(); })
-                            .then(function (d) { setTgStatus(d.ok ? "ok" : "error"); })
+                            .then(function (d) {
+                            setTgStatus(d.ok ? "ok" : "error");
+                            if (d.ok)
+                                setTimeout(function () { setShowTgConfig(false); }, 1500);
+                        })
                             .catch(function () { setTgStatus("error"); });
                     }, style: { flex: 2, padding: "7px", background: "#0088cc", color: "#fff", border: "none", borderRadius: 4, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "Guardar y probar"),
                 tgToken && React.createElement("button", { onClick: function () {
@@ -2737,7 +2748,8 @@ function AlertasTab({ S }) {
                         setTgToken("");
                         setTgChatId("");
                         setTgStatus(null);
-                    }, style: { flex: 1, padding: "7px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "Desconectar")))),
+                        setShowTgConfig(false);
+                    }, style: { flex: 1, padding: "7px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "Desconectar"))))),
         showImport && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(136,170,255,.3)", borderRadius: 8, padding: 12, marginBottom: 12 } },
             React.createElement("div", { style: { fontSize: 9, color: "#88aaff", fontWeight: 700, marginBottom: 6 } }, "IMPORTAR ALERTAS"),
             React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 6 } }, "Copia el texto exportado desde otro dispositivo y pegalo aqui:"),
@@ -2809,17 +2821,6 @@ function AlertasTab({ S }) {
             React.createElement("div", { style: { display: "flex", gap: 6 } },
                 React.createElement("button", { onClick: addAlert, disabled: draft.selectedSymbols.length === 0, style: { flex: 2, padding: "10px", background: draft.selectedSymbols.length === 0 ? "#2a2a3a" : "#f0b429", color: draft.selectedSymbols.length === 0 ? "#444" : "#0a0a0f", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: draft.selectedSymbols.length === 0 ? "not-allowed" : "pointer" } }, draft.selectedSymbols.length <= 1 ? "CREAR Y MONITORIZAR" : "CREAR " + draft.selectedSymbols.length + " ALERTAS"),
                 React.createElement("button", { onClick: function () { setShowForm(false); }, style: { flex: 1, padding: "10px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
-        React.createElement("div", { style: { background: "#111118", border: "1px solid " + (notifPerm === "granted" ? "rgba(0,255,136,.3)" : "rgba(240,180,41,.3)"), borderRadius: 8, padding: 12, marginBottom: 12 } },
-            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: notifPerm === "granted" ? "#00ff88" : "#f0b429" } }, notifPerm === "granted" ? "✓ Notificaciones activadas" : "Notificaciones del navegador"),
-                    React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 2 } }, notifPerm === "granted"
-                        ? "Recibiras alertas RSI y cruces EMA con precio incluido"
-                        : /iPad|iPhone|iPod/.test(navigator.userAgent)
-                            ? "iOS: Añade a pantalla inicio para activar notificaciones"
-                            : "Android Chrome: pulsa ACTIVAR y acepta el permiso")),
-                notifPerm !== "granted" && (React.createElement("button", { onClick: requestNotif, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "6px 12px", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "ACTIVAR")),
-                notifPerm === "granted" && (React.createElement("button", { onClick: sendTestNotif, style: { background: "transparent", border: "1px solid #00ff88", color: "#00ff88", padding: "6px 10px", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Probar")))),
         alerts.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "30px 20px", color: "#333", fontSize: 10, lineHeight: 2 } }, "Sin alertas. Pulsa + Nueva alerta para empezar.")),
         alerts.map(function (alert) {
             const rsi = alert.currentRsi;
