@@ -1977,7 +1977,7 @@ function AlertasTab({S}){
   const[alerts,setAlerts]=useState([]);
   const alertsRef=useRef([]);
   const[showForm,setShowForm]=useState(false);
-  const[draft,setDraft]=useState({symbol:"BTCUSDT",label:"BTC/USD",interval:"4h",rsiEnabled:true,rsiThreshold:30,rsiCondition:"below",emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false});
+  const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiEnabled:true,rsiThreshold:30,rsiCondition:"below",emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false});
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
   const wsRefs=useRef({});
@@ -2179,17 +2179,21 @@ function AlertasTab({S}){
   }
 
   function addAlert(){
-    const na={
-      id:Date.now(),symbol:draft.symbol,label:draft.label,interval:draft.interval,
-      rsiEnabled:draft.rsiEnabled,rsiThreshold:draft.rsiThreshold,rsiCondition:draft.rsiCondition,
-      emaGoldenEnabled:draft.emaGoldenEnabled,emaDeathEnabled:draft.emaDeathEnabled,
-      ema200GoldenEnabled:draft.ema200GoldenEnabled,ema200DeathEnabled:draft.ema200DeathEnabled,
-      active:false,currentRsi:null,currentPrice:null,error:false
-    };
-    const updated=[...alertsRef.current,na];
+    if(draft.selectedSymbols.length===0)return;
+    const newAlerts=draft.selectedSymbols.map(function(sym,i){
+      const symInfo=SYMBOLS.find(function(s){return s.symbol===sym;})||{symbol:sym,label:sym};
+      return{
+        id:Date.now()+i,symbol:symInfo.symbol,label:symInfo.label,interval:draft.interval,
+        rsiEnabled:draft.rsiEnabled,rsiThreshold:draft.rsiThreshold,rsiCondition:draft.rsiCondition,
+        emaGoldenEnabled:draft.emaGoldenEnabled,emaDeathEnabled:draft.emaDeathEnabled,
+        ema200GoldenEnabled:draft.ema200GoldenEnabled,ema200DeathEnabled:draft.ema200DeathEnabled,
+        active:false,currentRsi:null,currentPrice:null,error:false
+      };
+    });
+    const updated=[...alertsRef.current,...newAlerts];
     saveAlerts(updated);
     setShowForm(false);
-    startAlert(na);
+    newAlerts.forEach(function(a){startAlert(a);});
   }
 
   function removeAlert(alert){
@@ -2280,26 +2284,41 @@ function AlertasTab({S}){
       {showForm&&(
         <div style={{background:"#111118",border:"1px solid rgba(240,180,41,.35)",borderRadius:8,padding:14,marginBottom:12}}>
           <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:12}}>NUEVA ALERTA</div>
-          {/* Activo + Temporalidad */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-            <div>
-              <div style={{fontSize:8,color:"#555",marginBottom:4}}>ACTIVO</div>
-              <select value={draft.symbol} onChange={function(e){
-                const s=SYMBOLS.find(function(x){return x.symbol===e.target.value;})||{symbol:e.target.value,label:e.target.value};
-                setDraft({...draft,symbol:s.symbol,label:s.label});
-              }} style={{...S.inp,padding:"7px",fontSize:10}}>
-                {SYMBOLS.map(function(s){return <option key={s.symbol} value={s.symbol}>{s.label}</option>;})}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:8,color:"#555",marginBottom:4}}>TEMPORALIDAD</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:3}}>
-                {INTERVALS.map(function(iv){
-                  const act=draft.interval===iv.value;
-                  return <button key={iv.value} onClick={function(){setDraft({...draft,interval:iv.value});}}
-                    style={{padding:"7px 2px",borderRadius:5,border:"1px solid "+(act?"#f0b429":"#333"),background:act?"rgba(240,180,41,.15)":"transparent",color:act?"#f0b429":"#555",fontSize:9,fontWeight:act?700:400,cursor:"pointer"}}>{iv.label}</button>;
-                })}
+          {/* Activos (multi-select) */}
+          <div style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:8,color:"#555"}}>ACTIVOS <span style={{color:"#f0b429"}}>({draft.selectedSymbols.length} seleccionados)</span></div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={function(){setDraft({...draft,selectedSymbols:SYMBOLS.map(function(s){return s.symbol;})});}}
+                  style={{fontSize:7,color:"#f0b429",background:"transparent",border:"none",cursor:"pointer",padding:0}}>Todo</button>
+                <button onClick={function(){setDraft({...draft,selectedSymbols:[]});}}
+                  style={{fontSize:7,color:"#555",background:"transparent",border:"none",cursor:"pointer",padding:0}}>Ninguno</button>
               </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+              {SYMBOLS.map(function(s){
+                const sel=draft.selectedSymbols.indexOf(s.symbol)>-1;
+                return(
+                  <button key={s.symbol} onClick={function(){
+                    const cur=draft.selectedSymbols;
+                    const next=sel?cur.filter(function(x){return x!==s.symbol;}):[...cur,s.symbol];
+                    setDraft({...draft,selectedSymbols:next});
+                  }} style={{padding:"6px 2px",borderRadius:5,border:"1px solid "+(sel?"#f0b429":"#2a2a3a"),background:sel?"rgba(240,180,41,.12)":"transparent",color:sel?"#f0b429":"#444",fontSize:8,fontWeight:sel?700:400,cursor:"pointer",textAlign:"center"}}>
+                    {s.label.replace("/USD","")}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {/* Temporalidad */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:8,color:"#555",marginBottom:4}}>TEMPORALIDAD</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}}>
+              {INTERVALS.map(function(iv){
+                const act=draft.interval===iv.value;
+                return <button key={iv.value} onClick={function(){setDraft({...draft,interval:iv.value});}}
+                  style={{padding:"8px 2px",borderRadius:5,border:"1px solid "+(act?"#f0b429":"#333"),background:act?"rgba(240,180,41,.15)":"transparent",color:act?"#f0b429":"#555",fontSize:9,fontWeight:act?700:400,cursor:"pointer"}}>{iv.label}</button>;
+              })}
             </div>
           </div>
           {/* RSI section */}
@@ -2364,7 +2383,9 @@ function AlertasTab({S}){
             </div>
           </div>
           <div style={{display:"flex",gap:6}}>
-            <button onClick={addAlert} style={{flex:2,padding:"10px",background:"#f0b429",color:"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>CREAR Y MONITORIZAR</button>
+            <button onClick={addAlert} disabled={draft.selectedSymbols.length===0} style={{flex:2,padding:"10px",background:draft.selectedSymbols.length===0?"#2a2a3a":"#f0b429",color:draft.selectedSymbols.length===0?"#444":"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:draft.selectedSymbols.length===0?"not-allowed":"pointer"}}>
+              {draft.selectedSymbols.length<=1?"CREAR Y MONITORIZAR":"CREAR "+draft.selectedSymbols.length+" ALERTAS"}
+            </button>
             <button onClick={function(){setShowForm(false);}} style={{flex:1,padding:"10px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>Cancelar</button>
           </div>
         </div>
