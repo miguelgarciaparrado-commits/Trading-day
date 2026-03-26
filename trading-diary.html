@@ -1481,61 +1481,46 @@ function App() {
                         " resultados")),
                 React.createElement("div", { style: S.card },
                     React.createElement("div", { style: { maxHeight: 500, overflowY: "auto" } }, (function () {
-                        // Detect mergeable groups: same asset+dir+cap+date, note contains "TP parcial"
+                        // Auto-merge TP parcial groups into one entry (same asset+dir+cap+date)
                         var mergeGroups = {};
                         fH.forEach(function (h) {
                             var isApp = xhist.some(function (x) { return x.id === h.id; });
                             if (!isApp)
                                 return;
                             var note = h.note || "";
-                            if (note.indexOf("TP parcial") < 0 && note.indexOf("parcial") < 0)
+                            if (note.indexOf("parcial") < 0)
                                 return;
                             var key = h.asset + "_" + h.dir + "_" + h.cap + "_" + (h.date || "");
                             if (!mergeGroups[key])
                                 mergeGroups[key] = [];
-                            mergeGroups[key].push(h.id);
+                            mergeGroups[key].push(h);
                         });
-                        // Only keep groups with 2+ entries
                         Object.keys(mergeGroups).forEach(function (k) { if (mergeGroups[k].length < 2)
                             delete mergeGroups[k]; });
-                        // Build a map: id → groupKey
-                        var idToGroup = {};
+                        // Build absorbed set (all but first of each group are hidden)
+                        var absorbedIds = {};
+                        var mergedData = {};
                         Object.keys(mergeGroups).forEach(function (k) {
-                            mergeGroups[k].forEach(function (id) { idToGroup[id] = k; });
+                            var grp = mergeGroups[k];
+                            var total = parseFloat(grp.reduce(function (a, x) { return a + (x.result || 0); }, 0).toFixed(2));
+                            mergedData[grp[0].id] = { result: total, note: "TPs completados (" + grp.length + " niveles)" };
+                            grp.slice(1).forEach(function (x) { absorbedIds[x.id] = true; });
                         });
-                        // Track which groups have already shown the merge button
-                        var shownMerge = {};
-                        return fH.map(function (h) {
-                            var isAppEntry = xhist.some(function (x) { return x.id === h.id; });
-                            var groupKey = idToGroup[h.id] || null;
-                            var isLastInGroup = groupKey && mergeGroups[groupKey] && mergeGroups[groupKey][mergeGroups[groupKey].length - 1] === h.id;
-                            return (React.createElement("div", { key: h.id, style: { ...S.row, background: groupKey ? "rgba(240,180,41,.03)" : "transparent" } },
+                        return fH.filter(function (h) { return !absorbedIds[h.id]; }).map(function (h) {
+                            var over = mergedData[h.id] || {};
+                            var result = over.result !== undefined ? over.result : h.result;
+                            var note = over.note || h.note || "";
+                            return (React.createElement("div", { key: h.id, style: S.row },
                                 React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center", flex: 1, minWidth: 0 } },
                                     React.createElement("span", { style: { fontSize: 9, color: "#444", width: 70, flexShrink: 0 } }, h.date),
                                     React.createElement("span", { style: { fontWeight: 600 } }, h.asset),
                                     React.createElement("span", { style: S.bdg(h.dir === "Short" ? "#ff4444" : "#00ff88") }, h.dir),
-                                    h.note && React.createElement("span", { style: { ...S.bdg(h.note.includes("LIQUIDACION") ? "#ff6600" : groupKey ? "rgba(240,180,41,.6)" : "#555"), maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, h.note)),
+                                    note && React.createElement("span", { style: { ...S.bdg(note.includes("LIQUIDACION") ? "#ff6600" : "#555"), maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, note)),
                                 React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexShrink: 0 } },
                                     React.createElement("span", { style: { fontSize: 9, color: "#444" } },
                                         "$",
                                         h.cap >= 1000 ? h.cap.toLocaleString() : h.cap),
-                                    React.createElement("span", { style: { fontWeight: 700, color: h.result > 0 ? "#00ff88" : h.result < 0 ? "#ff4444" : "#666", minWidth: 68, textAlign: "right" } }, h.result === 0 ? "$0.00" : fmtNum(h.result)),
-                                    isLastInGroup && (function () {
-                                        var ids = mergeGroups[groupKey];
-                                        return (React.createElement("button", { onClick: function () {
-                                                var toMerge = D.current.xhist.filter(function (x) { return ids.indexOf(x.id) >= 0; });
-                                                var totalResult = parseFloat(toMerge.reduce(function (a, x) { return a + (x.result || 0); }, 0).toFixed(2));
-                                                var merged = { id: Date.now(), asset: h.asset, dir: h.dir, cap: h.cap,
-                                                    result: totalResult, date: h.date || "",
-                                                    note: "TPs completados (" + toMerge.length + " niveles)" };
-                                                var remaining = D.current.xhist.filter(function (x) { return ids.indexOf(x.id) < 0; });
-                                                SX([merged, ...remaining]);
-                                            }, style: { background: "rgba(240,180,41,.15)", border: "1px solid rgba(240,180,41,.4)", color: "#f0b429", fontSize: 8, cursor: "pointer", padding: "2px 7px", borderRadius: 3, fontWeight: 700, whiteSpace: "nowrap" } },
-                                            "Combinar ",
-                                            mergeGroups[groupKey].length));
-                                    })(),
-                                    isAppEntry && !groupKey && React.createElement("button", { onClick: function () { SX(D.current.xhist.filter(function (x) { return x.id !== h.id; })); }, style: { background: "rgba(255,68,68,.12)", border: "1px solid rgba(255,68,68,.3)", color: "#ff6666", fontSize: 11, cursor: "pointer", padding: "2px 6px", borderRadius: 3, lineHeight: 1, fontWeight: 700 }, title: "Eliminar entrada" }, "\u00D7"),
-                                    isAppEntry && groupKey && !isLastInGroup && React.createElement("button", { onClick: function () { SX(D.current.xhist.filter(function (x) { return x.id !== h.id; })); }, style: { background: "transparent", border: "none", color: "#333", fontSize: 11, cursor: "pointer", padding: "2px 4px", lineHeight: 1 }, title: "Eliminar" }, "\u00D7"))));
+                                    React.createElement("span", { style: { fontWeight: 700, color: result > 0 ? "#00ff88" : result < 0 ? "#ff4444" : "#666", minWidth: 68, textAlign: "right" } }, result === 0 ? "$0.00" : fmtNum(result)))));
                         });
                     })())))),
             tab === "Patrones" && (React.createElement("div", null,
