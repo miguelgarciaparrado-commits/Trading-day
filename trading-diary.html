@@ -3255,16 +3255,31 @@ function AlertasTab({ S }) {
     function confirmAddAsset() {
         if (!addFound)
             return;
+        var ovT = parseInt(addConfig.rsiOversoldTarget);
+        var obT = parseInt(addConfig.rsiOverboughtTarget);
+        var cuT = parseInt(addConfig.rsiCustomTarget);
+        if (addConfig.rsiOversoldEnabled && (isNaN(ovT) || ovT < 1 || ovT > 99)) {
+            setAddStatus("error");
+            return;
+        }
+        if (addConfig.rsiOverboughtEnabled && (isNaN(obT) || obT < 1 || obT > 99)) {
+            setAddStatus("error");
+            return;
+        }
+        if (addConfig.rsiCustomEnabled && (isNaN(cuT) || cuT < 1 || cuT > 99)) {
+            setAddStatus("error");
+            return;
+        }
         var sym = addFound.sym;
         var lbl = addFound.label;
         var na = { id: Date.now(), symbol: sym, label: lbl, interval: addInterval,
-            rsiOversoldEnabled: addConfig.rsiOversoldEnabled, rsiOversoldTarget: addConfig.rsiOversoldTarget || 30,
-            rsiOverboughtEnabled: addConfig.rsiOverboughtEnabled, rsiOverboughtTarget: addConfig.rsiOverboughtTarget || 70,
+            rsiOversoldEnabled: addConfig.rsiOversoldEnabled, rsiOversoldTarget: isNaN(ovT) ? 30 : ovT,
+            rsiOverboughtEnabled: addConfig.rsiOverboughtEnabled, rsiOverboughtTarget: isNaN(obT) ? 70 : obT,
             emaCross725Enabled: addConfig.emaCross725Enabled,
             emaCross50200Enabled: addConfig.emaCross50200Enabled,
             rsiDivEnabled: addConfig.rsiDivEnabled,
             rsiCustomEnabled: addConfig.rsiCustomEnabled,
-            rsiCustomTarget: addConfig.rsiCustomTarget || 50,
+            rsiCustomTarget: isNaN(cuT) ? 50 : cuT,
             rsiCustomCondition: addConfig.rsiCustomCondition || "below",
             channelEnabled: false, fvgEnabled: false,
             active: true, currentRsi: null, currentPrice: null, error: false };
@@ -4391,7 +4406,7 @@ function AlertasTab({ S }) {
                     alert.currentPrice != null && React.createElement("span", { style: { fontSize: 9, color: "#555" } },
                         "$",
                         parseFloat(alert.currentPrice).toLocaleString("es-ES", { maximumFractionDigits: 2 })),
-                    alert.error && React.createElement("button", { onClick: function () { startAlert(alert); }, style: { fontSize: 8, padding: "3px 8px", background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", color: "#00ff88", borderRadius: 4, cursor: "pointer" } }, "\u25B6"),
+                    alert.error && React.createElement("button", { onClick: function () { reconnectCountRef.current[alert.id.toString()] = 0; startAlert(alert); }, style: { fontSize: 8, padding: "3px 8px", background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", color: "#00ff88", borderRadius: 4, cursor: "pointer" } }, "\u25B6 Reconectar"),
                     !isBtc && React.createElement("button", { onClick: function () { removeAlert(alert); }, style: { width: 22, height: 22, borderRadius: "50%", background: "rgba(255,68,68,.12)", border: "1px solid rgba(255,68,68,.3)", color: "#ff6666", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0 }, title: "Dejar de monitorear" }, "\u00D7"))));
         })),
         React.createElement("div", { style: { background: "#0d0d16", border: "1px solid #1e1e2e", borderRadius: 7, padding: 10, marginBottom: 12 } },
@@ -4416,12 +4431,12 @@ function AlertasTab({ S }) {
                     React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 5, cursor: "pointer", flex: 1 } },
                         React.createElement("input", { type: "checkbox", checked: addConfig.rsiOversoldEnabled, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiOversoldEnabled: e.target.checked }; }); }, style: { accentColor: "#00ff88" } }),
                         React.createElement("span", { style: { fontSize: 9, color: "#ccc" } }, "\uD83D\uDCC9 RSI Sobreventa \u2264")),
-                    React.createElement("input", { type: "number", min: "10", max: "45", value: addConfig.rsiOversoldTarget, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiOversoldTarget: parseInt(e.target.value) || 30 }; }); }, disabled: !addConfig.rsiOversoldEnabled, style: { width: 44, padding: "3px 5px", background: "#111", border: "1px solid #333", color: addConfig.rsiOversoldEnabled ? "#e0e0e0" : "#444", borderRadius: 4, fontSize: 9, textAlign: "center" } })),
+                    React.createElement("input", { type: "number", min: "10", max: "45", value: addConfig.rsiOversoldTarget, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiOversoldTarget: e.target.value }; }); }, disabled: !addConfig.rsiOversoldEnabled, style: { width: 44, padding: "3px 5px", background: "#111", border: "1px solid #333", color: addConfig.rsiOversoldEnabled ? "#e0e0e0" : "#444", borderRadius: 4, fontSize: 9, textAlign: "center" } })),
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
                     React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 5, cursor: "pointer", flex: 1 } },
                         React.createElement("input", { type: "checkbox", checked: addConfig.rsiOverboughtEnabled, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiOverboughtEnabled: e.target.checked }; }); }, style: { accentColor: "#f0b429" } }),
                         React.createElement("span", { style: { fontSize: 9, color: "#ccc" } }, "\uD83D\uDCC8 RSI Sobrecompra \u2265")),
-                    React.createElement("input", { type: "number", min: "55", max: "90", value: addConfig.rsiOverboughtTarget, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiOverboughtTarget: parseInt(e.target.value) || 70 }; }); }, disabled: !addConfig.rsiOverboughtEnabled, style: { width: 44, padding: "3px 5px", background: "#111", border: "1px solid #333", color: addConfig.rsiOverboughtEnabled ? "#e0e0e0" : "#444", borderRadius: 4, fontSize: 9, textAlign: "center" } })),
+                    React.createElement("input", { type: "number", min: "55", max: "90", value: addConfig.rsiOverboughtTarget, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiOverboughtTarget: e.target.value }; }); }, disabled: !addConfig.rsiOverboughtEnabled, style: { width: 44, padding: "3px 5px", background: "#111", border: "1px solid #333", color: addConfig.rsiOverboughtEnabled ? "#e0e0e0" : "#444", borderRadius: 4, fontSize: 9, textAlign: "center" } })),
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 } },
                     React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 5, cursor: "pointer", flex: 1 } },
                         React.createElement("input", { type: "checkbox", checked: addConfig.rsiCustomEnabled, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiCustomEnabled: e.target.checked }; }); }, style: { accentColor: "#88aaff" } }),
@@ -4429,7 +4444,7 @@ function AlertasTab({ S }) {
                     React.createElement("select", { value: addConfig.rsiCustomCondition, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiCustomCondition: e.target.value }; }); }, disabled: !addConfig.rsiCustomEnabled, style: { padding: "3px 4px", background: "#111", border: "1px solid #333", color: addConfig.rsiCustomEnabled ? "#e0e0e0" : "#444", borderRadius: 4, fontSize: 9 } },
                         React.createElement("option", { value: "below" }, "\u2264"),
                         React.createElement("option", { value: "above" }, "\u2265")),
-                    React.createElement("input", { type: "number", min: "1", max: "99", value: addConfig.rsiCustomTarget, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiCustomTarget: parseInt(e.target.value) || 50 }; }); }, disabled: !addConfig.rsiCustomEnabled, style: { width: 44, padding: "3px 5px", background: "#111", border: "1px solid #333", color: addConfig.rsiCustomEnabled ? "#e0e0e0" : "#444", borderRadius: 4, fontSize: 9, textAlign: "center" } })),
+                    React.createElement("input", { type: "number", min: "1", max: "99", value: addConfig.rsiCustomTarget, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiCustomTarget: e.target.value }; }); }, disabled: !addConfig.rsiCustomEnabled, style: { width: 44, padding: "3px 5px", background: "#111", border: "1px solid #333", color: addConfig.rsiCustomEnabled ? "#e0e0e0" : "#444", borderRadius: 4, fontSize: 9, textAlign: "center" } })),
                 React.createElement("div", { style: { marginBottom: 6 } },
                     React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 5, cursor: "pointer" } },
                         React.createElement("input", { type: "checkbox", checked: addConfig.rsiDivEnabled, onChange: function (e) { setAddConfig(function (c) { return { ...c, rsiDivEnabled: e.target.checked }; }); }, style: { accentColor: "#88aaff" } }),

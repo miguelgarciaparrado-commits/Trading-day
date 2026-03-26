@@ -3312,16 +3312,22 @@ function AlertasTab({S}){
 
   function confirmAddAsset(){
     if(!addFound)return;
+    var ovT=parseInt(addConfig.rsiOversoldTarget);
+    var obT=parseInt(addConfig.rsiOverboughtTarget);
+    var cuT=parseInt(addConfig.rsiCustomTarget);
+    if(addConfig.rsiOversoldEnabled&&(isNaN(ovT)||ovT<1||ovT>99)){setAddStatus("error");return;}
+    if(addConfig.rsiOverboughtEnabled&&(isNaN(obT)||obT<1||obT>99)){setAddStatus("error");return;}
+    if(addConfig.rsiCustomEnabled&&(isNaN(cuT)||cuT<1||cuT>99)){setAddStatus("error");return;}
     var sym=addFound.sym;
     var lbl=addFound.label;
     var na={id:Date.now(),symbol:sym,label:lbl,interval:addInterval,
-      rsiOversoldEnabled:addConfig.rsiOversoldEnabled,rsiOversoldTarget:addConfig.rsiOversoldTarget||30,
-      rsiOverboughtEnabled:addConfig.rsiOverboughtEnabled,rsiOverboughtTarget:addConfig.rsiOverboughtTarget||70,
+      rsiOversoldEnabled:addConfig.rsiOversoldEnabled,rsiOversoldTarget:isNaN(ovT)?30:ovT,
+      rsiOverboughtEnabled:addConfig.rsiOverboughtEnabled,rsiOverboughtTarget:isNaN(obT)?70:obT,
       emaCross725Enabled:addConfig.emaCross725Enabled,
       emaCross50200Enabled:addConfig.emaCross50200Enabled,
       rsiDivEnabled:addConfig.rsiDivEnabled,
       rsiCustomEnabled:addConfig.rsiCustomEnabled,
-      rsiCustomTarget:addConfig.rsiCustomTarget||50,
+      rsiCustomTarget:isNaN(cuT)?50:cuT,
       rsiCustomCondition:addConfig.rsiCustomCondition||"below",
       channelEnabled:false,fvgEnabled:false,
       active:true,currentRsi:null,currentPrice:null,error:false};
@@ -4317,7 +4323,7 @@ function AlertasTab({S}){
               <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                 {rsi!==null&&<span style={{fontSize:11,fontWeight:700,color:rsiColor,minWidth:34,textAlign:"right"}}>RSI {rsi.toFixed(0)}</span>}
                 {alert.currentPrice!=null&&<span style={{fontSize:9,color:"#555"}}>${parseFloat(alert.currentPrice).toLocaleString("es-ES",{maximumFractionDigits:2})}</span>}
-                {alert.error&&<button onClick={function(){startAlert(alert);}} style={{fontSize:8,padding:"3px 8px",background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:4,cursor:"pointer"}}>▶</button>}
+                {alert.error&&<button onClick={function(){reconnectCountRef.current[alert.id.toString()]=0;startAlert(alert);}} style={{fontSize:8,padding:"3px 8px",background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:4,cursor:"pointer"}}>▶ Reconectar</button>}
                 {!isBtc&&<button onClick={function(){removeAlert(alert);}}
                   style={{width:22,height:22,borderRadius:"50%",background:"rgba(255,68,68,.12)",border:"1px solid rgba(255,68,68,.3)",color:"#ff6666",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0}}
                   title="Dejar de monitorear">×</button>}
@@ -4361,7 +4367,7 @@ function AlertasTab({S}){
                 <span style={{fontSize:9,color:"#ccc"}}>📉 RSI Sobreventa ≤</span>
               </label>
               <input type="number" min="10" max="45" value={addConfig.rsiOversoldTarget}
-                onChange={function(e){setAddConfig(function(c){return{...c,rsiOversoldTarget:parseInt(e.target.value)||30};});}}
+                onChange={function(e){setAddConfig(function(c){return{...c,rsiOversoldTarget:e.target.value};});}}
                 disabled={!addConfig.rsiOversoldEnabled}
                 style={{width:44,padding:"3px 5px",background:"#111",border:"1px solid #333",color:addConfig.rsiOversoldEnabled?"#e0e0e0":"#444",borderRadius:4,fontSize:9,textAlign:"center"}}/>
             </div>
@@ -4372,7 +4378,7 @@ function AlertasTab({S}){
                 <span style={{fontSize:9,color:"#ccc"}}>📈 RSI Sobrecompra ≥</span>
               </label>
               <input type="number" min="55" max="90" value={addConfig.rsiOverboughtTarget}
-                onChange={function(e){setAddConfig(function(c){return{...c,rsiOverboughtTarget:parseInt(e.target.value)||70};});}}
+                onChange={function(e){setAddConfig(function(c){return{...c,rsiOverboughtTarget:e.target.value};});}}
                 disabled={!addConfig.rsiOverboughtEnabled}
                 style={{width:44,padding:"3px 5px",background:"#111",border:"1px solid #333",color:addConfig.rsiOverboughtEnabled?"#e0e0e0":"#444",borderRadius:4,fontSize:9,textAlign:"center"}}/>
             </div>
@@ -4389,7 +4395,7 @@ function AlertasTab({S}){
                 <option value="above">≥</option>
               </select>
               <input type="number" min="1" max="99" value={addConfig.rsiCustomTarget}
-                onChange={function(e){setAddConfig(function(c){return{...c,rsiCustomTarget:parseInt(e.target.value)||50};});}}
+                onChange={function(e){setAddConfig(function(c){return{...c,rsiCustomTarget:e.target.value};});}}
                 disabled={!addConfig.rsiCustomEnabled}
                 style={{width:44,padding:"3px 5px",background:"#111",border:"1px solid #333",color:addConfig.rsiCustomEnabled?"#e0e0e0":"#444",borderRadius:4,fontSize:9,textAlign:"center"}}/>
             </div>
