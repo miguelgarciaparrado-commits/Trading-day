@@ -116,19 +116,30 @@ function fmtNum(v){
 function fmtP(v){return v>=1000?"$"+v.toLocaleString():"$"+v;}
 function today(){return new Date().toLocaleDateString("es-ES");}
 function calcScore(ps,pats,jnl){
-  const t=ps.slOk+ps.slBroken;
-  const s1=t>0?(ps.slOk/t)*30:0;
-  const tot=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0);
-  const s2=tot>0?((ps.tpAuto||0)+(ps.tpManual||0))/tot*20:0;
-  const s3=Math.max(0,20-ps.revenge*5);
-  const s4=Math.min(20,pats.filter(p=>p.conf>0).length*7);
-  const w=jnl.filter(j=>j.type==="win").length;
-  const l=jnl.filter(j=>j.type==="lesson").length;
-  const mis=jnl.filter(j=>j.type==="mistake").length;
-  const a=jnl.filter(j=>j.type==="analysis").length;
+  // S1 — Disciplina SL (0–35 pts): respetar el stop loss es la base de todo
+  const slT=(ps.slOk||0)+(ps.slBroken||0);
+  const s1=slT>0?((ps.slOk||0)/slT)*35:0;
+  // S2 — Gestión de salidas (0–20 pts): dejar correr ganadores hasta el TP
+  const exitTot=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
+  const s2=exitTot>0?((ps.tpAuto||0)+(ps.tpManual||0))/exitTot*20:0;
+  // S3 — Control emocional (PUEDE SER NEGATIVO):
+  //   Base: +15 pts neutro
+  //   Revenge trading: -10 pts por cada uno SIN SUELO (arrastra el score a negativo)
+  //   Cierres prematuros: los 3 primeros son tolerados (gestión activa),
+  //                       a partir del 4º se penaliza -3 pts cada uno
+  const s3=15-((ps.revenge||0)*10)-(Math.max(0,(ps.earlyClose||0)-3)*3);
+  // S4 — Metodología (0–20 pts): usar un sistema con patrones testados
+  const s4=Math.min(20,pats.filter(function(p){return p.conf>0;}).length*7);
+  // S5 — Diario psicológico (0–10 pts)
+  const w=jnl.filter(function(j){return j.type==="win";}).length;
+  const l=jnl.filter(function(j){return j.type==="lesson";}).length;
+  const mis=jnl.filter(function(j){return j.type==="mistake";}).length;
+  const a=jnl.filter(function(j){return j.type==="analysis";}).length;
   const s5=Math.min(10,(w*2)+(l*1.5)+a+Math.min(mis,l)*0.5);
-  const bon=Math.min(5,jnl.filter(j=>j.linkedClose).length*1.5);
-  return Math.min(100,Math.round(s1+s2+s3+s4+s5+bon));
+  // Bonus — entradas de diario ligadas a cierres (reflexión real)
+  const bon=Math.min(5,jnl.filter(function(j){return j.linkedClose;}).length*1.5);
+  // Score puede ir negativo en casos extremos (señal de alarma), máx 100
+  return Math.max(-30,Math.min(100,Math.round(s1+s2+s3+s4+s5+bon)));
 }
 
 // - ANALISIS PERFIL -
@@ -190,9 +201,11 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
     else if(earlyLessons>=earlyWins&&manualDocs.length>2)lines.push("Reconoces que los cierres anticipados son una area de mejora. Buen autoconocimiento.");
   }
 
-  // Revenge trading
-  if(ps.revenge>=3)lines.push("Alerta: has hecho trading de revancha "+ps.revenge+" veces. Es el patron mas destructivo.");
-  else if(ps.revenge===0)lines.push("Sin trading de revancha registrado. Muy buena senial de control emocional.");
+  // Revenge trading — penalización activa, puede hundir el score
+  if(ps.revenge>=3)lines.push("ALERTA CRITICA: "+ps.revenge+" episodios de revenge trading. Cada uno resta 10 pts al score sin límite — puedes llegar a negativo. Es el patrón más autodestructivo del trading.");
+  else if(ps.revenge===1)lines.push("Un episodio de revenge trading registrado. Aunque sea uno, te resta 10 pts directos. Si se repite, el score puede volverse negativo.");
+  else if(ps.revenge===2)lines.push("Dos episodios de revenge trading: −20 pts directos en tu score. Trabajo urgente en control emocional post-pérdida.");
+  else lines.push("Sin trading de revancha registrado. Excelente control emocional — es uno de los pilares más difíciles de mantener.");
 
   // Journal quality
   const victories=jnl.filter(function(j){return j.type==="win";}).length;
@@ -598,8 +611,8 @@ export default function App(){
   const actPnl=pos.reduce((a,p)=>a+getPnL(p),0)+(!ethClosed?ethU:0);
   const wins=hist.filter(h=>h.result>0).length;
   const sc=calcScore(ps,pats,jnl);
-  const lvColor=sc<30?"#ff4444":sc<50?"#ff8844":sc<65?"#f0b429":sc<80?"#88cc44":"#00ff88";
-  const lvLabel=sc<30?"APOSTADOR":sc<50?"PRINCIPIANTE":sc<65?"EN TRANSICION":sc<80?"AVANZADO":"PROFESIONAL";
+  const lvColor=sc<0?"#ff2222":sc<30?"#ff5533":sc<50?"#ff8844":sc<65?"#f0b429":sc<80?"#88cc44":"#00ff88";
+  const lvLabel=sc<0?"⚠️ AUTODESTRUCTIVO":sc<30?"APOSTADOR":sc<50?"PRINCIPIANTE":sc<65?"EN TRANSICION":sc<80?"AVANZADO":"PROFESIONAL";
 
   // - HISTORY -
   const fH=hist
@@ -1471,32 +1484,34 @@ export default function App(){
               <div style={S.card}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>SCORE: SUBE / BAJA</div>
                 {[
-                  {l:"SL respetados",c:"#00ff88",pts:"+30 max"},
-                  {l:"TP / TP parcial",c:"#00ff88",pts:"+20 max"},
-                  {l:"Patron confirmado",c:"#88aaff",pts:"+7 c/u"},
+                  {l:"SL respetados",c:"#00ff88",pts:"+35 max"},
+                  {l:"TP automático / manual",c:"#00ff88",pts:"+20 max"},
+                  {l:"Control emocional",c:"#88aaff",pts:"+15 base"},
+                  {l:"Patrón confirmado",c:"#88aaff",pts:"+7 c/u"},
                   {l:"Victoria diario",c:"#f0b429",pts:"+2"},
-                  {l:"Leccion",c:"#f0b429",pts:"+1.5"},
-                ].map(x=>(
+                  {l:"Lección diario",c:"#f0b429",pts:"+1.5"},
+                ].map(function(x){return(
                   <div key={x.l} style={{background:"#0d0d16",borderRadius:4,padding:"5px 8px",border:"1px solid "+x.c+"22",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
                     <span style={{fontSize:8,color:x.c,fontWeight:700}}>{x.l}</span>
                     <span style={{fontSize:8,color:x.c}}>{x.pts}</span>
                   </div>
-                ))}
+                );})}
                 <div style={{fontSize:8,color:"#ff4444",fontWeight:700,marginTop:7,marginBottom:4}}>PENALIZACIONES ACTUALES</div>
-                {(()=>{
-                  const slT=ps.slOk+ps.slBroken;
-                  const slLost=slT>0?parseFloat(((ps.slBroken/slT)*30).toFixed(1)):0;
-                  const totC=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0);
-                  const earlyLost=totC>0?parseFloat(((ps.earlyClose||0)/totC*20).toFixed(1)):0;
-                  const revLost=Math.min(20,ps.revenge*5);
+                {(function(){
+                  const slT=(ps.slOk||0)+(ps.slBroken||0);
+                  const slLost=slT>0?parseFloat(((ps.slBroken||0)/slT*35).toFixed(1)):0;
+                  const exitTot=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
+                  const earlyRatioLost=exitTot>0?parseFloat(((ps.earlyClose||0)/exitTot*20).toFixed(1)):0;
+                  const earlyExtraLost=Math.max(0,(ps.earlyClose||0)-3)*3;
+                  const revLost=(ps.revenge||0)*10;
                   return[
-                    {l:"SL roto x"+ps.slBroken,pts:"-"+slLost+" pts",c:"#ff4444",v:slLost},
-                    {l:"Cierre anticipado x"+(ps.earlyClose||0),pts:"-"+earlyLost+" pts",c:"#ff6600",v:earlyLost},
-                    {l:"Revenge trade x"+ps.revenge,pts:"-"+revLost+" pts",c:"#ff4444",v:revLost},
-                  ].map(x=>(
-                    <div key={x.l} style={{background:"rgba(255,68,68,.05)",borderRadius:4,padding:"5px 8px",border:"1px solid rgba(255,68,68,.15)",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
-                      <span style={{fontSize:8,color:x.v>0?x.c:"#555",fontWeight:x.v>0?700:400}}>{x.l}</span>
-                      <span style={{fontSize:8,color:x.v>0?"#ff4444":"#444"}}>{x.pts}</span>
+                    {l:"SL roto ×"+(ps.slBroken||0),pts:"−"+slLost+" pts",c:"#ff4444",v:slLost},
+                    {l:"Cierres prematuros ×"+(ps.earlyClose||0)+(earlyExtraLost>0?" ("+Math.max(0,(ps.earlyClose||0)-3)+" extra penalizados)":""),pts:"−"+(earlyRatioLost+earlyExtraLost).toFixed(1)+" pts",c:"#ff6600",v:earlyRatioLost+earlyExtraLost},
+                    {l:"Revenge ×"+(ps.revenge||0)+" — PUEDE IR NEGATIVO",pts:revLost>0?"−"+revLost+" pts ⚠️":"✅ Sin impacto",c:"#ff2222",v:revLost},
+                  ].map(function(x){return(
+                    <div key={x.l} style={{background:x.v>0?"rgba(255,68,68,.08)":"rgba(0,255,136,.04)",borderRadius:4,padding:"5px 8px",border:"1px solid "+(x.v>0?"rgba(255,68,68,.25)":"rgba(0,255,136,.15)"),marginBottom:3,display:"flex",justifyContent:"space-between",gap:6,flexWrap:"wrap"}}>
+                      <span style={{fontSize:8,color:x.v>0?x.c:"#00ff88",fontWeight:700}}>{x.l}</span>
+                      <span style={{fontSize:8,color:x.v>0?"#ff4444":"#00ff88",fontWeight:700}}>{x.pts}</span>
                     </div>
                   ));
                 })()}
