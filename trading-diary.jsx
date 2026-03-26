@@ -2732,6 +2732,9 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
                     style={{background:"transparent",border:"none",color:isPinned?"#f0b429":"#333",cursor:"pointer",fontSize:10,padding:"0 2px",lineHeight:1}}>📌</button>
                 );
               })()}
+              <button onClick={function(){setMessages(function(prev){return prev.filter(function(_,idx){return idx!==i;});});}}
+                title="Borrar mensaje"
+                style={{background:"transparent",border:"none",color:"#2a2a3a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>
             </div>
             {/* Botón guardar predicción — visible en mensajes del asistente */}
             {m.role==="assistant"&&i>0&&!m.isReminder&&(

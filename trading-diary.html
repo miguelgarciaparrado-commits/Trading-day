@@ -2701,7 +2701,8 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save 
                             var key = (m.role || "") + (m.content || "").slice(0, 60) + (m.time || "");
                             var isPinned = pinned.some(function (p) { return p._key === key; });
                             return (React.createElement("button", { onClick: function () { togglePin(m); }, title: isPinned ? "Desanclar mensaje" : "Anclar: siempre en contexto del bot", style: { background: "transparent", border: "none", color: isPinned ? "#f0b429" : "#333", cursor: "pointer", fontSize: 10, padding: "0 2px", lineHeight: 1 } }, "\uD83D\uDCCC"));
-                        })()),
+                        })(),
+                        React.createElement("button", { onClick: function () { setMessages(function (prev) { return prev.filter(function (_, idx) { return idx !== i; }); }); }, title: "Borrar mensaje", style: { background: "transparent", border: "none", color: "#2a2a3a", cursor: "pointer", fontSize: 11, padding: "0 2px", lineHeight: 1 } }, "\u2715")),
                     m.role === "assistant" && i > 0 && !m.isReminder && (React.createElement("div", { style: { marginTop: 4, alignSelf: "flex-start", marginLeft: 4 } }, savingMsgIdx === i ? (React.createElement("div", { style: { background: "#0d0d16", border: "1px solid rgba(136,170,255,.4)", borderRadius: 6, padding: "8px 10px", minWidth: 220 } },
                         React.createElement("div", { style: { fontSize: 8, color: "#88aaff", fontWeight: 700, marginBottom: 6 } }, "GUARDAR COMO PREDICCI\u00D3N"),
                         React.createElement("input", { style: { ...S.inp, width: "100%", fontSize: 9, padding: "5px 8px", marginBottom: 6, boxSizing: "border-box" }, placeholder: "Nota: ej. BTC objetivo 74500 en 4H...", value: predNote, onChange: function (e) { setPredNote(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter")
