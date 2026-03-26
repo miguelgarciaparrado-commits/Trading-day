@@ -654,6 +654,92 @@ function App() {
         var iv = setInterval(fetchPrices, 60000);
         return function () { clearInterval(iv); };
     }, []);
+    // ── Monitor de predicciones: evalúa con Claude y envía Telegram si hay cambios ──
+    const monitorCheckRef = useRef({}); // {predId: lastCheckTimestamp} — no se persiste
+    useEffect(function () {
+        var iv = setInterval(async function () {
+            var apiKey = localStorage.getItem("td-anthropic-key");
+            var tgToken = localStorage.getItem("td-tg-token");
+            var tgChatId = localStorage.getItem("td-tg-chatid");
+            if (!apiKey || !tgToken || !tgChatId)
+                return;
+            var pending = (D.current.predictions || []).filter(function (p) { return p.status === "pending" && p.asset; });
+            if (!pending.length)
+                return;
+            // Intervalo mínimo entre checks por timeframe
+            var tfMs = { "1h": 3600000, "4h": 14400000, "1d": 28800000, "1w": 86400000 };
+            for (var i = 0; i < pending.length; i++) {
+                var pred = pending[i];
+                var minMs = tfMs[pred.tf] || 14400000;
+                var lastCheck = monitorCheckRef.current[pred.id] || 0;
+                if (Date.now() - lastCheck < minMs)
+                    continue;
+                monitorCheckRef.current[pred.id] = Date.now();
+                try {
+                    // Detectar si es crypto (Binance) o acción (skip sin Finnhub)
+                    var sym = pred.asset.replace("/", "").toUpperCase();
+                    if (!/USDT$/i.test(sym))
+                        sym = sym + "USDT";
+                    var isBinance = /USDT$/i.test(sym);
+                    if (!isBinance)
+                        continue; // acciones: requiere Finnhub, omitir por ahora
+                    var tf = pred.tf || "1d";
+                    var klResp = await fetch("https://api.binance.com/api/v3/klines?symbol=" + sym + "&interval=" + tf + "&limit=60");
+                    if (!klResp.ok)
+                        continue;
+                    var klines = await klResp.json();
+                    if (!klines || !klines.length)
+                        continue;
+                    var closes = klines.map(function (k) { return parseFloat(k[4]); });
+                    var rsi = calcRSI(closes, 14);
+                    var ema7 = calcEMA(closes, 7);
+                    var ema25 = calcEMA(closes, 25);
+                    var ema50 = calcEMA(closes, 50);
+                    var price = closes[closes.length - 1];
+                    var ohlcSnap = klines.map(function (k) { return { o: parseFloat(k[1]), h: parseFloat(k[2]), l: parseFloat(k[3]), c: parseFloat(k[4]) }; });
+                    var rsiSeries = calcRSISeries(closes, 14);
+                    var divResult = detectRSIDivergence(ohlcSnap, rsiSeries.slice(-30));
+                    var divText = divResult ? "Divergencia RSI " + divResult.type + " detectada" : "Sin divergencia RSI";
+                    var emaRel = ema7 && ema25 ? (ema7 > ema25 ? "EMA7 > EMA25 (alcista)" : "EMA7 < EMA25 (bajista)") : "";
+                    var marketCtx = pred.asset.toUpperCase() + " " + tf.toUpperCase() + "\n" +
+                        "Precio actual: $" + price.toLocaleString("es-ES", { maximumFractionDigits: 2 }) + "\n" +
+                        "RSI(14): " + (rsi ? rsi.toFixed(1) : "N/A") + "\n" +
+                        (ema7 ? "EMA7: " + ema7.toFixed(2) + "\n" : "") +
+                        (ema25 ? "EMA25: " + ema25.toFixed(2) + "\n" : "") +
+                        (ema50 ? "EMA50: " + ema50.toFixed(2) + "\n" : "") +
+                        emaRel + "\n" + divText;
+                    var monPrompt = "Eres un asistente de seguimiento de predicciones de trading.\n\n" +
+                        "PREDICCIÓN GUARDADA" + (pred.note ? " (" + pred.note + ")" : "") +
+                        ":\n" + pred.content.slice(0, 800) + "\n\n" +
+                        "DATOS REALES AHORA:\n" + marketCtx + "\n\n" +
+                        "Evalúa si ha ocurrido algo significativo respecto a la predicción original: " +
+                        "confirmación de patrones, niveles clave alcanzados, invalidación de la tesis, cambios en RSI o EMAs relevantes.\n" +
+                        "IMPORTANTE: Solo responde ALERTA si hay algo concreto y nuevo que el trader debe saber. " +
+                        "Si el mercado está quieto o sin cambios relevantes responde solo: NADA\n" +
+                        "Formato si hay alerta: ALERTA: [2-3 frases directas en español, sin markdown]";
+                    var aiResp = await fetch("https://api.anthropic.com/v1/messages", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+                        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 220, messages: [{ role: "user", content: monPrompt }] })
+                    });
+                    if (!aiResp.ok)
+                        continue;
+                    var aiData = await aiResp.json();
+                    var aiText = (aiData.content && aiData.content[0]) ? aiData.content[0].text.trim() : "";
+                    if (aiText.startsWith("ALERTA:")) {
+                        var alertBody = aiText.slice(7).trim();
+                        var tgText = "📊 Seguimiento " + pred.asset.toUpperCase() + " " + tf.toUpperCase() + "\n\n" + alertBody + (pred.note ? "\n\n📌 Predicción: " + pred.note : "");
+                        var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
+                        fetch(tgUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: tgChatId, text: tgText }) }).catch(function () { });
+                    }
+                }
+                catch (e) {
+                    console.warn("Monitor predicción error:", pred.asset, e);
+                }
+            }
+        }, 120000); // revisa cada 2 minutos; el cooldown por tf evita spam
+        return function () { clearInterval(iv); };
+    }, []);
     // - SAVE -
     // saveRef always holds latest doSave - avoids stale closure
     const saveRef = useRef(null);
