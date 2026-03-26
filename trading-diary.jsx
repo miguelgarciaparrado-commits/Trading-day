@@ -4163,7 +4163,7 @@ function AlertasTab({S}){
               {tgStatus==="ok"?"✓ Mensaje enviado — Telegram configurado correctamente":"✗ Error — revisa el token y el Chat ID"}
             </div>
           )}
-          <div style={{display:"flex",gap:6}}>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             <button onClick={function(){
               var tk=tgToken.trim();var cid=tgChatId.trim();
               if(!tk||!cid){setTgStatus("error");return;}
@@ -4178,6 +4178,38 @@ function AlertasTab({S}){
                 })
                 .catch(function(){setTgStatus("error");});
             }} style={{flex:2,padding:"7px",background:"#0088cc",color:"#fff",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar y probar</button>
+            <button onClick={function(){
+              var tk=(tgToken||localStorage.getItem("td-tg-token")||"").trim();
+              var cid=(tgChatId||localStorage.getItem("td-tg-chatid")||"").trim();
+              if(!tk||!cid){setTgStatus("error");return;}
+              var msg="📋 NOTIFICACIONES AUTOMÁTICAS — Trading Diary\n\n"+
+                "📡 ALERTAS DE MERCADO (tiempo real via WebSocket)\n"+
+                "• RSI ≤ umbral (defecto 30) — sobreventa\n"+
+                "• RSI ≥ umbral (defecto 70) — sobrecompra\n"+
+                "• RSI nivel personalizado (arriba/abajo del valor configurado)\n"+
+                "• Cruce dorado EMA 7/25 (EMA7 cruza sobre EMA25)\n"+
+                "• Cruce de muerte EMA 7/25 (EMA7 cruza bajo EMA25)\n"+
+                "• Cruce dorado EMA 50/200\n"+
+                "• Cruce de muerte EMA 50/200\n"+
+                "• Divergencia alcista RSI (precio baja, RSI sube)\n"+
+                "• Divergencia bajista RSI (precio sube, RSI baja)\n"+
+                "• Toque de canal (si activado en la alerta)\n"+
+                "• FVG cubierta (si activado en la alerta)\n\n"+
+                "🛡 GESTIÓN DE POSICIONES (cada 60 segundos)\n"+
+                "• SL ejecutado — precio toca el stop loss\n"+
+                "• TP ejecutado — precio alcanza el take profit\n"+
+                "• TP parcial ejecutado — nivel parcial alcanzado\n"+
+                "• Breakeven ejecutado — SL movido a entrada tocado\n\n"+
+                "🧠 SEGUIMIENTO DE PREDICCIONES (cada 4-24h según timeframe)\n"+
+                "• Claude evalúa en tiempo real si la predicción se cumple\n"+
+                "• Solo avisa si hay cambio relevante (sin spam)\n"+
+                "• Incluye tu análisis original + imagen del gráfico si la adjuntaste\n\n"+
+                "✅ Si ves este mensaje, Telegram funciona correctamente.";
+              fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({chat_id:cid,text:msg})
+              }).then(function(r){return r.json();}).then(function(d){setTgStatus(d.ok?"ok":"error");}).catch(function(){setTgStatus("error");});
+            }} style={{flex:2,padding:"7px",background:"rgba(0,136,204,.15)",color:"#0088cc",border:"1px solid #0088cc",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>📋 Lista de notificaciones</button>
             {tgToken&&<button onClick={function(){
               localStorage.removeItem("td-tg-token");localStorage.removeItem("td-tg-chatid");
               setTgToken("");setTgChatId("");setTgStatus(null);setShowTgConfig(false);
