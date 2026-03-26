@@ -2030,9 +2030,18 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       const supStr=md.supports&&md.supports.length>0?md.supports.map(function(s){return"$"+s;}).join(" | "):"ninguno detectado";
       const resStr=md.resistances&&md.resistances.length>0?md.resistances.map(function(r){return"$"+r;}).join(" | "):"ninguna detectada";
       const fvgStr=md.fvgs&&md.fvgs.length>0?md.fvgs.map(function(f){return f.type.toUpperCase()+" $"+f.bot+"-$"+f.top+" (hace "+f.age+" velas)";}).join(" | "):"ninguna cercana";
+      var divText="Sin divergencia/convergencia detectada";
+      if(md.divResult){
+        var dr=md.divResult;
+        if(dr.kind==="divergence"&&dr.type==="bullish")divText="🟢 DIVERGENCIA ALCISTA — precio LL + RSI HL (posible giro al alza)";
+        else if(dr.kind==="divergence"&&dr.type==="bearish")divText="🔴 DIVERGENCIA BAJISTA — precio HH + RSI LH (posible giro a la baja)";
+        else if(dr.kind==="convergence"&&dr.type==="bullish")divText="📈 CONVERGENCIA ALCISTA — precio HL + RSI HL (confirma tendencia alcista)";
+        else if(dr.kind==="convergence"&&dr.type==="bearish")divText="📉 CONVERGENCIA BAJISTA — precio LH + RSI LH (confirma tendencia bajista)";
+      }
       mdContext="\n\n=== DATOS DE MERCADO EN TIEMPO REAL ("+md.asset+" "+md.tf+") ===\n"+
         "Precio actual: $"+md.price+" | Cambio 24h: "+md.change24h+"%\n"+
         "RSI 14: "+md.rsi+" → "+rsiStatus+"\n"+
+        "Divergencia/Convergencia RSI: "+divText+"\n"+
         "EMA7: $"+md.ema7+" | EMA25: $"+md.ema25+" | EMA50: $"+md.ema50+"\n"+
         "Relacion EMAs: "+md.emaRelation+"\n"+
         "Estructura: "+md.trend+" | Volumen: "+md.volRatio+"x media\n"+
@@ -2513,6 +2522,31 @@ function calcEMA(closes, period){
   return parseFloat(ema.toFixed(4));
 }
 
+function calcRSISeries(closes,period){
+  period=period||14;
+  if(closes.length<period+2)return[];
+  var changes=[];
+  for(var ci=1;ci<closes.length;ci++)changes.push(closes[ci]-closes[ci-1]);
+  var avgGain=0,avgLoss=0;
+  for(var si=0;si<period;si++){
+    if(changes[si]>0)avgGain+=changes[si];
+    else avgLoss+=Math.abs(changes[si]);
+  }
+  avgGain/=period;avgLoss/=period;
+  var rsiArr=[];
+  var rs=avgLoss===0?100:avgGain/avgLoss;
+  rsiArr.push(parseFloat((100-100/(1+rs)).toFixed(1)));
+  for(var ri=period;ri<changes.length;ri++){
+    var g=changes[ri]>0?changes[ri]:0;
+    var l=changes[ri]<0?Math.abs(changes[ri]):0;
+    avgGain=(avgGain*(period-1)+g)/period;
+    avgLoss=(avgLoss*(period-1)+l)/period;
+    rs=avgLoss===0?100:avgGain/avgLoss;
+    rsiArr.push(parseFloat((100-100/(1+rs)).toFixed(1)));
+  }
+  return rsiArr;
+}
+
 function calcEMASeries(closes, period){
   // Returns array of EMA values (one per candle after warmup)
   if(closes.length<period)return[];
@@ -2716,8 +2750,10 @@ function AlertasTab({S}){
     else if(type==="price_target"){title="Precio Objetivo";body=customDesc||label+" — PRECIO ALCANZADO $"+parseFloat(price).toFixed(2);}
     else if(type==="rsi_oversold"){title="📉 RSI Sobreventa";body=label+" "+tf+" — RSI "+rsi.toFixed(1)+" (zona ≤30)"+priceStr;}
     else if(type==="rsi_overbought"){title="📈 RSI Sobrecompra";body=label+" "+tf+" — RSI "+rsi.toFixed(1)+" (zona ≥70)"+priceStr;}
-    else if(type==="rsi_div_bull"){title="🟢 Divergencia Alcista RSI";body=label+" "+tf+" — Precio mínimos bajando, RSI subiendo. Posible giro alcista."+priceStr;}
-    else if(type==="rsi_div_bear"){title="🔴 Divergencia Bajista RSI";body=label+" "+tf+" — Precio máximos subiendo, RSI bajando. Posible agotamiento."+priceStr;}
+    else if(type==="rsi_div_bull"){title="🟢 Divergencia Alcista RSI";body=label+" "+tf+" — Precio LL, RSI HL. Momentum se recupera. Posible giro al alza."+priceStr;}
+    else if(type==="rsi_div_bear"){title="🔴 Divergencia Bajista RSI";body=label+" "+tf+" — Precio HH, RSI LH. Momentum se agota. Posible giro a la baja."+priceStr;}
+    else if(type==="rsi_conv_bull"){title="📈 Convergencia Alcista RSI";body=label+" "+tf+" — Precio HL + RSI HL. Tendencia alcista confirmada por momentum."+priceStr;}
+    else if(type==="rsi_conv_bear"){title="📉 Convergencia Bajista RSI";body=label+" "+tf+" — Precio LH + RSI LH. Tendencia bajista confirmada por momentum."+priceStr;}
     else if(type==="patron_combo"){title="🔥 PATRÓN COMBINADO";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
     else if(type==="patron_canal"){title="📐 Canal Detectado";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
     else if(type==="patron_fvg"){title="⚡ FVG Cubierta";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
@@ -2762,6 +2798,15 @@ function AlertasTab({S}){
       .then(function(data){
         closesRef.current[key]=data.map(function(k){return parseFloat(k[4]);});
         ohlcRef.current[key]=data.map(function(k){return{o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4])};});
+        // Pre-compute RSI history from historical closes (enables divergence on startup)
+        var histRsiSeries=calcRSISeries(closesRef.current[key],14);
+        rsiHistRef.current[key]=histRsiSeries.slice(-80);
+        // Initialize RSI zone silently (no notification on startup if already in zone)
+        var initRsi=calcRSI(closesRef.current[key],14);
+        if(initRsi!==null){
+          var initZone=initRsi<=30?"oversold":initRsi>=70?"overbought":"neutral";
+          lastTrigRef.current[sid+"_rsizone"]=initZone;
+        }
         const ws=new WebSocket("wss://stream.binance.com:9443/ws/"+alert.symbol.toLowerCase()+"@kline_"+alert.interval);
         ws.onmessage=function(e){
           const d=JSON.parse(e.data);
@@ -2826,10 +2871,14 @@ function AlertasTab({S}){
               const ohlcSnap=ohlcRef.current[key]||[];
               const divResult=rsiHist.length>=10&&ohlcSnap.length>=10?detectRSIDivergence(ohlcSnap,rsiHist):null;
               if(divResult){
-                const divKey=ak+"div_"+divResult.type+"_"+Math.round(closePrice/50);
+                var divKind=divResult.kind||"divergence";
+                var divAlertType=divKind==="convergence"
+                  ?(divResult.type==="bullish"?"rsi_conv_bull":"rsi_conv_bear")
+                  :(divResult.type==="bullish"?"rsi_div_bull":"rsi_div_bear");
+                var divKey=ak+divKind+"_"+divResult.type+"_"+Math.round(closePrice/50);
                 if(!lastTrigRef.current[divKey]){
                   lastTrigRef.current[divKey]=true;
-                  sendAlert(alert.label,alert.interval,rsi,divResult.type==="bullish"?"rsi_div_bull":"rsi_div_bear",ema7,ema25,null,closePrice);
+                  sendAlert(alert.label,alert.interval,rsi,divAlertType,ema7,ema25,null,closePrice);
                 }
               }
             }
@@ -4543,38 +4592,54 @@ function calcSRLevels(highs,lows,price){
 
 function detectRSIDivergence(ohlcArr,rsiArr){
   if(!ohlcArr||!rsiArr||ohlcArr.length<12||rsiArr.length<12)return null;
-  const n=Math.min(ohlcArr.length,rsiArr.length,30);
-  const closes=ohlcArr.slice(-n).map(function(c){return c.c;});
-  const highs=ohlcArr.slice(-n).map(function(c){return c.h;});
-  const lows=ohlcArr.slice(-n).map(function(c){return c.l;});
-  const rsis=rsiArr.slice(-n);
-  // Simple pivot detection (lookback 3)
+  var n=Math.min(ohlcArr.length,rsiArr.length,40);
+  var highs=ohlcArr.slice(-n).map(function(c){return c.h;});
+  var lows=ohlcArr.slice(-n).map(function(c){return c.l;});
+  var rsis=rsiArr.slice(-n);
   function pivots(arr,type){
     var out=[];
     for(var i=3;i<arr.length-3;i++){
-      var isPiv=true;
-      for(var j=i-3;j<=i+3;j++){if(j===i)continue;if(type==="high"&&arr[j]>=arr[i]){isPiv=false;break;}if(type==="low"&&arr[j]<=arr[i]){isPiv=false;break;}}
-      if(isPiv)out.push({i:i,v:arr[i]});
+      var ok=true;
+      for(var j=i-3;j<=i+3;j++){
+        if(j===i)continue;
+        if(type==="high"&&arr[j]>=arr[i]){ok=false;break;}
+        if(type==="low"&&arr[j]<=arr[i]){ok=false;break;}
+      }
+      if(ok)out.push({i:i,v:arr[i]});
     }
     return out;
   }
-  // Bearish divergence: price HH, RSI LH
-  var priceHighs=pivots(highs,"high");
-  if(priceHighs.length>=2){
-    var h1=priceHighs[priceHighs.length-2],h2=priceHighs[priceHighs.length-1];
-    var r1=rsis[h1.i],r2=rsis[h2.i];
-    if(h2.v>h1.v&&r2<r1&&(r1-r2)>3&&r1<80&&r2<80&&r2>30){
-      return{type:"bearish"};
-    }
+  var ph=pivots(highs,"high");
+  var pl=pivots(lows,"low");
+  // ── DIVERGENCIAS (precio e indicador en dirección opuesta → posible giro) ──
+  // Divergencia bajista: precio HH + RSI LH → agotamiento alcista
+  if(ph.length>=2){
+    var h1=ph[ph.length-2],h2=ph[ph.length-1];
+    var rh1=rsis[h1.i],rh2=rsis[h2.i];
+    if(h2.v>h1.v&&rh2<rh1&&(rh1-rh2)>3&&rh1<82&&rh2>28)
+      return{type:"bearish",kind:"divergence"};
   }
-  // Bullish divergence: price LL, RSI HL
-  var priceLows=pivots(lows,"low");
-  if(priceLows.length>=2){
-    var l1=priceLows[priceLows.length-2],l2=priceLows[priceLows.length-1];
-    var s1=rsis[l1.i],s2=rsis[l2.i];
-    if(l2.v<l1.v&&s2>s1&&(s2-s1)>3&&s1>20&&s2>20&&s2<70){
-      return{type:"bullish"};
-    }
+  // Divergencia alcista: precio LL + RSI HL → agotamiento bajista
+  if(pl.length>=2){
+    var l1=pl[pl.length-2],l2=pl[pl.length-1];
+    var rl1=rsis[l1.i],rl2=rsis[l2.i];
+    if(l2.v<l1.v&&rl2>rl1&&(rl2-rl1)>3&&rl1>18&&rl2<72)
+      return{type:"bullish",kind:"divergence"};
+  }
+  // ── CONVERGENCIAS (precio e indicador en la misma dirección → confirma tendencia) ──
+  // Convergencia bajista: precio LH + RSI LH → confirma bajista
+  if(ph.length>=2){
+    var ch1=ph[ph.length-2],ch2=ph[ph.length-1];
+    var crh1=rsis[ch1.i],crh2=rsis[ch2.i];
+    if(ch2.v<ch1.v&&crh2<crh1&&(crh1-crh2)>3&&crh2<65)
+      return{type:"bearish",kind:"convergence"};
+  }
+  // Convergencia alcista: precio HL + RSI HL → confirma alcista
+  if(pl.length>=2){
+    var cl1=pl[pl.length-2],cl2=pl[pl.length-1];
+    var crl1=rsis[cl1.i],crl2=rsis[cl2.i];
+    if(cl2.v>cl1.v&&crl2>crl1&&(crl2-crl1)>3&&crl1>35)
+      return{type:"bullish",kind:"convergence"};
   }
   return null;
 }
@@ -4719,8 +4784,11 @@ async function getBinanceData(selAsset,selTF,ASSETS,TFS){
   var emaRel=ema7&&ema25?(ema7>ema25?"EMA7 sobre EMA25 (alcista)":"EMA7 bajo EMA25 (bajista)"):"--";
   var sr=calcSRLevels(highs,lows,price);
   var fvgs=detectFVGs(klines,price);
+  var ohlcSeries=klines.map(function(k){return{o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4])};});
+  var rsiSeries=calcRSISeries(closes,14);
+  var divResult=detectRSIDivergence(ohlcSeries,rsiSeries);
   return{asset:assetLabel,tf:tfLabel,price:price.toFixed(4),change24h:ticker.priceChangePercent,
     rsi:rsi,ema7:ema7?ema7.toFixed(4):null,ema25:ema25?ema25.toFixed(4):null,ema50:ema50?ema50.toFixed(4):null,
     emaRelation:emaRel,trend:trend,volRatio:volRatio,high24h:ticker.highPrice,low24h:ticker.lowPrice,
-    supports:sr.supports,resistances:sr.resistances,fvgs:fvgs};
+    supports:sr.supports,resistances:sr.resistances,fvgs:fvgs,divResult:divResult};
 }
