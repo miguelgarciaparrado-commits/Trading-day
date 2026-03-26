@@ -1956,14 +1956,15 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save 
         setIsRecording(false);
         // sendMessage will be called by user clicking send or Enter after
     }
-    function saveVoiceToDiary(msgContent, type, msgIdx) {
+    function saveChatToDiary(msgContent, isVoice, type, msgIdx) {
         var typeLabels = { win: "VICTORIA", lesson: "LECCIÓN", mistake: "ERROR", analysis: "ANÁLISIS" };
+        var prefix = isVoice ? "🎙️ [Audio] " : "💬 [Chat] ";
         var entry = {
             id: Date.now(),
             type: type,
-            text: "🎙️ [Audio] " + msgContent.slice(0, 600),
+            text: prefix + msgContent.slice(0, 600),
             date: new Date().toLocaleDateString("es-ES"),
-            fromVoice: true
+            fromChat: true
         };
         var newJnl = [entry, ...(jnl || [])];
         SJ(newJnl);
@@ -2122,8 +2123,8 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save 
             return p.name + " (" + Math.round(p.conf / (p.obs || 1) * 100) + "% exito, " + p.conf + "/" + p.obs + " obs)";
         }).join(", ") || "Sin patrones confirmados";
         const recentJournal = jnl.slice(0, 8).map(function (j) {
-            var voiceTag = (j.fromVoice ? "[VOZ] " : "");
-            return voiceTag + j.type.toUpperCase() + ": " + j.text.slice(0, 100);
+            var tag = j.fromChat ? "[CHAT] " : "";
+            return tag + j.type.toUpperCase() + ": " + j.text.slice(0, 100);
         }).join(" | ") || "Sin entradas";
         const slTotal = ps.slOk + ps.slBroken;
         const slRate = slTotal > 0 ? Math.round(ps.slOk / slTotal * 100) : 100;
@@ -2449,17 +2450,17 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save 
                         m.image && React.createElement("img", { src: "data:" + m.image.mediaType + ";base64," + m.image.base64, style: { display: "block", maxWidth: "100%", maxHeight: 220, borderRadius: 6, marginBottom: 8, objectFit: "contain" } }),
                         m.isVoice && React.createElement("span", { style: { fontSize: 8, color: "#00cc66", display: "block", marginBottom: 4 } }, "\uD83C\uDF99\uFE0F Mensaje de voz"),
                         m.content),
-                    m.role === "user" && m.isVoice && !voiceSaved[String(i)] && (React.createElement("div", { style: { marginTop: 4, padding: "6px 8px", background: "rgba(0,255,136,.05)", border: "1px solid rgba(0,255,136,.15)", borderRadius: 6, maxWidth: "88%", alignSelf: "flex-end" } }, voiceSaveIdx === i ? (React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 8, color: "#888", marginBottom: 5 } }, "\u00BFQu\u00E9 tipo de entrada del diario?"),
+                    m.role === "user" && !voiceSaved[String(i)] && (React.createElement("div", { style: { marginTop: 4, padding: "6px 8px", background: "rgba(0,255,136,.04)", border: "1px solid rgba(0,255,136,.12)", borderRadius: 6, maxWidth: "88%", alignSelf: "flex-end" } }, voiceSaveIdx === i ? (React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 8, color: "#888", marginBottom: 5 } }, "\u00BFC\u00F3mo clasificas este momento psicol\u00F3gico?"),
                         React.createElement("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" } },
                             [["win", "🏆 Victoria", "#00ff88"], ["lesson", "📚 Lección", "#f0b429"], ["mistake", "⚠️ Error", "#ff4444"], ["analysis", "🔍 Análisis", "#88aaff"]].map(function (row) {
                                 var t = row[0], lbl = row[1], col = row[2];
-                                return (React.createElement("button", { key: t, onClick: function () { saveVoiceToDiary(m.content, t, i); }, style: { background: "rgba(255,255,255,.05)", border: "1px solid " + col + "55", color: col, padding: "4px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, lbl));
+                                return (React.createElement("button", { key: t, onClick: function () { saveChatToDiary(m.content, m.isVoice || false, t, i); }, style: { background: "rgba(255,255,255,.05)", border: "1px solid " + col + "55", color: col, padding: "4px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, lbl));
                             }),
                             React.createElement("button", { onClick: function () { setVoiceSaveIdx(null); }, style: { background: "transparent", border: "none", color: "#444", fontSize: 10, cursor: "pointer" } }, "\u2715")))) : (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                        React.createElement("span", { style: { fontSize: 8, color: "#555" } }, "\uD83C\uDF99\uFE0F Audio transcrito"),
+                        React.createElement("span", { style: { fontSize: 8, color: "#444" } }, m.isVoice ? "🎙️ Audio" : "💬 Mensaje"),
                         React.createElement("button", { onClick: function () { setVoiceSaveIdx(i); }, style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "\uD83D\uDCD3 Guardar en diario"))))),
-                    m.role === "user" && m.isVoice && voiceSaved[String(i)] && (React.createElement("div", { style: { marginTop: 3, fontSize: 8, color: "#00ff88", alignSelf: "flex-end" } },
+                    m.role === "user" && voiceSaved[String(i)] && (React.createElement("div", { style: { marginTop: 3, fontSize: 8, color: "#00ff88", alignSelf: "flex-end" } },
                         "\u2713 Guardado en diario como ",
                         voiceSaved[String(i)])),
                     React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 2, marginLeft: m.role === "user" ? 0 : 4, marginRight: m.role === "user" ? 4 : 0 } },

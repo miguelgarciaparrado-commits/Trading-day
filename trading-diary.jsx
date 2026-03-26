@@ -1969,14 +1969,15 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     // sendMessage will be called by user clicking send or Enter after
   }
 
-  function saveVoiceToDiary(msgContent,type,msgIdx){
+  function saveChatToDiary(msgContent,isVoice,type,msgIdx){
     var typeLabels={win:"VICTORIA",lesson:"LECCIÓN",mistake:"ERROR",analysis:"ANÁLISIS"};
+    var prefix=isVoice?"🎙️ [Audio] ":"💬 [Chat] ";
     var entry={
       id:Date.now(),
       type:type,
-      text:"🎙️ [Audio] "+msgContent.slice(0,600),
+      text:prefix+msgContent.slice(0,600),
       date:new Date().toLocaleDateString("es-ES"),
-      fromVoice:true
+      fromChat:true
     };
     var newJnl=[entry,...(jnl||[])];
     SJ(newJnl);
@@ -2126,8 +2127,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       return p.name+" ("+Math.round(p.conf/(p.obs||1)*100)+"% exito, "+p.conf+"/"+p.obs+" obs)";
     }).join(", ")||"Sin patrones confirmados";
     const recentJournal=jnl.slice(0,8).map(function(j){
-      var voiceTag=(j.fromVoice?"[VOZ] ":"");
-      return voiceTag+j.type.toUpperCase()+": "+j.text.slice(0,100);
+      var tag=j.fromChat?"[CHAT] ":""; return tag+j.type.toUpperCase()+": "+j.text.slice(0,100);
     }).join(" | ")||"Sin entradas";
     const slTotal=ps.slOk+ps.slBroken;
     const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
@@ -2504,17 +2504,17 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
               {m.isVoice&&<span style={{fontSize:8,color:"#00cc66",display:"block",marginBottom:4}}>🎙️ Mensaje de voz</span>}
               {m.content}
             </div>
-            {/* Voice diary save bar — shown for voice user messages */}
-            {m.role==="user"&&m.isVoice&&!voiceSaved[String(i)]&&(
-              <div style={{marginTop:4,padding:"6px 8px",background:"rgba(0,255,136,.05)",border:"1px solid rgba(0,255,136,.15)",borderRadius:6,maxWidth:"88%",alignSelf:"flex-end"}}>
+            {/* Diary save bar — shown for ALL user messages */}
+            {m.role==="user"&&!voiceSaved[String(i)]&&(
+              <div style={{marginTop:4,padding:"6px 8px",background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.12)",borderRadius:6,maxWidth:"88%",alignSelf:"flex-end"}}>
                 {voiceSaveIdx===i?(
                   <div>
-                    <div style={{fontSize:8,color:"#888",marginBottom:5}}>¿Qué tipo de entrada del diario?</div>
+                    <div style={{fontSize:8,color:"#888",marginBottom:5}}>¿Cómo clasificas este momento psicológico?</div>
                     <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                       {[["win","🏆 Victoria","#00ff88"],["lesson","📚 Lección","#f0b429"],["mistake","⚠️ Error","#ff4444"],["analysis","🔍 Análisis","#88aaff"]].map(function(row){
                         var t=row[0],lbl=row[1],col=row[2];
                         return(
-                          <button key={t} onClick={function(){saveVoiceToDiary(m.content,t,i);}}
+                          <button key={t} onClick={function(){saveChatToDiary(m.content,m.isVoice||false,t,i);}}
                             style={{background:"rgba(255,255,255,.05)",border:"1px solid "+col+"55",color:col,padding:"4px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
                             {lbl}
                           </button>
@@ -2525,13 +2525,13 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
                   </div>
                 ):(
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{fontSize:8,color:"#555"}}>🎙️ Audio transcrito</span>
+                    <span style={{fontSize:8,color:"#444"}}>{m.isVoice?"🎙️ Audio":"💬 Mensaje"}</span>
                     <button onClick={function(){setVoiceSaveIdx(i);}} style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>📓 Guardar en diario</button>
                   </div>
                 )}
               </div>
             )}
-            {m.role==="user"&&m.isVoice&&voiceSaved[String(i)]&&(
+            {m.role==="user"&&voiceSaved[String(i)]&&(
               <div style={{marginTop:3,fontSize:8,color:"#00ff88",alignSelf:"flex-end"}}>
                 ✓ Guardado en diario como {voiceSaved[String(i)]}
               </div>
