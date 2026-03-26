@@ -1705,6 +1705,8 @@ export default function App(){
           fmtNum={fmtNum}
           S={S}
           pats={pats}
+          jnl={jnl}
+          SJ={SJ}
         />
       )}
 
@@ -4858,9 +4860,10 @@ function CalendarioTab({hist,fmtNum}){
   );
 }
 
-function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats}){
+function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,jnl,SJ}){
   const[f,setF]=useState(form);
   const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {ticker,price,name} | "error"
+  const[preReflection,setPreReflection]=useState(form.preReflection||"");
   function addTpLevel(){setF(function(prev){return{...prev,tpLevels:[...(prev.tpLevels||[]),{id:Date.now(),price:"",pct:"",capInput:""}]};});}
   function removeTpLevel(id){setF(function(prev){return{...prev,tpLevels:(prev.tpLevels||[]).filter(function(l){return l.id!==id;})};});}
   function updateTpLevel(id,key,val){setF(function(prev){
@@ -4966,9 +4969,18 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats}
   function doSavePosForm(){
     if(!f.asset||!f.capital||!f.entry)return;
     var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
-    const obj={...f,id:editId||Date.now(),capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false};
+    var posId=editId||Date.now();
+    var reflText=preReflection?preReflection.trim():"";
+    const obj={...f,id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText};
     const nv=editId?currentPos.map(x=>x.id===editId?obj:x):[...currentPos,obj];
     SPos(nv);
+    if(reflText&&SJ&&!editId){
+      var jnlEntry={id:Date.now()+1,type:"analysis",
+        text:"[Pre-trade "+f.asset+"] "+reflText.slice(0,600),
+        date:new Date().toLocaleDateString("es-ES"),
+        preTradeReflection:true,linkedPos:posId};
+      SJ([jnlEntry,...(jnl||[])]);
+    }
     setModal(m=>({...m,pos:false,posForm:null,editPosId:null}));
   }
   const e2=+f.entry,sl=+f.sl,tp2=+f.tp,cap=+f.capital;
@@ -5120,6 +5132,17 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats}
             <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:"#00ff88",fontWeight:700}}>
               Posición protegida — ganancia potencial {fmtNum(reward)}
             </div>
+          )}
+        </div>
+      )}
+      {!editId&&(
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:8,color:"#888",marginBottom:4,letterSpacing:1}}>REFLEXION PREVIA AL TRADE <span style={{color:"#555"}}>(opcional)</span></div>
+          <textarea value={preReflection} onChange={function(e){setPreReflection(e.target.value);}}
+            placeholder="Que te dice el mercado? Como te sientes respecto a esta operacion? Por que crees que funcionara esta tesis?..."
+            style={{...S.inp,width:"100%",minHeight:72,padding:"8px",fontSize:9,lineHeight:1.6,resize:"vertical",boxSizing:"border-box",color:"#e0e0e0"}}/>
+          {preReflection.trim()&&(
+            <div style={{fontSize:7,color:"#555",marginTop:3}}>Se guardara en el diario vinculado a esta operacion</div>
           )}
         </div>
       )}
