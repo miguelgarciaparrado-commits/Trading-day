@@ -992,41 +992,66 @@ export default function App(){
             </div>}
 
             {/* Stats del diario */}
-            {(()=>{
-              const allH=[...xhist,...H0];
-              // Racha actual
-              let streak=0,streakType="";
-              for(let i=0;i<allH.length;i++){
-                const w=allH[i].result>0;
-                if(i===0){streak=1;streakType=w?"win":"loss";}
-                else if((w&&streakType==="win")||(!w&&streakType==="loss"))streak++;
+            {(function(){
+              // Merge TP parcials en xhist para que cuenten como 1 trade
+              var xGroups={},xAbsorbed={};
+              xhist.forEach(function(h){
+                var note=h.note||"";
+                if(note.indexOf("parcial")<0)return;
+                var k=h.asset+"_"+h.dir+"_"+h.cap+"_"+(h.date||"");
+                if(!xGroups[k])xGroups[k]=[];
+                xGroups[k].push(h);
+              });
+              Object.keys(xGroups).forEach(function(k){if(xGroups[k].length<2)delete xGroups[k];});
+              var xMergedFirst={};
+              Object.keys(xGroups).forEach(function(k){
+                var grp=xGroups[k];
+                var tot=grp.reduce(function(a,x){return a+(x.result||0);},0);
+                xMergedFirst[grp[0].id]={result:parseFloat(tot.toFixed(2))};
+                grp.slice(1).forEach(function(x){xAbsorbed[x.id]=true;});
+              });
+              var mergedXhist=xhist.filter(function(h){return !xAbsorbed[h.id];}).map(function(h){
+                return xMergedFirst[h.id]?{asset:h.asset,dir:h.dir,cap:h.cap,date:h.date,note:"TPs completados",result:xMergedFirst[h.id].result}:h;
+              });
+              var allH=[].concat(mergedXhist,H0);
+
+              // Racha: ignorar resultados $0 (breakeven), contar consecutivas desde la más reciente
+              var streak=0,streakType="";
+              for(var si=0;si<allH.length;si++){
+                if(allH[si].result===0)continue;
+                var sw=allH[si].result>0;
+                if(streak===0){streak=1;streakType=sw?"win":"loss";}
+                else if((sw&&streakType==="win")||(!sw&&streakType==="loss"))streak++;
                 else break;
               }
-              const bestTrade=allH.length?allH.reduce((b,h)=>h.result>b.result?h:b,allH[0]):null;
-              const worstTrade=allH.length?allH.reduce((b,h)=>h.result<b.result?h:b,allH[0]):null;
-              const assetCount={};
-              allH.forEach(h=>{assetCount[h.asset]=(assetCount[h.asset]||0)+1;});
-              const topAsset=Object.entries(assetCount).sort((a,b)=>b[1]-a[1])[0];
-              const longs=allH.filter(h=>h.dir==="Long");
-              const shorts=allH.filter(h=>h.dir==="Short");
-              const longWR=longs.length?Math.round(longs.filter(h=>h.result>0).length/longs.length*100):null;
-              const shortWR=shorts.length?Math.round(shorts.filter(h=>h.result>0).length/shorts.length*100):null;
-              const slPct=ps.slOk+ps.slBroken>0?Math.round(ps.slOk/(ps.slOk+ps.slBroken)*100):null;
+
+              // P&L de hoy (solo xhist, no histórico Quantfury)
+              var todayStr=new Date().toLocaleDateString("es-ES");
+              var todayPnl=mergedXhist.filter(function(h){return h.date===todayStr;}).reduce(function(a,h){return a+(h.result||0);},0);
+              var todayTrades=mergedXhist.filter(function(h){return h.date===todayStr;}).length;
+
+              var worstTrade=allH.length?allH.reduce(function(b,h){return h.result<b.result?h:b;},allH[0]):null;
+              var assetCount={};
+              allH.forEach(function(h){assetCount[h.asset]=(assetCount[h.asset]||0)+1;});
+              var topAssetArr=Object.keys(assetCount).sort(function(a,b){return assetCount[b]-assetCount[a];});
+              var topAsset=topAssetArr.length?[topAssetArr[0],assetCount[topAssetArr[0]]]:null;
+              var slPct=ps.slOk+ps.slBroken>0?Math.round(ps.slOk/(ps.slOk+ps.slBroken)*100):null;
+              var todayColor=todayPnl>0?"#00ff88":todayPnl<0?"#ff4444":"#666";
               return(
                 <div style={{...S.card,marginBottom:10}}>
                   <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:10}}>ESTADISTICAS DEL DIARIO</div>
                   <div style={S.grid(130)}>
                     <div style={S.card}>
                       <div style={S.lbl}>RACHA ACTUAL</div>
-                      <div style={S.val(streakType==="win"?"#00ff88":"#ff4444")}>
-                        {streak} {streakType==="win"?"✓":"✗"}
+                      <div style={S.val(streak===0?"#555":streakType==="win"?"#00ff88":"#ff4444")}>
+                        {streak>0?streak+" "+(streakType==="win"?"✓":"✗"):"--"}
                       </div>
-                      <div style={{fontSize:8,color:"#555"}}>{streakType==="win"?"consecutivas ganadas":"consecutivas perdidas"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{streak===0?"sin datos":streakType==="win"?"consecutivas ganadas":"consecutivas perdidas"}</div>
                     </div>
                     <div style={S.card}>
-                      <div style={S.lbl}>MEJOR TRADE</div>
-                      <div style={S.val("#00ff88")}>{bestTrade?fmtNum(bestTrade.result):"--"}</div>
-                      <div style={{fontSize:8,color:"#555"}}>{bestTrade?bestTrade.asset:""}</div>
+                      <div style={S.lbl}>P&L HOY</div>
+                      <div style={S.val(todayColor)}>{todayTrades>0?fmtNum(parseFloat(todayPnl.toFixed(2))):"$0"}</div>
+                      <div style={{fontSize:8,color:"#555"}}>{todayTrades>0?todayTrades+" trade"+(todayTrades>1?"s":"")+" cerrado"+(todayTrades>1?"s":""):"sin operaciones hoy"}</div>
                     </div>
                     <div style={S.card}>
                       <div style={S.lbl}>PEOR TRADE</div>
@@ -1039,16 +1064,6 @@ export default function App(){
                       <div style={{fontSize:8,color:"#555"}}>{topAsset?topAsset[1]+" ops":""}</div>
                     </div>
                     <div style={S.card}>
-                      <div style={S.lbl}>WIN RATE LONG</div>
-                      <div style={S.val(longWR>=50?"#00ff88":"#ff4444")}>{longWR!=null?longWR+"%":"--"}</div>
-                      <div style={{fontSize:8,color:"#555"}}>{longs.length} ops long</div>
-                    </div>
-                    <div style={S.card}>
-                      <div style={S.lbl}>WIN RATE SHORT</div>
-                      <div style={S.val(shortWR>=50?"#00ff88":"#ff4444")}>{shortWR!=null?shortWR+"%":"--"}</div>
-                      <div style={{fontSize:8,color:"#555"}}>{shorts.length} ops short</div>
-                    </div>
-                    <div style={S.card}>
                       <div style={S.lbl}>DISCIPLINA SL</div>
                       <div style={S.val(slPct>=80?"#00ff88":slPct>=60?"#f0b429":"#ff4444")}>{slPct!=null?slPct+"%":"--"}</div>
                       <div style={{fontSize:8,color:"#555"}}>{ps.slBroken} SL rotos</div>
@@ -1057,11 +1072,6 @@ export default function App(){
                       <div style={S.lbl}>SCORE TRADER</div>
                       <div style={S.val(lvColor)}>{sc}</div>
                       <div style={{fontSize:8,color:lvColor}}>{lvLabel}</div>
-                    </div>
-                    <div style={S.card}>
-                      <div style={S.lbl}>ENTRADAS DIARIO</div>
-                      <div style={S.val("#88aaff")}>{jnl.length}</div>
-                      <div style={{fontSize:8,color:"#555"}}>{jnl.filter(j=>j.type==="win").length}V · {jnl.filter(j=>j.type==="lesson").length}L · {jnl.filter(j=>j.type==="mistake").length}E</div>
                     </div>
                   </div>
                 </div>
