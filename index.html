@@ -3959,286 +3959,297 @@ function AlertasTab({ S }) {
             closesRef.current[key] = [];
         // Mark as active and persist so auto-restart works on next load
         saveAlerts(alertsRef.current.map(function (a) { return a.id === alert.id ? { ...a, active: true, error: false } : a; }));
-        fetch("https://api.binance.com/api/v3/klines?symbol=" + alert.symbol + "&interval=" + alert.interval + "&limit=250")
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-            closesRef.current[key] = data.map(function (k) { return parseFloat(k[4]); });
-            ohlcRef.current[key] = data.map(function (k) { return { o: parseFloat(k[1]), h: parseFloat(k[2]), l: parseFloat(k[3]), c: parseFloat(k[4]), v: parseFloat(k[5] || 0) }; });
-            // Pre-compute RSI history from historical closes (enables divergence on startup)
-            var histRsiSeries = calcRSISeries(closesRef.current[key], 14);
-            rsiHistRef.current[key] = histRsiSeries.slice(-80);
-            // Do NOT pre-initialize RSI zone — leave as undefined so zone defaults to "neutral"
-            // This ensures the first WebSocket tick fires the alert if RSI is already in zone
-            const ws = new WebSocket("wss://stream.binance.com:9443/ws/" + alert.symbol.toLowerCase() + "@kline_" + alert.interval);
-            ws.onmessage = function (e) {
-                const d = JSON.parse(e.data);
-                const k = d.k;
-                const closePrice = parseFloat(k.c);
-                const closes = [...closesRef.current[key]];
-                if (k.x) {
-                    closes.push(closePrice);
-                    if (closes.length > 300)
-                        closes.shift();
-                }
-                else {
-                    if (closes.length > 0)
-                        closes[closes.length - 1] = closePrice;
-                }
-                closesRef.current[key] = closes;
-                const ohlc = [...(ohlcRef.current[key] || [])];
-                const newCandle = { o: parseFloat(k.o), h: parseFloat(k.h), l: parseFloat(k.l), c: closePrice, v: parseFloat(k.v || 0) };
-                if (k.x) {
-                    ohlc.push(newCandle);
-                    if (ohlc.length > 300)
-                        ohlc.shift();
-                }
-                else {
-                    if (ohlc.length > 0)
-                        ohlc[ohlc.length - 1] = newCandle;
-                }
-                ohlcRef.current[key] = ohlc;
-                const rsi = calcRSI(closes, 14);
-                const ema7 = calcEMA(closes, 7);
-                const ema25 = calcEMA(closes, 25);
-                const ema50 = calcEMA(closes, 50);
-                const ema200 = calcEMA(closes, 200);
-                const cross7_25 = detectCross(closes);
-                const cross50_200 = detectCross50_200(closes);
-                const relation = ema7 && ema25 ? (ema7 > ema25 ? "above" : "below") : null;
-                const relation50_200 = ema50 && ema200 ? (ema50 > ema200 ? "above" : "below") : null;
-                // Update UI
-                setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, currentRsi: rsi, currentPrice: closePrice, active: true } : a; }); });
-                if (ema7 && ema25) {
-                    setEmaData(function (prev) { return { ...prev, [alert.id]: { ema7, ema25, relation, cross: cross7_25, ema50, ema200, relation50_200, cross50_200 } }; });
-                }
-                const ak = sid + "_";
-                // Calcular dirección de volumen (última vela vs media de las 5 anteriores)
-                var volDir = null;
-                if (ohlc.length >= 6) {
-                    var vols = ohlc.slice(-6).map(function (c) { return c.v || 0; });
-                    var lastVol = vols[vols.length - 1];
-                    var avgVol5 = vols.slice(0, -1).reduce(function (a, v) { return a + v; }, 0) / 5;
-                    if (avgVol5 > 0)
-                        volDir = lastVol > avgVol5 * 1.15 ? "↗ Ascendente" : lastVol < avgVol5 * 0.85 ? "↘ Descendente" : "→ Estable";
-                }
-                // Calcular div/conv actual para contexto en notificaciones
-                var divResult = null;
-                var rsiHistSnap = rsiHistRef.current[key] || [];
-                if (rsiHistSnap.length >= 10 && ohlc.length >= 10) {
-                    divResult = detectRSIDivergence(ohlc, rsiHistSnap);
-                }
-                // ─── RSI AUTOMÁTICO: sobreventa y sobrecompra (umbrales configurables) ───
-                if (rsi !== null) {
-                    // Almacenar historial RSI por vela cerrada
+        function doFetchKlines(attempt) {
+            fetch("https://api.binance.com/api/v3/klines?symbol=" + alert.symbol + "&interval=" + alert.interval + "&limit=250")
+                .then(function (r) { if (!r.ok)
+                throw new Error(r.status); return r.json(); })
+                .then(function (data) {
+                if (!data || !data.length)
+                    throw new Error("empty");
+                closesRef.current[key] = data.map(function (k) { return parseFloat(k[4]); });
+                ohlcRef.current[key] = data.map(function (k) { return { o: parseFloat(k[1]), h: parseFloat(k[2]), l: parseFloat(k[3]), c: parseFloat(k[4]), v: parseFloat(k[5] || 0) }; });
+                // Pre-compute RSI history from historical closes (enables divergence on startup)
+                var histRsiSeries = calcRSISeries(closesRef.current[key], 14);
+                rsiHistRef.current[key] = histRsiSeries.slice(-80);
+                // Do NOT pre-initialize RSI zone — leave as undefined so zone defaults to "neutral"
+                // This ensures the first WebSocket tick fires the alert if RSI is already in zone
+                const ws = new WebSocket("wss://stream.binance.com:9443/ws/" + alert.symbol.toLowerCase() + "@kline_" + alert.interval);
+                ws.onmessage = function (e) {
+                    const d = JSON.parse(e.data);
+                    const k = d.k;
+                    const closePrice = parseFloat(k.c);
+                    const closes = [...closesRef.current[key]];
                     if (k.x) {
-                        if (!rsiHistRef.current[key])
-                            rsiHistRef.current[key] = [];
-                        rsiHistRef.current[key].push(rsi);
-                        if (rsiHistRef.current[key].length > 100)
-                            rsiHistRef.current[key].shift();
+                        closes.push(closePrice);
+                        if (closes.length > 300)
+                            closes.shift();
                     }
-                    var ovThr = alert.rsiOversoldTarget != null ? alert.rsiOversoldTarget : 30;
-                    var obThr = alert.rsiOverboughtTarget != null ? alert.rsiOverboughtTarget : 70;
-                    var rsiZone = rsi <= ovThr ? "oversold" : rsi >= obThr ? "overbought" : "neutral";
-                    const prevZone = lastTrigRef.current[ak + "rsizone"] || "neutral";
-                    if (rsiZone !== prevZone) {
-                        lastTrigRef.current[ak + "rsizone"] = rsiZone;
-                        if (rsiZone === "oversold" && (alert.rsiOversoldEnabled !== false))
-                            sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
-                        else if (rsiZone === "overbought" && (alert.rsiOverboughtEnabled !== false))
-                            sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                    else {
+                        if (closes.length > 0)
+                            closes[closes.length - 1] = closePrice;
                     }
-                    // RSI personalizado (nivel configurado por el usuario)
-                    if (alert.rsiCustomEnabled && alert.rsiCustomTarget) {
-                        const rsiKey = ak + "rsicustom";
-                        const triggered = (alert.rsiCustomCondition === "below" && rsi <= alert.rsiCustomTarget) || (alert.rsiCustomCondition === "above" && rsi >= alert.rsiCustomTarget);
-                        if (triggered && !lastTrigRef.current[rsiKey]) {
-                            lastTrigRef.current[rsiKey] = true;
-                            const condLabel = alert.rsiCustomCondition === "below" ? "por debajo de" : "por encima de";
-                            sendAlert(alert.label, alert.interval, rsi, "rsi_custom", ema7, ema25, "RSI " + condLabel + " " + alert.rsiCustomTarget + " (actual: " + rsi.toFixed(1) + ")", closePrice);
+                    closesRef.current[key] = closes;
+                    const ohlc = [...(ohlcRef.current[key] || [])];
+                    const newCandle = { o: parseFloat(k.o), h: parseFloat(k.h), l: parseFloat(k.l), c: closePrice, v: parseFloat(k.v || 0) };
+                    if (k.x) {
+                        ohlc.push(newCandle);
+                        if (ohlc.length > 300)
+                            ohlc.shift();
+                    }
+                    else {
+                        if (ohlc.length > 0)
+                            ohlc[ohlc.length - 1] = newCandle;
+                    }
+                    ohlcRef.current[key] = ohlc;
+                    const rsi = calcRSI(closes, 14);
+                    const ema7 = calcEMA(closes, 7);
+                    const ema25 = calcEMA(closes, 25);
+                    const ema50 = calcEMA(closes, 50);
+                    const ema200 = calcEMA(closes, 200);
+                    const cross7_25 = detectCross(closes);
+                    const cross50_200 = detectCross50_200(closes);
+                    const relation = ema7 && ema25 ? (ema7 > ema25 ? "above" : "below") : null;
+                    const relation50_200 = ema50 && ema200 ? (ema50 > ema200 ? "above" : "below") : null;
+                    // Update UI
+                    setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, currentRsi: rsi, currentPrice: closePrice, active: true } : a; }); });
+                    if (ema7 && ema25) {
+                        setEmaData(function (prev) { return { ...prev, [alert.id]: { ema7, ema25, relation, cross: cross7_25, ema50, ema200, relation50_200, cross50_200 } }; });
+                    }
+                    const ak = sid + "_";
+                    // Calcular dirección de volumen (última vela vs media de las 5 anteriores)
+                    var volDir = null;
+                    if (ohlc.length >= 6) {
+                        var vols = ohlc.slice(-6).map(function (c) { return c.v || 0; });
+                        var lastVol = vols[vols.length - 1];
+                        var avgVol5 = vols.slice(0, -1).reduce(function (a, v) { return a + v; }, 0) / 5;
+                        if (avgVol5 > 0)
+                            volDir = lastVol > avgVol5 * 1.15 ? "↗ Ascendente" : lastVol < avgVol5 * 0.85 ? "↘ Descendente" : "→ Estable";
+                    }
+                    // Calcular div/conv actual para contexto en notificaciones
+                    var divResult = null;
+                    var rsiHistSnap = rsiHistRef.current[key] || [];
+                    if (rsiHistSnap.length >= 10 && ohlc.length >= 10) {
+                        divResult = detectRSIDivergence(ohlc, rsiHistSnap);
+                    }
+                    // ─── RSI AUTOMÁTICO: sobreventa y sobrecompra (umbrales configurables) ───
+                    if (rsi !== null) {
+                        // Almacenar historial RSI por vela cerrada
+                        if (k.x) {
+                            if (!rsiHistRef.current[key])
+                                rsiHistRef.current[key] = [];
+                            rsiHistRef.current[key].push(rsi);
+                            if (rsiHistRef.current[key].length > 100)
+                                rsiHistRef.current[key].shift();
                         }
-                        if (!triggered)
-                            lastTrigRef.current[rsiKey] = false;
-                    }
-                    // Divergencias/Convergencias RSI — todas las temporalidades, solo vela cerrada
-                    if (k.x && (alert.rsiDivEnabled !== false)) {
-                        if (divResult) {
-                            var divKind = divResult.kind || "divergence";
-                            var divAlertType = divKind === "convergence"
-                                ? (divResult.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
-                                : (divResult.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
-                            var divKey = ak + divKind + "_" + divResult.type + "_" + Math.round(closePrice / 50);
-                            if (!lastTrigRef.current[divKey]) {
-                                lastTrigRef.current[divKey] = true;
-                                sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                        var ovThr = alert.rsiOversoldTarget != null ? alert.rsiOversoldTarget : 30;
+                        var obThr = alert.rsiOverboughtTarget != null ? alert.rsiOverboughtTarget : 70;
+                        var rsiZone = rsi <= ovThr ? "oversold" : rsi >= obThr ? "overbought" : "neutral";
+                        const prevZone = lastTrigRef.current[ak + "rsizone"] || "neutral";
+                        if (rsiZone !== prevZone) {
+                            lastTrigRef.current[ak + "rsizone"] = rsiZone;
+                            if (rsiZone === "oversold" && (alert.rsiOversoldEnabled !== false))
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                            else if (rsiZone === "overbought" && (alert.rsiOverboughtEnabled !== false))
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                        }
+                        // RSI personalizado (nivel configurado por el usuario)
+                        if (alert.rsiCustomEnabled && alert.rsiCustomTarget) {
+                            const rsiKey = ak + "rsicustom";
+                            const triggered = (alert.rsiCustomCondition === "below" && rsi <= alert.rsiCustomTarget) || (alert.rsiCustomCondition === "above" && rsi >= alert.rsiCustomTarget);
+                            if (triggered && !lastTrigRef.current[rsiKey]) {
+                                lastTrigRef.current[rsiKey] = true;
+                                const condLabel = alert.rsiCustomCondition === "below" ? "por debajo de" : "por encima de";
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_custom", ema7, ema25, "RSI " + condLabel + " " + alert.rsiCustomTarget + " (actual: " + rsi.toFixed(1) + ")", closePrice);
                             }
+                            if (!triggered)
+                                lastTrigRef.current[rsiKey] = false;
                         }
-                        else {
-                            // Sin divergencia → liberar locks de la zona actual para poder re-detectar
-                            var pzD = Math.round(closePrice / 50);
-                            ["divergence_bullish", "divergence_bearish", "convergence_bullish", "convergence_bearish"].forEach(function (dt) {
-                                delete lastTrigRef.current[ak + dt + "_" + pzD];
-                            });
-                        }
-                    }
-                }
-                // ─── BANDERÍN ALCISTA: solo en vela confirmada (k.x) ───
-                if (k.x) {
-                    var pennantResult = detectBullishPennant(ohlc);
-                    // Reset lock when pattern disappears (price pulled back inside consolidation)
-                    if (!pennantResult || !pennantResult.breakout) {
-                        lastTrigRef.current[ak + "pennant_bull"] = false;
-                        lastTrigRef.current[ak + "pennant_fake"] = false;
-                    }
-                    if (pennantResult && pennantResult.breakout) {
-                        if (!pennantResult.falseBrkWarning) {
-                            if (!lastTrigRef.current[ak + "pennant_bull"]) {
-                                lastTrigRef.current[ak + "pennant_bull"] = true;
-                                lastTrigRef.current[ak + "pennant_fake"] = false;
-                                sendAlert(alert.label, alert.interval, rsi, "pennant_bull", null, null, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: pennantResult });
-                            }
-                        }
-                        else {
-                            if (!lastTrigRef.current[ak + "pennant_fake"] && !lastTrigRef.current[ak + "pennant_bull"]) {
-                                lastTrigRef.current[ak + "pennant_fake"] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "pennant_fake", null, null, "Posible falsa ruptura: " + pennantResult.falseBrkReasons.join(", "), closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: pennantResult });
-                            }
-                        }
-                    }
-                    // ─── BANDERÍN BAJISTA ───
-                    var bearPennantResult = detectBearishPennant(ohlc);
-                    if (!bearPennantResult || !bearPennantResult.breakout) {
-                        lastTrigRef.current[ak + "pennant_bear"] = false;
-                        lastTrigRef.current[ak + "pennant_bear_fake"] = false;
-                    }
-                    if (bearPennantResult && bearPennantResult.breakout) {
-                        if (!bearPennantResult.falseBrkWarning) {
-                            if (!lastTrigRef.current[ak + "pennant_bear"]) {
-                                lastTrigRef.current[ak + "pennant_bear"] = true;
-                                lastTrigRef.current[ak + "pennant_bear_fake"] = false;
-                                sendAlert(alert.label, alert.interval, rsi, "pennant_bear", null, null, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: bearPennantResult });
-                            }
-                        }
-                        else {
-                            if (!lastTrigRef.current[ak + "pennant_bear_fake"] && !lastTrigRef.current[ak + "pennant_bear"]) {
-                                lastTrigRef.current[ak + "pennant_bear_fake"] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "pennant_bear_fake", null, null, "Posible falsa ruptura bajista: " + bearPennantResult.falseBrkReasons.join(", "), closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: bearPennantResult });
-                            }
-                        }
-                    }
-                }
-                // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
-                // Semanal no tiene cruces (muy raros, generarían ruido)
-                if (k.x && alert.interval !== "1w") {
-                    if (alert.emaCross725Enabled !== false) {
-                        if (cross7_25 === "golden") {
-                            if (!lastTrigRef.current[ak + "g725"]) {
-                                lastTrigRef.current[ak + "g725"] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "golden", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
-                            }
-                        }
-                        else {
-                            lastTrigRef.current[ak + "g725"] = false;
-                        }
-                        if (cross7_25 === "death") {
-                            if (!lastTrigRef.current[ak + "d725"]) {
-                                lastTrigRef.current[ak + "d725"] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "death", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
-                            }
-                        }
-                        else {
-                            lastTrigRef.current[ak + "d725"] = false;
-                        }
-                    }
-                    // EMA 50/200 solo en 4H y superiores (no 1H — cruces muy frecuentes)
-                    if (alert.emaCross50200Enabled !== false && alert.interval !== "1h") {
-                        if (cross50_200 === "golden") {
-                            if (!lastTrigRef.current[ak + "g200"]) {
-                                lastTrigRef.current[ak + "g200"] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "ema200_golden", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
-                            }
-                        }
-                        else {
-                            lastTrigRef.current[ak + "g200"] = false;
-                        }
-                        if (cross50_200 === "death") {
-                            if (!lastTrigRef.current[ak + "d200"]) {
-                                lastTrigRef.current[ak + "d200"] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "ema200_death", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
-                            }
-                        }
-                        else {
-                            lastTrigRef.current[ak + "d200"] = false;
-                        }
-                    }
-                }
-                // Nota: el reseteo del cruce EMA se hace solo en vela CERRADA (dentro del if k.x de arriba)
-                // No se resetea en ticks intermedios para evitar re-disparar cuando el precio fluctúa
-                // Canal + FVG: siempre activos en vela confirmada (ya no requieren toggle manual)
-                if (k.x) {
-                    var channelResult = detectChannelAlert(ohlc);
-                    var fvgResult = checkFVGCovered(ohlc, closePrice);
-                    // Canal: usar tipo específico como llave de deduplicación
-                    // Reset cuando el tipo cambia (precio salió de la zona)
-                    var chanTypeNow2 = channelResult ? channelResult.type : "";
-                    if (chanTypeNow2 !== lastTrigRef.current[ak + "chan_cur"]) {
-                        lastTrigRef.current[ak + "chan_cur"] = chanTypeNow2;
-                        // Solo dispara si tenemos un nuevo tipo de señal de canal
-                        if (channelResult) {
-                            var cExtra = { ohlc: ohlc, volDir: volDir, divResult: divResult, channelResult: channelResult };
-                            // Combo con FVG (señal de mayor calidad)
-                            if (fvgResult) {
-                                var comboKey2 = ak + "combo_" + channelResult.type + "_" + fvgResult.age;
-                                if (!lastTrigRef.current[comboKey2]) {
-                                    lastTrigRef.current[comboKey2] = true;
-                                    sendAlert(alert.label, alert.interval, rsi, "patron_combo", null, null, channelResult.desc + " + FVG " + fvgResult.subtype + " ($" + fvgResult.bot.toFixed(2) + "–$" + fvgResult.top.toFixed(2) + ")", closePrice, cExtra);
+                        // Divergencias/Convergencias RSI — todas las temporalidades, solo vela cerrada
+                        if (k.x && (alert.rsiDivEnabled !== false)) {
+                            if (divResult) {
+                                var divKind = divResult.kind || "divergence";
+                                var divAlertType = divKind === "convergence"
+                                    ? (divResult.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
+                                    : (divResult.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
+                                var divKey = ak + divKind + "_" + divResult.type + "_" + Math.round(closePrice / 50);
+                                if (!lastTrigRef.current[divKey]) {
+                                    lastTrigRef.current[divKey] = true;
+                                    sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
                                 }
                             }
                             else {
-                                // Canal solo
-                                sendAlert(alert.label, alert.interval, rsi, channelResult.type, null, null, channelResult.desc, closePrice, cExtra);
+                                // Sin divergencia → liberar locks de la zona actual para poder re-detectar
+                                var pzD = Math.round(closePrice / 50);
+                                ["divergence_bullish", "divergence_bearish", "convergence_bullish", "convergence_bearish"].forEach(function (dt) {
+                                    delete lastTrigRef.current[ak + dt + "_" + pzD];
+                                });
                             }
                         }
                     }
-                    // FVG sin canal (siempre activo)
-                    if (!channelResult && fvgResult) {
-                        var fvgKey2 = ak + "fvg_" + fvgResult.subtype + "_" + fvgResult.age;
-                        if (!lastTrigRef.current[fvgKey2]) {
-                            lastTrigRef.current[fvgKey2] = true;
-                            sendAlert(alert.label, alert.interval, rsi, "patron_fvg", null, null, "FVG " + fvgResult.subtype + " cubierta — zona $" + fvgResult.bot.toFixed(2) + "–$" + fvgResult.top.toFixed(2) + " (hace " + fvgResult.age + " velas)", closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                    // ─── BANDERÍN ALCISTA: solo en vela confirmada (k.x) ───
+                    if (k.x) {
+                        var pennantResult = detectBullishPennant(ohlc);
+                        // Reset lock when pattern disappears (price pulled back inside consolidation)
+                        if (!pennantResult || !pennantResult.breakout) {
+                            lastTrigRef.current[ak + "pennant_bull"] = false;
+                            lastTrigRef.current[ak + "pennant_fake"] = false;
+                        }
+                        if (pennantResult && pennantResult.breakout) {
+                            if (!pennantResult.falseBrkWarning) {
+                                if (!lastTrigRef.current[ak + "pennant_bull"]) {
+                                    lastTrigRef.current[ak + "pennant_bull"] = true;
+                                    lastTrigRef.current[ak + "pennant_fake"] = false;
+                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bull", null, null, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: pennantResult });
+                                }
+                            }
+                            else {
+                                if (!lastTrigRef.current[ak + "pennant_fake"] && !lastTrigRef.current[ak + "pennant_bull"]) {
+                                    lastTrigRef.current[ak + "pennant_fake"] = true;
+                                    sendAlert(alert.label, alert.interval, rsi, "pennant_fake", null, null, "Posible falsa ruptura: " + pennantResult.falseBrkReasons.join(", "), closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: pennantResult });
+                                }
+                            }
+                        }
+                        // ─── BANDERÍN BAJISTA ───
+                        var bearPennantResult = detectBearishPennant(ohlc);
+                        if (!bearPennantResult || !bearPennantResult.breakout) {
+                            lastTrigRef.current[ak + "pennant_bear"] = false;
+                            lastTrigRef.current[ak + "pennant_bear_fake"] = false;
+                        }
+                        if (bearPennantResult && bearPennantResult.breakout) {
+                            if (!bearPennantResult.falseBrkWarning) {
+                                if (!lastTrigRef.current[ak + "pennant_bear"]) {
+                                    lastTrigRef.current[ak + "pennant_bear"] = true;
+                                    lastTrigRef.current[ak + "pennant_bear_fake"] = false;
+                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bear", null, null, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: bearPennantResult });
+                                }
+                            }
+                            else {
+                                if (!lastTrigRef.current[ak + "pennant_bear_fake"] && !lastTrigRef.current[ak + "pennant_bear"]) {
+                                    lastTrigRef.current[ak + "pennant_bear_fake"] = true;
+                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bear_fake", null, null, "Posible falsa ruptura bajista: " + bearPennantResult.falseBrkReasons.join(", "), closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: bearPennantResult });
+                                }
+                            }
                         }
                     }
+                    // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
+                    // Semanal no tiene cruces (muy raros, generarían ruido)
+                    if (k.x && alert.interval !== "1w") {
+                        if (alert.emaCross725Enabled !== false) {
+                            if (cross7_25 === "golden") {
+                                if (!lastTrigRef.current[ak + "g725"]) {
+                                    lastTrigRef.current[ak + "g725"] = true;
+                                    sendAlert(alert.label, alert.interval, rsi, "golden", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                }
+                            }
+                            else {
+                                lastTrigRef.current[ak + "g725"] = false;
+                            }
+                            if (cross7_25 === "death") {
+                                if (!lastTrigRef.current[ak + "d725"]) {
+                                    lastTrigRef.current[ak + "d725"] = true;
+                                    sendAlert(alert.label, alert.interval, rsi, "death", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                }
+                            }
+                            else {
+                                lastTrigRef.current[ak + "d725"] = false;
+                            }
+                        }
+                        // EMA 50/200 solo en 4H y superiores (no 1H — cruces muy frecuentes)
+                        if (alert.emaCross50200Enabled !== false && alert.interval !== "1h") {
+                            if (cross50_200 === "golden") {
+                                if (!lastTrigRef.current[ak + "g200"]) {
+                                    lastTrigRef.current[ak + "g200"] = true;
+                                    sendAlert(alert.label, alert.interval, rsi, "ema200_golden", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                }
+                            }
+                            else {
+                                lastTrigRef.current[ak + "g200"] = false;
+                            }
+                            if (cross50_200 === "death") {
+                                if (!lastTrigRef.current[ak + "d200"]) {
+                                    lastTrigRef.current[ak + "d200"] = true;
+                                    sendAlert(alert.label, alert.interval, rsi, "ema200_death", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                }
+                            }
+                            else {
+                                lastTrigRef.current[ak + "d200"] = false;
+                            }
+                        }
+                    }
+                    // Nota: el reseteo del cruce EMA se hace solo en vela CERRADA (dentro del if k.x de arriba)
+                    // No se resetea en ticks intermedios para evitar re-disparar cuando el precio fluctúa
+                    // Canal + FVG: siempre activos en vela confirmada (ya no requieren toggle manual)
+                    if (k.x) {
+                        var channelResult = detectChannelAlert(ohlc);
+                        var fvgResult = checkFVGCovered(ohlc, closePrice);
+                        // Canal: usar tipo específico como llave de deduplicación
+                        // Reset cuando el tipo cambia (precio salió de la zona)
+                        var chanTypeNow2 = channelResult ? channelResult.type : "";
+                        if (chanTypeNow2 !== lastTrigRef.current[ak + "chan_cur"]) {
+                            lastTrigRef.current[ak + "chan_cur"] = chanTypeNow2;
+                            // Solo dispara si tenemos un nuevo tipo de señal de canal
+                            if (channelResult) {
+                                var cExtra = { ohlc: ohlc, volDir: volDir, divResult: divResult, channelResult: channelResult };
+                                // Combo con FVG (señal de mayor calidad)
+                                if (fvgResult) {
+                                    var comboKey2 = ak + "combo_" + channelResult.type + "_" + fvgResult.age;
+                                    if (!lastTrigRef.current[comboKey2]) {
+                                        lastTrigRef.current[comboKey2] = true;
+                                        sendAlert(alert.label, alert.interval, rsi, "patron_combo", null, null, channelResult.desc + " + FVG " + fvgResult.subtype + " ($" + fvgResult.bot.toFixed(2) + "–$" + fvgResult.top.toFixed(2) + ")", closePrice, cExtra);
+                                    }
+                                }
+                                else {
+                                    // Canal solo
+                                    sendAlert(alert.label, alert.interval, rsi, channelResult.type, null, null, channelResult.desc, closePrice, cExtra);
+                                }
+                            }
+                        }
+                        // FVG sin canal (siempre activo)
+                        if (!channelResult && fvgResult) {
+                            var fvgKey2 = ak + "fvg_" + fvgResult.subtype + "_" + fvgResult.age;
+                            if (!lastTrigRef.current[fvgKey2]) {
+                                lastTrigRef.current[fvgKey2] = true;
+                                sendAlert(alert.label, alert.interval, rsi, "patron_fvg", null, null, "FVG " + fvgResult.subtype + " cubierta — zona $" + fvgResult.bot.toFixed(2) + "–$" + fvgResult.top.toFixed(2) + " (hace " + fvgResult.age + " velas)", closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                            }
+                        }
+                    }
+                };
+                ws.onerror = function () {
+                    // will be followed by onclose, handle reconnect there
+                };
+                ws.onclose = function () {
+                    // If the alert is still supposed to be active, auto-reconnect
+                    const stillActive = alertsRef.current.find(function (a) { return a.id === alert.id && a.active; });
+                    if (!stillActive)
+                        return; // user stopped it
+                    const cnt = (reconnectCountRef.current[sid] || 0) + 1;
+                    reconnectCountRef.current[sid] = cnt;
+                    if (cnt > 10) {
+                        // too many retries, mark error
+                        setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
+                        reconnectCountRef.current[sid] = 0;
+                        return;
+                    }
+                    const delay = Math.min(30000, 3000 * cnt);
+                    setTimeout(function () {
+                        const check = alertsRef.current.find(function (a) { return a.id === alert.id && a.active; });
+                        if (check)
+                            startAlert(check);
+                    }, delay);
+                };
+                wsRefs.current[sid] = ws;
+                reconnectCountRef.current[sid] = 0;
+            })
+                .catch(function () {
+                if ((attempt || 0) < 2) {
+                    setTimeout(function () { doFetchKlines((attempt || 0) + 1); }, 4000 * ((attempt || 0) + 1));
                 }
-            };
-            ws.onerror = function () {
-                // will be followed by onclose, handle reconnect there
-            };
-            ws.onclose = function () {
-                // If the alert is still supposed to be active, auto-reconnect
-                const stillActive = alertsRef.current.find(function (a) { return a.id === alert.id && a.active; });
-                if (!stillActive)
-                    return; // user stopped it
-                const cnt = (reconnectCountRef.current[sid] || 0) + 1;
-                reconnectCountRef.current[sid] = cnt;
-                if (cnt > 10) {
-                    // too many retries, mark error
+                else {
                     setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
-                    reconnectCountRef.current[sid] = 0;
-                    return;
                 }
-                const delay = Math.min(30000, 3000 * cnt);
-                setTimeout(function () {
-                    const check = alertsRef.current.find(function (a) { return a.id === alert.id && a.active; });
-                    if (check)
-                        startAlert(check);
-                }, delay);
-            };
-            wsRefs.current[sid] = ws;
-            reconnectCountRef.current[sid] = 0;
-        })
-            .catch(function () {
-            setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
-        });
+            });
+        }
+        doFetchKlines(0);
     }
     function stopAlert(alert) {
         const sid = alert.id.toString();

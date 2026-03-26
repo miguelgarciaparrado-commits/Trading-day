@@ -3797,9 +3797,11 @@ function AlertasTab({S}){
     // Mark as active and persist so auto-restart works on next load
     saveAlerts(alertsRef.current.map(function(a){return a.id===alert.id?{...a,active:true,error:false}:a;}));
 
-    fetch("https://api.binance.com/api/v3/klines?symbol="+alert.symbol+"&interval="+alert.interval+"&limit=250")
-      .then(function(r){return r.json();})
+    function doFetchKlines(attempt){
+      fetch("https://api.binance.com/api/v3/klines?symbol="+alert.symbol+"&interval="+alert.interval+"&limit=250")
+      .then(function(r){if(!r.ok)throw new Error(r.status);return r.json();})
       .then(function(data){
+        if(!data||!data.length)throw new Error("empty");
         closesRef.current[key]=data.map(function(k){return parseFloat(k[4]);});
         ohlcRef.current[key]=data.map(function(k){return{o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5]||0)};});
         // Pre-compute RSI history from historical closes (enables divergence on startup)
@@ -4039,8 +4041,14 @@ function AlertasTab({S}){
         reconnectCountRef.current[sid]=0;
       })
       .catch(function(){
-        setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+        if((attempt||0)<2){
+          setTimeout(function(){doFetchKlines((attempt||0)+1);},4000*((attempt||0)+1));
+        }else{
+          setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+        }
       });
+    }
+    doFetchKlines(0);
   }
 
   function stopAlert(alert){
