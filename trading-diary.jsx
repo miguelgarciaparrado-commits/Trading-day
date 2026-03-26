@@ -4100,6 +4100,29 @@ function AlertasTab({S}){
     saveAlerts(alertsRef.current.filter(function(a){return a.id!==alert.id;}));
   }
 
+  function addAllTimeframes(alert){
+    var ALL_TF=["1h","4h","1d","1w"];
+    var existing=alertsRef.current;
+    var toAdd=[];
+    ALL_TF.forEach(function(tf,i){
+      var dup=existing.some(function(a){return a.symbol===alert.symbol&&a.interval===tf;});
+      if(!dup){
+        toAdd.push({
+          id:Date.now()+i+1,
+          symbol:alert.symbol,label:alert.label,interval:tf,
+          rsiCustomEnabled:alert.rsiCustomEnabled||false,
+          rsiCustomTarget:alert.rsiCustomTarget||50,
+          rsiCustomCondition:alert.rsiCustomCondition||"below",
+          active:false,currentRsi:null,currentPrice:null,error:false
+        });
+      }
+    });
+    if(toAdd.length===0)return;
+    var updated=[...existing,...toAdd];
+    saveAlerts(updated);
+    toAdd.forEach(function(a){startAlert(a);});
+  }
+
   function exportAlerts(){
     const data=JSON.stringify(alertsRef.current.map(function(a){return{...a,active:false,currentRsi:null,currentPrice:null,error:false};}));
     if(navigator.clipboard&&navigator.clipboard.writeText){
@@ -4167,8 +4190,8 @@ function AlertasTab({S}){
               if(a.rsiOversoldEnabled!==false)types.push("RSI\u2264"+(a.rsiOversoldTarget!=null?a.rsiOversoldTarget:30));
               if(a.rsiOverboughtEnabled!==false)types.push("RSI\u2265"+(a.rsiOverboughtTarget!=null?a.rsiOverboughtTarget:70));
               if(a.rsiCustomEnabled&&a.rsiCustomTarget)types.push("RSI"+(a.rsiCustomCondition==="below"?"\u2264":"\u2265")+a.rsiCustomTarget);
-              if(a.emaCross725Enabled!==false)types.push("Cruce EMA 7/25");
-              if(a.emaCross50200Enabled!==false)types.push("Cruce EMA 50/200");
+              if(a.emaCross725Enabled!==false)types.push("Cruce Dorado/Muerte EMA 7/25");
+              if(a.emaCross50200Enabled!==false)types.push("Cruce Dorado/Muerte EMA 50/200");
               if(a.rsiDivEnabled!==false)types.push("Div RSI");
               if(a.channelEnabled)types.push("Canal");
               if(a.fvgEnabled)types.push("FVG");
@@ -4562,6 +4585,14 @@ function AlertasTab({S}){
                 {rsi!==null&&<span style={{fontSize:11,fontWeight:700,color:rsiColor,minWidth:34,textAlign:"right"}}>RSI {rsi.toFixed(0)}</span>}
                 {alert.currentPrice!=null&&<span style={{fontSize:9,color:"#555"}}>${parseFloat(alert.currentPrice).toLocaleString("es-ES",{maximumFractionDigits:2})}</span>}
                 {alert.error&&<button onClick={function(){reconnectCountRef.current[alert.id.toString()]=0;startAlert(alert);}} style={{fontSize:8,padding:"3px 8px",background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:4,cursor:"pointer"}}>▶ Reconectar</button>}
+                {(function(){
+                  var ALL_TF=["1h","4h","1d","1w"];
+                  var missingTf=ALL_TF.some(function(tf){return !alerts.some(function(a){return a.symbol===alert.symbol&&a.interval===tf;});});
+                  if(!missingTf)return null;
+                  return <button onClick={function(){addAllTimeframes(alert);}}
+                    style={{fontSize:8,padding:"3px 6px",background:"rgba(255,215,0,.08)",border:"1px solid rgba(255,215,0,.3)",color:"#f0b429",borderRadius:4,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}
+                    title="Añadir todas las temporalidades (1H, 4H, Diario, Semanal)">➕ TF</button>;
+                })()}
                 {!isBtc&&<button onClick={function(){removeAlert(alert);}}
                   style={{width:22,height:22,borderRadius:"50%",background:"rgba(255,68,68,.12)",border:"1px solid rgba(255,68,68,.3)",color:"#ff6666",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0}}
                   title="Dejar de monitorear">×</button>}
