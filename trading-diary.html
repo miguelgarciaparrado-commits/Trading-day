@@ -290,11 +290,11 @@ function generateProfileSummary(ps, pats, jnl, hist, xhist, sc) {
     }
     // ── 2. Ratio R:R (formato correcto: 1:X) ──
     if (avgR !== null) {
-        var rStr = "1:" + avgR.toFixed(1);
+        var rStr = "1:" + avgR.toFixed(2);
         if (avgR >= 3)
             add("Ratio R:R medio " + rStr + " en " + rCount + " operaciones. Excelente seleccion de niveles — los TPs son ambiciosos respecto al riesgo asumido.", "positive");
         else if (avgR >= 2)
-            add("Ratio R:R medio " + rStr + " en " + rCount + " operaciones. Solido. Por cada euro arriesgado ganas " + avgR.toFixed(1) + " de media.", "positive");
+            add("Ratio R:R medio " + rStr + " en " + rCount + " operaciones. Solido. Por cada euro arriesgado ganas " + avgR.toFixed(2) + " de media.", "positive");
         else if (avgR >= 1)
             add("Ratio R:R medio " + rStr + " en " + rCount + " operaciones. Por debajo de 1:2 — o los TPs estan demasiado cerca o los SLs demasiado lejos de la entrada.", "neutral");
         else
