@@ -297,10 +297,18 @@ export default function App(){
           if(r.ok){const d=await r.json();newPr[pair.key]=parseFloat(parseFloat(d.price).toFixed(2));}
         }catch(e){}
       }),
-      // Acciones y ETFs: Stooq primero (CORS abierto), fallback Yahoo
+      // Acciones y ETFs: Finnhub primero (si hay key), luego Stooq, fallback Yahoo
       ...[...stockSymbols].map(async function(sym){
-        // Stooq CSV — sufijo .us para bolsa americana
         var found=false;
+        // Finnhub — fuente primaria para acciones/ETFs
+        var fhKeyFP=localStorage.getItem("td-finnhub-key");
+        if(fhKeyFP&&!found){
+          try{
+            var rfh=await fetch("https://finnhub.io/api/v1/quote?symbol="+sym+"&token="+fhKeyFP);
+            if(rfh.ok){var dfh=await rfh.json();if(dfh.c&&dfh.c>0){newPr[sym]=parseFloat(dfh.c.toFixed(2));found=true;}}
+          }catch(e){}
+        }
+        // Stooq CSV — sufijo .us para bolsa americana
         var stooqSuffixes=[".us",""];
         for(var s=0;s<stooqSuffixes.length&&!found;s++){
           try{
@@ -2980,6 +2988,10 @@ function AlertasTab({S}){
   const[tgToken,setTgToken]=useState(function(){return localStorage.getItem("td-tg-token")||"";});
   const[tgChatId,setTgChatId]=useState(function(){return localStorage.getItem("td-tg-chatid")||"";});
   const[showTgConfig,setShowTgConfig]=useState(false);
+  const[finnhubKey,setFinnhubKey]=useState(function(){return localStorage.getItem("td-finnhub-key")||"";});
+  const[showFinnhubConfig,setShowFinnhubConfig]=useState(false);
+  const[finnhubStatus,setFinnhubStatus]=useState(null);
+  const finnhubLastCandleRef=useRef({});
   const[tgStatus,setTgStatus]=useState(null);
 
   // Wake Lock — mantiene pantalla encendida cuando hay alertas activas
@@ -3284,7 +3296,100 @@ function AlertasTab({S}){
     }
   }
 
+  function startStockAlertFinnhub(alert){
+    requestWakeLock();
+    var sid=alert.id.toString();
+    var fhKey2=localStorage.getItem("td-finnhub-key");
+    if(!fhKey2){
+      setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+      return;
+    }
+    var key=alert.symbol+alert.interval;
+    if(!closesRef.current[key])closesRef.current[key]=[];
+    saveAlerts(alertsRef.current.map(function(a){return a.id===alert.id?{...a,active:true,error:false}:a;}));
+    var resMap={"1h":"60","4h":"60","1d":"D","1w":"W"};
+    var res=resMap[alert.interval]||"D";
+    var periodSecs={"1h":3600,"4h":14400,"1d":86400,"1w":604800};
+    var lookback=300;
+    var fromTs=Math.floor(Date.now()/1000)-(periodSecs[alert.interval]||86400)*lookback;
+    function processStockCandles(d,isLive){
+      if(!d||d.s==="no_data"||!d.c||d.c.length===0)return;
+      var closes=d.c.map(function(v){return parseFloat(v);});
+      var ohlc=d.c.map(function(v,i){return{o:parseFloat(d.o[i]),h:parseFloat(d.h[i]),l:parseFloat(d.l[i]),c:parseFloat(d.c[i]),v:parseFloat((d.v&&d.v[i])||0)};});
+      closesRef.current[key]=closes;
+      ohlcRef.current[key]=ohlc;
+      var closePrice=closes[closes.length-1];
+      var rsi=calcRSI(closes,14);
+      var ema7=calcEMA(closes,7);
+      var ema25=calcEMA(closes,25);
+      var ema50=calcEMA(closes,50);
+      var ema200=calcEMA(closes,200);
+      var cross7_25=detectCross(closes);
+      var cross50_200=detectCross50_200(closes);
+      var relation=ema7&&ema25?(ema7>ema25?"above":"below"):null;
+      var relation50_200=ema50&&ema200?(ema50>ema200?"above":"below"):null;
+      setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,currentRsi:rsi,currentPrice:closePrice,active:true}:a;});});
+      if(ema7&&ema25){
+        setEmaData(function(prev){return{...prev,[alert.id]:{ema7:ema7,ema25:ema25,relation:relation,cross:cross7_25,ema50:ema50,ema200:ema200,relation50_200:relation50_200,cross50_200:cross50_200}};});
+      }
+      if(!isLive)return;
+      var ak=sid+"_";
+      if(rsi!==null){
+        var rsiZone2=rsi<=30?"oversold":rsi>=70?"overbought":"neutral";
+        var prevZone2=lastTrigRef.current[ak+"rsizone"]||"neutral";
+        if(rsiZone2!==prevZone2){
+          lastTrigRef.current[ak+"rsizone"]=rsiZone2;
+          if(rsiZone2==="oversold")sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc});
+          else if(rsiZone2==="overbought")sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc});
+        }
+        if(alert.rsiCustomEnabled&&alert.rsiCustomTarget){
+          var rsiKey2=ak+"rsicustom";
+          var triggered2=(alert.rsiCustomCondition==="below"&&rsi<=alert.rsiCustomTarget)||(alert.rsiCustomCondition==="above"&&rsi>=alert.rsiCustomTarget);
+          if(triggered2&&!lastTrigRef.current[rsiKey2]){lastTrigRef.current[rsiKey2]=true;var condLabel2=alert.rsiCustomCondition==="below"?"por debajo de":"por encima de";sendAlert(alert.label,alert.interval,rsi,"rsi_custom",ema7,ema25,"RSI "+condLabel2+" "+alert.rsiCustomTarget+" (actual: "+rsi.toFixed(1)+")",closePrice);}
+          if(!triggered2)lastTrigRef.current[rsiKey2]=false;
+        }
+      }
+      if(alert.interval!=="1w"){
+        if(cross7_25==="golden"){if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
+        else{lastTrigRef.current[ak+"g725"]=false;}
+        if(cross7_25==="death"){if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
+        else{lastTrigRef.current[ak+"d725"]=false;}
+        if(alert.interval!=="1h"){
+          if(cross50_200==="golden"){if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice,{ohlc:ohlc});}}
+          else{lastTrigRef.current[ak+"g200"]=false;}
+          if(cross50_200==="death"){if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice,{ohlc:ohlc});}}
+          else{lastTrigRef.current[ak+"d200"]=false;}
+        }
+      }
+    }
+    var toTs0=Math.floor(Date.now()/1000);
+    fetch("https://finnhub.io/api/v1/stock/candle?symbol="+alert.symbol+"&resolution="+res+"&from="+fromTs+"&to="+toTs0+"&token="+fhKey2)
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d||d.s==="no_data"||!d.c||d.c.length===0){
+          setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+          return;
+        }
+        processStockCandles(d,false);
+        var iv=setInterval(function(){
+          var toTs3=Math.floor(Date.now()/1000);
+          fetch("https://finnhub.io/api/v1/stock/candle?symbol="+alert.symbol+"&resolution="+res+"&from="+fromTs+"&to="+toTs3+"&token="+fhKey2)
+            .then(function(r2){return r2.json();})
+            .then(function(d2){processStockCandles(d2,true);})
+            .catch(function(){});
+        },60000);
+        wsRefs.current[sid]={close:function(){clearInterval(iv);}};
+        reconnectCountRef.current[sid]=0;
+      })
+      .catch(function(){
+        setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
+      });
+  }
+
   function startAlert(alert){
+    // Acciones/ETFs (no Binance) → usar Finnhub polling
+    var isBinancePair=/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
+    if(!isBinancePair){startStockAlertFinnhub(alert);return;}
     requestWakeLock(); // mantener pantalla encendida
     const sid=alert.id.toString();
     // Close existing WS for this alert if any
@@ -3584,7 +3689,9 @@ function AlertasTab({S}){
           <div style={{fontSize:9,color:"#555",marginTop:2}}>Tiempo real via Binance WebSocket</div>
         </div>
         <div style={{display:"flex",gap:5}}>
-          <button onClick={function(){setShowTgConfig(!showTgConfig);}} title="Notificaciones Telegram"
+          <button onClick={function(){setShowFinnhubConfig(!showFinnhubConfig);setShowTgConfig(false);}} title="Finnhub — acciones y ETFs"
+            style={{background:finnhubKey?"rgba(0,180,80,.15)":"transparent",border:"1px solid "+(finnhubKey?"#00b450":"#2a2a3a"),color:finnhubKey?"#00cc66":"#555",padding:"7px 10px",borderRadius:6,fontSize:10,cursor:"pointer"}}>📈</button>
+          <button onClick={function(){setShowTgConfig(!showTgConfig);setShowFinnhubConfig(false);}} title="Notificaciones Telegram"
             style={{background:tgToken&&tgChatId?"rgba(0,136,204,.15)":"transparent",border:"1px solid "+(tgToken&&tgChatId?"#0088cc":"#2a2a3a"),color:tgToken&&tgChatId?"#0088cc":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>✈️</button>
           {alerts.length>0&&<button onClick={exportAlerts} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Exportar</button>}
           <button onClick={function(){setShowImport(!showImport);setImportText("");}} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Importar</button>
@@ -3664,6 +3771,53 @@ function AlertasTab({S}){
         )
       )}
 
+      {/* Finnhub config panel */}
+      {showFinnhubConfig&&(
+        <div style={{background:"#111118",border:"1px solid rgba(0,180,80,.3)",borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:10,color:"#00cc66",fontWeight:700}}>📈 FINNHUB — ACCIONES Y ETFS</div>
+            {finnhubKey&&<button onClick={function(){setShowFinnhubConfig(false);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:12}}>✕</button>}
+          </div>
+          <div style={{fontSize:8,color:"#555",marginBottom:10,lineHeight:1.6}}>
+            Finnhub permite monitorizar acciones (TLT, AAPL, NVDA...) con datos en tiempo real.<br/>
+            Crea una cuenta gratuita en <strong style={{color:"#00cc66"}}>finnhub.io</strong> → Dashboard → API Key
+          </div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:8,color:"#888",marginBottom:3}}>API KEY</div>
+            <input value={finnhubKey} onChange={function(e){setFinnhubKey(e.target.value.trim());}}
+              placeholder="d72p2phr01qlfd9..."
+              style={{...S.inp,width:"100%",fontSize:9,padding:"5px 8px",boxSizing:"border-box",fontFamily:"monospace"}}/>
+          </div>
+          {finnhubStatus&&(
+            <div style={{fontSize:9,marginBottom:8,padding:"5px 8px",borderRadius:4,
+              background:finnhubStatus==="ok"?"rgba(0,255,136,.08)":"rgba(255,68,68,.08)",
+              color:finnhubStatus==="ok"?"#00ff88":"#ff4444",
+              border:"1px solid "+(finnhubStatus==="ok"?"rgba(0,255,136,.3)":"rgba(255,68,68,.3)")}}>
+              {finnhubStatus==="ok"?"✓ Conexion correcta — precios de acciones disponibles":"✗ Error — revisa la API key"}
+            </div>
+          )}
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={function(){
+              var k=finnhubKey.trim();
+              if(!k){setFinnhubStatus("error");return;}
+              fetch("https://finnhub.io/api/v1/quote?symbol=AAPL&token="+k)
+                .then(function(r){return r.json();})
+                .then(function(d){
+                  if(d.c&&d.c>0){
+                    localStorage.setItem("td-finnhub-key",k);
+                    setFinnhubStatus("ok");
+                    setTimeout(function(){setShowFinnhubConfig(false);},1500);
+                  }else{setFinnhubStatus("error");}
+                }).catch(function(){setFinnhubStatus("error");});
+            }} style={{flex:2,padding:"7px",background:"#00b450",color:"#fff",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar y verificar</button>
+            {finnhubKey&&<button onClick={function(){
+              localStorage.removeItem("td-finnhub-key");
+              setFinnhubKey("");setFinnhubStatus(null);setShowFinnhubConfig(false);
+            }} style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Desconectar</button>}
+          </div>
+        </div>
+      )}
+
       {/* Import panel */}
       {showImport&&(
         <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:12,marginBottom:12}}>
@@ -3711,27 +3865,36 @@ function AlertasTab({S}){
           </div>
           {/* Custom symbol */}
           <div style={{marginBottom:10}}>
-            <div style={{fontSize:8,color:"#555",marginBottom:4}}>OTRO ACTIVO <span style={{color:"#888"}}>(cualquier par Binance)</span></div>
+            <div style={{fontSize:8,color:"#555",marginBottom:4}}>OTRO ACTIVO <span style={{color:"#888"}}>(par Binance o acción/ETF con Finnhub)</span></div>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <input value={customInput} onChange={function(e){setCustomInput(e.target.value.toUpperCase().trim());setCustomCheckStatus(null);}}
-                placeholder="Ej: DOGEUSDT, PEPEUSDT..."
+                placeholder="Ej: DOGEUSDT, TLT, AAPL..."
                 style={{...S.inp,flex:1,padding:"6px 8px",fontSize:9}}/>
               <button onClick={function(){
                 var sym=customInput.trim().toUpperCase();
                 if(!sym){return;}
                 setCustomCheckStatus("checking");
+                function addSym(){
+                  setCustomCheckStatus("ok");
+                  if(draft.selectedSymbols.indexOf(sym)<0){
+                    setDraft({...draft,selectedSymbols:[...draft.selectedSymbols,sym]});
+                  }
+                  setCustomInput("");
+                  setTimeout(function(){setCustomCheckStatus(null);},2000);
+                }
+                // Try Binance first
                 fetch("https://api.binance.com/api/v3/ticker/price?symbol="+sym)
                   .then(function(r){return r.json();})
                   .then(function(d){
-                    if(d.price){
-                      setCustomCheckStatus("ok");
-                      if(draft.selectedSymbols.indexOf(sym)<0){
-                        setDraft({...draft,selectedSymbols:[...draft.selectedSymbols,sym]});
-                      }
-                      setCustomInput("");
-                      setTimeout(function(){setCustomCheckStatus(null);},2000);
-                    }else{
-                      setCustomCheckStatus("error");
+                    if(d.price){addSym();}
+                    else{
+                      // Try Finnhub for stocks/ETFs
+                      var fhKeyC=localStorage.getItem("td-finnhub-key");
+                      if(!fhKeyC){setCustomCheckStatus("error");return;}
+                      fetch("https://finnhub.io/api/v1/quote?symbol="+sym+"&token="+fhKeyC)
+                        .then(function(r2){return r2.json();})
+                        .then(function(d2){if(d2.c&&d2.c>0){addSym();}else{setCustomCheckStatus("error");}})
+                        .catch(function(){setCustomCheckStatus("error");});
                     }
                   }).catch(function(){setCustomCheckStatus("error");});
               }} style={{padding:"6px 10px",borderRadius:5,border:"1px solid "+(customCheckStatus==="ok"?"#00ff88":customCheckStatus==="error"?"#ff4444":"#f0b429"),background:"transparent",color:customCheckStatus==="ok"?"#00ff88":customCheckStatus==="error"?"#ff4444":"#f0b429",fontSize:8,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
@@ -4713,8 +4876,16 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
   });}
   const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
 
-  // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
+  // Obtener precio de una accion/ETF via Finnhub (si hay key), Stooq, Yahoo
   async function fetchStockPrice(base){
+    // 0. Finnhub — fuente primaria si la key está configurada
+    var fhKeyFS=localStorage.getItem("td-finnhub-key");
+    if(fhKeyFS){
+      try{
+        var rfh2=await fetch("https://finnhub.io/api/v1/quote?symbol="+base+"&token="+fhKeyFS);
+        if(rfh2.ok){var dfh2=await rfh2.json();if(dfh2.c&&dfh2.c>0)return{price:dfh2.c.toFixed(2),name:base+" (Finnhub)",source:"finnhub"};}
+      }catch(e){}
+    }
     // 1. Stooq — CSV con sufijo .us para bolsa americana
     const stooqSuffixes=[".us",""];
     for(var s=0;s<stooqSuffixes.length;s++){
