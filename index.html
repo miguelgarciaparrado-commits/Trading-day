@@ -4447,9 +4447,18 @@ function AlertasTab({ S, predictions }) {
                         // Leer predicciones pendientes desde memoria (no localStorage — más fiable en móvil)
                         var memPreds = predictions || [];
                         var pendingPreds = memPreds.filter(function (p) { return p.status === "pending"; });
-                        var predLines = pendingPreds.length ? pendingPreds.map(function (p) {
-                            var label = p.asset ? p.asset.toUpperCase() : "(sin activo)";
-                            return "  • " + label + (p.tf ? " " + (tfLabel[p.tf] || p.tf) : "") + (p.note ? " — " + p.note : "") + (p.asset ? "" : " ⚠️ no monitoreada");
+                        var predLines = pendingPreds.length ? pendingPreds.map(function (p, pi) {
+                            var header = p.asset ? (p.asset.toUpperCase() + (p.tf ? " " + (tfLabel[p.tf] || p.tf) : "")) : "(sin activo)";
+                            var preview = "";
+                            if (p.note) {
+                                preview = " — " + p.note;
+                            }
+                            else if (p.content) {
+                                var txt = typeof p.content === "string" ? p.content : String(p.content);
+                                preview = " — \"" + txt.replace(/\n/g, " ").slice(0, 80) + (txt.length > 80 ? "..." : "") + "\"";
+                            }
+                            var warn = p.asset ? "" : " ⚠️";
+                            return "  " + (pi + 1) + ". " + header + preview + warn;
                         }).join("\n") : "  (ninguna guardada)";
                         var msg = "📋 NOTIFICACIONES ACTIVAS — Trading Diary\n\n" +
                             "📡 ALERTAS DE MERCADO\n" + alertLines +
