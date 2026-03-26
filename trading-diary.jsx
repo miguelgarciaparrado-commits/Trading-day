@@ -1280,7 +1280,7 @@ export default function App(){
                     <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                       <span style={{fontSize:9,color:"#444"}}>${h.cap>=1000?h.cap.toLocaleString():h.cap}</span>
                       <span style={{fontWeight:700,color:h.result>0?"#00ff88":h.result<0?"#ff4444":"#666",minWidth:68,textAlign:"right"}}>{h.result===0?"$0.00":fmtNum(h.result)}</span>
-                      {isAppEntry&&<button onClick={function(){SX(D.current.xhist.filter(function(x){return x.id!==h.id;}));}} style={{background:"transparent",border:"none",color:"#333",fontSize:12,cursor:"pointer",padding:"0 2px",lineHeight:1}} title="Eliminar">×</button>}
+                      {isAppEntry&&<button onClick={function(){SX(D.current.xhist.filter(function(x){return x.id!==h.id;}));}} style={{background:"rgba(255,68,68,.12)",border:"1px solid rgba(255,68,68,.3)",color:"#ff6666",fontSize:11,cursor:"pointer",padding:"2px 6px",borderRadius:3,lineHeight:1,fontWeight:700}} title="Eliminar entrada">×</button>}
                     </div>
                   </div>
                   );
