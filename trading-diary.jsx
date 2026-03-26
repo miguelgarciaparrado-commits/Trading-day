@@ -4112,6 +4112,35 @@ function AlertasTab({S}){
             style={{background:finnhubKey?"rgba(0,180,80,.15)":"transparent",border:"1px solid "+(finnhubKey?"#00b450":"#2a2a3a"),color:finnhubKey?"#00cc66":"#555",padding:"7px 10px",borderRadius:6,fontSize:10,cursor:"pointer"}}>📈</button>
           <button onClick={function(){setShowTgConfig(!showTgConfig);setShowFinnhubConfig(false);}} title="Notificaciones Telegram"
             style={{background:tgToken&&tgChatId?"rgba(0,136,204,.15)":"transparent",border:"1px solid "+(tgToken&&tgChatId?"#0088cc":"#2a2a3a"),color:tgToken&&tgChatId?"#0088cc":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>✈️</button>
+          {tgToken&&tgChatId&&<button title="Enviar lista de notificaciones a Telegram" onClick={function(){
+            var tk=localStorage.getItem("td-tg-token")||"";
+            var cid=localStorage.getItem("td-tg-chatid")||"";
+            if(!tk||!cid)return;
+            var msg="📋 NOTIFICACIONES AUTOMÁTICAS — Trading Diary\n\n"+
+              "📡 ALERTAS DE MERCADO (tiempo real WebSocket)\n"+
+              "• RSI sobreventa (≤30 por defecto, configurable)\n"+
+              "• RSI sobrecompra (≥70 por defecto, configurable)\n"+
+              "• RSI nivel personalizado\n"+
+              "• Cruce dorado EMA 7/25\n"+
+              "• Cruce de muerte EMA 7/25\n"+
+              "• Cruce dorado EMA 50/200\n"+
+              "• Cruce de muerte EMA 50/200\n"+
+              "• Divergencia alcista RSI\n"+
+              "• Divergencia bajista RSI\n"+
+              "• Toque de canal\n"+
+              "• FVG cubierta\n\n"+
+              "🛡 POSICIONES (cada 60 segundos)\n"+
+              "• SL ejecutado\n"+
+              "• TP ejecutado\n"+
+              "• TP parcial ejecutado\n"+
+              "• Breakeven ejecutado\n\n"+
+              "🧠 PREDICCIONES (cada 1-24h según timeframe)\n"+
+              "• Claude evalúa si se cumple la predicción\n"+
+              "• Solo avisa si hay cambio relevante\n"+
+              "• Con imagen del gráfico si la adjuntaste\n\n"+
+              "✅ Telegram funcionando correctamente.";
+            fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+encodeURIComponent(cid)+"&text="+encodeURIComponent(msg)).catch(function(){});
+          }} style={{background:"rgba(0,136,204,.1)",border:"1px solid #0088cc",color:"#0088cc",padding:"7px 8px",borderRadius:6,fontSize:9,cursor:"pointer",fontWeight:700}}>📋</button>}
         </div>
       </div>
 
@@ -4205,10 +4234,10 @@ function AlertasTab({S}){
                 "• Solo avisa si hay cambio relevante (sin spam)\n"+
                 "• Incluye tu análisis original + imagen del gráfico si la adjuntaste\n\n"+
                 "✅ Si ves este mensaje, Telegram funciona correctamente.";
-              fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{
-                method:"POST",headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({chat_id:cid,text:msg})
-              }).then(function(r){return r.json();}).then(function(d){setTgStatus(d.ok?"ok":"error");}).catch(function(){setTgStatus("error");});
+              fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+encodeURIComponent(cid)+"&text="+encodeURIComponent(msg))
+                .then(function(r){return r.json();})
+                .then(function(d){setTgStatus(d.ok?"ok":"error");})
+                .catch(function(){setTgStatus("error");});
             }} style={{flex:2,padding:"7px",background:"rgba(0,136,204,.15)",color:"#0088cc",border:"1px solid #0088cc",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>📋 Lista de notificaciones</button>
             {tgToken&&<button onClick={function(){
               localStorage.removeItem("td-tg-token");localStorage.removeItem("td-tg-chatid");
