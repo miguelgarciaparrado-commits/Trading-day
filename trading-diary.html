@@ -301,8 +301,8 @@ function generateProfileSummary(ps, pats, jnl, hist, xhist, sc) {
         lines.push("Conviertes los errores en lecciones. Eso es lo que diferencia a un trader profesional.");
     else if (mistakes > lessons * 2)
         lines.push("Tienes muchos errores documentados sin su leccion correspondiente. Reflexiona mas.");
-    // Patterns
-    const confPats = pats.filter(function (p) { return p.conf > 0; });
+    // Patterns — only include best pattern if tested at least 100 times
+    const confPats = pats.filter(function (p) { return p.conf > 0 && p.obs >= 100; });
     if (confPats.length > 0) {
         const bestPat = confPats.sort(function (a, b) {
             const ra = a.obs > 0 ? (a.conf / a.obs) : 0;
@@ -311,7 +311,7 @@ function generateProfileSummary(ps, pats, jnl, hist, xhist, sc) {
         })[0];
         const bestRate = bestPat.obs > 0 ? Math.round(bestPat.conf / bestPat.obs * 100) : 0;
         if (bestRate >= 70)
-            lines.push("Tu patron mas fiable es '" + bestPat.name + "' con un " + bestRate + "% de acierto.");
+            lines.push("Tu patron mas fiable es '" + bestPat.name + "' con un " + bestRate + "% de acierto (" + bestPat.obs + " observaciones).");
     }
     // Win rate
     if (winRate >= 60)
@@ -616,6 +616,9 @@ function App() {
             return;
         }
         setAiProfileLoading(true);
+        // Clear old report before generating new one — never accumulate old analyses
+        setAiProfile(null);
+        localStorage.removeItem("td-ai-profile");
         const allH = [...xhist, ...hist];
         const wins = allH.filter(function (h) { return h.result > 0; }).length;
         const losses = allH.filter(function (h) { return h.result < 0; }).length;
@@ -643,7 +646,7 @@ function App() {
         const jnlTypes = ["win", "lesson", "analysis", "mistake"].map(function (t) {
             return t + ": " + jnl.filter(function (j) { return j.type === t; }).length;
         }).join(", ");
-        const bestPat = pats.filter(function (p) { return p.obs > 0; }).sort(function (a, b) { return (b.conf / b.obs) - (a.conf / a.obs); })[0];
+        const bestPat = pats.filter(function (p) { return p.obs >= 100; }).sort(function (a, b) { return (b.conf / b.obs) - (a.conf / a.obs); })[0];
         // Analisis de cierres y sus descripciones
         const totClose = (ps.tpAuto || 0) + (ps.tpManual || 0) + (ps.earlyClose || 0) + (ps.manualClose || 0);
         const tpPct = totClose > 0 ? Math.round(((ps.tpAuto || 0) + (ps.tpManual || 0)) / totClose * 100) : 0;
@@ -779,16 +782,20 @@ function App() {
     // - CLOSE POSITION -
     function closePos(p, type, manualPrice) {
         const isBE = p.be || p.sl === p.entry;
+        // Use capitalRemaining if partial TPs have already been closed
+        const hasPartials = p.tpLevels && p.tpLevels.length > 0 && p.tpLevels.some(function (l) { return l.hit; });
+        const closeCap = hasPartials && p.capitalRemaining != null ? p.capitalRemaining : p.capital;
+        const accPartial = p.accPartialResult || 0;
         let result = 0;
         let note = "";
         const newPs = { ...D.current.ps };
         if (type === "sl") {
-            result = isBE ? 0 : -(p.capital * Math.abs(p.entry - p.sl) / p.entry);
-            note = isBE ? "BE - SL en entrada" : "SL ejecutado";
+            result = isBE ? 0 : -(closeCap * Math.abs(p.entry - p.sl) / p.entry);
+            note = isBE ? "BE - SL en entrada" : "SL ejecutado" + (hasPartials ? " (+ parciales cerradas)" : "");
             newPs.slOk = (newPs.slOk || 0) + 1;
         }
         else if (type === "tp") {
-            result = p.tp ? p.capital * Math.abs(p.tp - p.entry) / p.entry : 0;
+            result = p.tp ? closeCap * Math.abs(p.tp - p.entry) / p.entry : 0;
             note = "TP alcanzado";
             newPs.tpAuto = (newPs.tpAuto || 0) + 1;
         }
@@ -796,20 +803,25 @@ function App() {
             // Si hay precio manual, usar ese; si no, usar precio de mercado
             if (manualPrice && manualPrice > 0) {
                 const r = p.dir === "Short" ? (p.entry - manualPrice) / p.entry : (manualPrice - p.entry) / p.entry;
-                result = parseFloat((p.capital * r).toFixed(2));
-                note = "Cierre manual @ $" + manualPrice.toLocaleString();
+                result = parseFloat((closeCap * r).toFixed(2));
+                note = "Cierre manual @ $" + manualPrice.toLocaleString() + (hasPartials ? " (+ parciales cerradas)" : "");
             }
             else {
-                result = parseFloat(getPnL(p).toFixed(2));
-                note = "Cierre manual";
+                // recalculate getPnL with closeCap
+                const c = PM[p.asset] || p.entry;
+                const r2 = p.dir === "Short" ? (p.entry - c) / p.entry : (c - p.entry) / p.entry;
+                result = parseFloat((closeCap * r2).toFixed(2));
+                note = "Cierre manual" + (hasPartials ? " (+ parciales cerradas)" : "");
             }
-            if (result > 0)
+            if (result + accPartial > 0)
                 newPs.tpManual = (newPs.tpManual || 0) + 1;
-            else if (result < 0)
+            else if (result + accPartial < 0)
                 newPs.earlyClose = (newPs.earlyClose || 0) + 1;
             else
                 newPs.manualClose = (newPs.manualClose || 0) + 1;
         }
+        // Combine remaining close result with any accumulated partial results
+        result = parseFloat((result + accPartial).toFixed(2));
         // Calcular y guardar ratio R:R de esta operacion al cerrarla
         let closedRatio = null;
         if (p.sl && p.entry) {
@@ -833,7 +845,7 @@ function App() {
             newPs.ratioSum = (newPs.ratioSum || 0) + closedRatio;
             newPs.ratioCount = (newPs.ratioCount || 0) + 1;
         }
-        const entry = { id: Date.now(), asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(result.toFixed(2)), date: today(), note: note, ...(closedRatio !== null ? { ratio: closedRatio } : {}) };
+        const entry = { id: Date.now(), asset: p.asset, dir: p.dir, cap: p.capital, result: result, date: today(), note: note, ...(closedRatio !== null ? { ratio: closedRatio } : {}), ...(p.patternId ? { patternId: p.patternId } : {}) };
         const newX = [entry, ...(D.current.xhist || [])];
         const newPos2 = D.current.pos.filter(x => x.id !== p.id);
         D.current.xhist = newX;
@@ -917,8 +929,9 @@ function App() {
             }
             if (!kept)
                 continue;
-            // Partial TP levels
+            // Partial TP levels — stored as ONE xhist entry when all levels complete
             if (p.tpLevels && p.tpLevels.length) {
+                var newSessionResult = 0;
                 var updLevels = p.tpLevels.map(function (lvl) {
                     if (lvl.hit)
                         return lvl;
@@ -927,27 +940,31 @@ function App() {
                         return lvl;
                     var partCap = p.capital * lvl.pct / 100;
                     var partResult = isShort ? (partCap * (p.entry - lvl.price) / p.entry) : (partCap * (lvl.price - p.entry) / p.entry);
-                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: partCap, result: parseFloat(partResult.toFixed(2)), date: today(), note: "🎯 TP parcial " + lvl.pct + "% @ $" + price.toLocaleString() });
-                    psU.tpAuto = (psU.tpAuto || 0) + 1;
+                    newSessionResult += partResult;
                     changed = true;
                     notifyAutoClose(p.asset, p.dir, "TP " + lvl.pct + "%", price, partResult);
                     return { ...lvl, hit: true };
                 });
                 var allHit = updLevels.every(function (l) { return l.hit; });
                 if (allHit) {
-                    // Todos los niveles alcanzados — guardar ratio de la operacion completa
+                    // ALL levels done — save ONE consolidated xhist entry
+                    var totalResult = (p.accPartialResult || 0) + newSessionResult;
                     var fullRatio = calcPosRatio(p);
                     if (fullRatio !== null) {
                         psU.ratioSum = (psU.ratioSum || 0) + fullRatio;
                         psU.ratioCount = (psU.ratioCount || 0) + 1;
                     }
+                    psU.tpAuto = (psU.tpAuto || 0) + 1;
+                    var tpPrices = updLevels.map(function (l) { return "$" + parseFloat(l.price).toLocaleString(); }).join("/");
+                    entries.push({ id: Date.now() + entries.length, asset: p.asset, dir: p.dir, cap: p.capital, result: parseFloat(totalResult.toFixed(2)), date: today(), note: "🎯 TPs completados " + tpPrices, ...(fullRatio !== null ? { ratio: fullRatio } : {}), ...(p.patternId ? { patternId: p.patternId } : {}) });
                     changed = true;
                     continue;
                 }
                 var someNew = updLevels.some(function (l, i) { return l.hit && !p.tpLevels[i].hit; });
                 if (someNew) {
                     var remPct = updLevels.filter(function (l) { return !l.hit; }).reduce(function (a, l) { return a + l.pct; }, 0);
-                    newPos.push({ ...p, tpLevels: updLevels, capitalRemaining: p.capital * remPct / 100 });
+                    var accResult = (p.accPartialResult || 0) + newSessionResult;
+                    newPos.push({ ...p, tpLevels: updLevels, capitalRemaining: p.capital * remPct / 100, accPartialResult: accResult });
                     continue;
                 }
             }
@@ -1190,7 +1207,7 @@ function App() {
                 React.createElement("div", { style: S.card },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
                         React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700 } }, "POSICIONES ACTIVAS"),
-                        React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [] }, editPosId: null })), style: { ...S.btn(true), padding: "4px 10px", fontSize: 9 } }, "+ NUEVA OPERACION")),
+                        React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [], patternId: "" }, editPosId: null })), style: { ...S.btn(true), padding: "4px 10px", fontSize: 9 } }, "+ NUEVA OPERACION")),
                     !ethClosed && (React.createElement("div", { style: S.row },
                         React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
                             React.createElement("span", { style: { width: 5, height: 5, borderRadius: "50%", background: ethU >= 0 ? "#00ff88" : "#ff4444", display: "inline-block" } }),
@@ -1215,7 +1232,7 @@ function App() {
             tab === "Posiciones" && (React.createElement("div", null,
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
                     React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700 } }, "POSICIONES ABIERTAS"),
-                    React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [] }, editPosId: null })), style: S.btn(true) }, "+ NUEVA OPERACION")),
+                    React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [], patternId: "" }, editPosId: null })), style: S.btn(true) }, "+ NUEVA OPERACION")),
                 ethClosed && (React.createElement("div", { style: { textAlign: "center", padding: "10px", marginBottom: 10, background: "rgba(136,170,255,.05)", border: "1px solid rgba(136,170,255,.15)", borderRadius: 8, fontSize: 9, color: "#555" } },
                     "ETH legado marcada como cerrada.",
                     " ",
@@ -1261,7 +1278,7 @@ function App() {
                                 noLivePrice && React.createElement("span", { style: { fontSize: 7, color: "#ff8844", background: "rgba(255,136,68,.1)", padding: "2px 6px", borderRadius: 3, border: "1px solid rgba(255,136,68,.3)" } }, "\u26A0 Editar ticker")),
                             React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
                                 React.createElement("span", { style: { fontSize: 19, fontWeight: 700, color: noLivePrice ? "#ff8844" : g >= 0 ? "#00ff88" : "#ff4444" } }, noLivePrice ? "sin precio" : fmtNum(g)),
-                                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "", tpLevels: p.tpLevels || [] }, editPosId: p.id })), style: { background: noLivePrice ? "rgba(255,136,68,.15)" : "transparent", border: "1px solid " + (noLivePrice ? "#ff8844" : "#2a2a3a"), color: noLivePrice ? "#ff8844" : "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
+                                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "", tpLevels: p.tpLevels || [], patternId: p.patternId || "" }, editPosId: p.id })), style: { background: noLivePrice ? "rgba(255,136,68,.15)" : "transparent", border: "1px solid " + (noLivePrice ? "#ff8844" : "#2a2a3a"), color: noLivePrice ? "#ff8844" : "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
                                 React.createElement("button", { onClick: () => setModal(m => ({ ...m, close: p })), style: { background: "rgba(240,180,41,.15)", border: "1px solid #f0b429", color: "#f0b429", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "CERRAR"))),
                         React.createElement("div", { style: S.grid(105) }, [
                             { l: "CAPITAL", v: "$" + p.capital.toLocaleString() },
@@ -1644,7 +1661,7 @@ function App() {
                 React.createElement("div", { style: { display: "flex", gap: 7, marginTop: 12 } },
                     React.createElement("button", { onClick: () => { SPr({ ...pr, ...modal.tmpPr }); setModal(m => ({ ...m, prices: false, tmpPr: null })); }, style: { ...S.btn(true), flex: 1, padding: 8 } }, "GUARDAR"),
                     React.createElement("button", { onClick: () => setModal(m => ({ ...m, prices: false, tmpPr: null })), style: { ...S.btn(false), flex: 1 } }, "CANCELAR"))))),
-        modal.pos && (React.createElement(ModalPos, { form: modal.posForm || { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [] }, editId: modal.editPosId, currentPos: D.current.pos, PM: PM, pr: pr, SPr: SPr, SPos: SPos, setModal: setModal, fmtNum: fmtNum, S: S })),
+        modal.pos && (React.createElement(ModalPos, { form: modal.posForm || { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [], patternId: "" }, editId: modal.editPosId, currentPos: D.current.pos, PM: PM, pr: pr, SPr: SPr, SPos: SPos, setModal: setModal, fmtNum: fmtNum, S: S, pats: pats })),
         modal.pat && (React.createElement("div", { style: S.modal },
             React.createElement("div", { style: S.mc },
                 React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, modal.editPatId ? "EDITAR PATRON" : "NUEVO PATRON"),
@@ -3344,6 +3361,34 @@ function AlertasTab({ S }) {
                     React.createElement("button", { onClick: function () { removeAlert(alert); }, style: { flex: 1, padding: "8px", background: "transparent", border: "1px solid #333", color: "#444", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Eliminar")),
                 alert.error && React.createElement("div", { style: { fontSize: 8, color: "#ff4444", marginTop: 5 } }, "Error de conexion. Verifica tu internet.")));
         }),
+        (function () {
+            var bops = [];
+            try {
+                bops = JSON.parse(localStorage.getItem("td-bot-ops") || "[]");
+            }
+            catch (e) { }
+            if (bops.length === 0)
+                return null;
+            var wins = bops.filter(function (b) { return b.hit === "tp"; });
+            var losses = bops.filter(function (b) { return b.hit === "sl"; });
+            var closed = bops.filter(function (b) { return b.hit; });
+            var winRate = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : null;
+            var ratios = bops.filter(function (b) { return b.ratio > 0; }).map(function (b) { return b.ratio; });
+            var avgRatio = ratios.length > 0 ? (ratios.reduce(function (a, v) { return a + v; }, 0) / ratios.length).toFixed(2) : null;
+            var maxRatio = ratios.length > 0 ? Math.max.apply(null, ratios).toFixed(2) : null;
+            var minRatio = ratios.length > 0 ? Math.min.apply(null, ratios).toFixed(2) : null;
+            return (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(136,170,255,.25)", borderRadius: 8, padding: 12, marginTop: 8 } }, React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } }, React.createElement("div", { style: { fontSize: 9, color: "#88aaff", fontWeight: 700, letterSpacing: 1 } }, "🤖 OPERACIONES BOT"), React.createElement("button", { onClick: function () { try {
+                    localStorage.removeItem("td-bot-ops");
+                }
+                catch (e) { } },
+                style: { background: "transparent", border: "none", color: "#444", fontSize: 8, cursor: "pointer" } }, "Limpiar")), React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 10 } }, [{ l: "TOTAL", v: bops.length, c: "#e0e0e0" }, { l: "TASA ACIERTO", v: winRate !== null ? winRate + "%" : "--", c: winRate >= 50 ? "#00ff88" : "#ff4444" },
+                { l: "RATIO MEDIO", v: avgRatio ? "1:" + avgRatio : "--", c: "#88aaff" },
+                { l: "MEJOR/PEOR", v: maxRatio ? maxRatio + "/" + minRatio : "--", c: "#f0b429" }].map(function (s) {
+                return React.createElement("div", { key: s.l, style: { background: "#0d0d16", borderRadius: 6, padding: "7px 8px", textAlign: "center" } }, React.createElement("div", { style: { fontSize: 7, color: "#555", marginBottom: 3 } }, [s.l]), React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: s.c } }, [s.v]));
+            })), bops.slice(0, 8).map(function (b) {
+                return React.createElement("div", { key: b.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #1a1a2a", fontSize: 8 } }, React.createElement("div", null, React.createElement("span", { style: { color: "#88aaff", fontWeight: 700 } }, [b.asset]), React.createElement("span", { style: { color: "#555", margin: "0 5px" } }, [b.interval]), React.createElement("span", { style: { color: b.dir === "Long" ? "#00ff88" : "#ff4444", fontSize: 7, border: "1px solid " + (b.dir === "Long" ? "#00ff88" : "#ff4444"), padding: "1px 4px", borderRadius: 3 } }, [b.dir]), React.createElement("span", { style: { color: "#666", marginLeft: 5 } }, [b.signal.replace("rsi_", "RSI ").replace("_", " ")])), React.createElement("div", { style: { textAlign: "right" } }, React.createElement("div", { style: { color: "#888", fontSize: 7 } }, ["$" + parseFloat(b.entry).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " → $" + parseFloat(b.tp).toLocaleString("es-ES", { maximumFractionDigits: 2 })]), React.createElement("div", { style: { color: "#f0b429", fontSize: 7 } }, ["R:" + b.ratio + " | " + b.date + " " + b.time])));
+            })));
+        })(),
         logs.length > 0 && (React.createElement("div", { style: { background: "#111118", border: "1px solid #1e1e2e", borderRadius: 8, padding: 12, marginTop: 4 } },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
                 React.createElement("div", { style: { fontSize: 9, color: "#f0b429", fontWeight: 700 } }, "HISTORIAL DE ALERTAS"),
@@ -4051,12 +4096,32 @@ function HorariosTab({ horarios, SH, S, fmtNum }) {
                             React.createElement("button", { onClick: () => SH(horarios.filter(x => x.id !== h.id)), style: { background: "transparent", border: "none", color: "#333", cursor: "pointer", fontSize: 12, marginLeft: 8 } }, "\u2715")))))));
             })))));
 }
-function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNum, S }) {
+function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNum, S, pats }) {
     const [f, setF] = useState(form);
     const [liveCheck, setLiveCheck] = useState(null); // null | "loading" | {ticker,price,name} | "error"
-    function addTpLevel() { setF(function (prev) { return { ...prev, tpLevels: [...(prev.tpLevels || []), { id: Date.now(), price: "", pct: "" }] }; }); }
+    function addTpLevel() { setF(function (prev) { return { ...prev, tpLevels: [...(prev.tpLevels || []), { id: Date.now(), price: "", pct: "", capInput: "" }] }; }); }
     function removeTpLevel(id) { setF(function (prev) { return { ...prev, tpLevels: (prev.tpLevels || []).filter(function (l) { return l.id !== id; }) }; }); }
-    function updateTpLevel(id, key, val) { setF(function (prev) { return { ...prev, tpLevels: (prev.tpLevels || []).map(function (l) { return l.id === id ? { ...l, [key]: val } : l; }) }; }); }
+    function updateTpLevel(id, key, val) {
+        setF(function (prev) {
+            var cap = parseFloat(prev.capital) || 0;
+            var newLevels = (prev.tpLevels || []).map(function (l) {
+                if (l.id !== id)
+                    return l;
+                var updated = { ...l, [key]: val };
+                // Auto-calc the other field
+                if (key === "pct" && cap > 0) {
+                    var pctN = parseFloat(val) || 0;
+                    updated.capInput = pctN > 0 ? (cap * pctN / 100).toFixed(2) : "";
+                }
+                else if (key === "capInput" && cap > 0) {
+                    var capN = parseFloat(val) || 0;
+                    updated.pct = capN > 0 ? (capN / cap * 100).toFixed(1) : "";
+                }
+                return updated;
+            });
+            return { ...prev, tpLevels: newLevels };
+        });
+    }
     const CRYPTO_BINANCE = { "BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT", "LINK": "LINKUSDT", "MARA": "MARAUSDT", "RGTI": "RGTIUSDT", "BNB": "BNBUSDT", "ADA": "ADAUSDT", "DOGE": "DOGEUSDT", "AVAX": "AVAXUSDT", "DOT": "DOTUSDT", "MATIC": "MATICUSDT", "RENDER": "RENDERUSDT", "MANA": "MANAUSDT", "URA": "URAUSDT" };
     // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
     async function fetchStockPrice(base) {
@@ -4188,8 +4253,7 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
                 React.createElement("div", { style: S.lbl }, "ACTIVO"),
                 React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
                     React.createElement("input", { style: { ...S.inp, flex: 1 }, placeholder: "Ticker: TLT \u00B7 AAPL \u00B7 BTC \u00B7 SOL...", value: f.asset, onChange: function (e) { setF({ ...f, asset: e.target.value.toUpperCase() }); setLiveCheck(null); } }),
-                    React.createElement("button", { onClick: checkLivePrice, disabled: !f.asset || liveCheck === "loading", style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "6px 10px", borderRadius: 5, fontSize: 9, cursor: "pointer", whiteSpace: "nowrap" } }, liveCheck === "loading" ? "⏳" : "⚡ Check"),
-                    f.asset && (React.createElement("a", { href: "https://www.tradingview.com/chart/?symbol=" + f.asset.replace(/USDT$/, "") + "USDT", target: "_blank", rel: "noopener noreferrer", style: { background: "rgba(41,98,255,.1)", border: "1px solid rgba(41,98,255,.3)", color: "#2962ff", padding: "6px 8px", borderRadius: 5, fontSize: 9, cursor: "pointer", whiteSpace: "nowrap", textDecoration: "none", display: "inline-flex", alignItems: "center" } }, "\uD83D\uDCCA TV"))),
+                    React.createElement("button", { onClick: checkLivePrice, disabled: !f.asset || liveCheck === "loading", style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "6px 10px", borderRadius: 5, fontSize: 9, cursor: "pointer", whiteSpace: "nowrap" } }, liveCheck === "loading" ? "⏳" : "⚡ Check")),
                 React.createElement("div", { style: { fontSize: 8, color: "#444", marginTop: 3 } }, "Escribe el ticker del activo (TLT, AAPL, MSFT\u2026), no el nombre completo"),
                 liveCheck && liveCheck !== "loading" && liveCheck !== "error" && (React.createElement("div", { style: { marginTop: 5, padding: "6px 8px", background: "rgba(0,255,136,.08)", border: "1px solid rgba(0,255,136,.3)", borderRadius: 4, fontSize: 9, color: "#00ff88" } },
                     React.createElement("div", null,
@@ -4220,6 +4284,29 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
             React.createElement("div", { style: { marginBottom: 9 } },
                 React.createElement("div", { style: S.lbl }, "DIRECCION"),
                 React.createElement("div", { style: { display: "flex", gap: 7 } }, ["Short", "Long"].map(d => (React.createElement("button", { key: d, onClick: () => setF({ ...f, dir: d }), style: { flex: 1, padding: "7px", borderRadius: 4, fontSize: 10, fontWeight: 700, border: "1px solid " + (d === "Short" ? "#ff4444" : "#00ff88"), background: f.dir === d ? (d === "Short" ? "rgba(255,68,68,.15)" : "rgba(0,255,136,.15)") : "transparent", color: d === "Short" ? "#ff4444" : "#00ff88", cursor: "pointer" } }, d.toUpperCase()))))),
+            React.createElement("div", { style: { marginBottom: 9 } },
+                React.createElement("div", { style: S.lbl }, "PATR\u00D3N CHARTISTA"),
+                React.createElement("select", { value: f.patternId || "", onChange: function (e) { setF({ ...f, patternId: e.target.value }); }, style: { ...S.inp, width: "100%", cursor: "pointer" } },
+                    React.createElement("option", { value: "" }, "\u2014 Ninguno / Tesis propia \u2014"),
+                    (pats || []).map(function (p) {
+                        var rate = p.obs > 0 ? Math.round(p.conf / p.obs * 100) : 0;
+                        return React.createElement("option", { key: p.id, value: p.id },
+                            p.name,
+                            p.obs > 0 ? " (" + rate + "% · " + p.obs + " tests)" : "");
+                    })),
+                f.patternId && (function () {
+                    var pat = (pats || []).find(function (p) { return String(p.id) === String(f.patternId); });
+                    if (!pat)
+                        return null;
+                    return React.createElement("div", { style: { fontSize: 8, color: "#f0b429", marginTop: 3 } },
+                        "\uD83D\uDCCA ",
+                        pat.name,
+                        " \u2014 ",
+                        pat.obs,
+                        " observaciones, ",
+                        pat.obs > 0 ? Math.round(pat.conf / pat.obs * 100) : 0,
+                        "% confirmado");
+                })()),
             [["CAPITAL ($)", "capital", "2000"], ["PRECIO ENTRADA", "entry", "70800"], ["PRECIO STOP LOSS", "sl", "71775"], ["PRECIO TAKE PROFIT", "tp", "44000"]].map(([l, k, ph]) => (React.createElement("div", { key: k, style: { marginBottom: 9 } },
                 React.createElement("div", { style: S.lbl }, l),
                 React.createElement("input", { style: S.inp, type: "number", placeholder: ph, value: f[k] || "", onChange: e => setF({ ...f, [k]: e.target.value }) })))),
@@ -4230,19 +4317,26 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
                 (f.tpLevels || []).length === 0 && (React.createElement("div", { style: { fontSize: 8, color: "#333", padding: "4px 0" } }, "Sin ventas parciales \u2014 el TP \u00FAnico cierra toda la posici\u00F3n.")),
                 (f.tpLevels || []).map(function (lvl, i) {
                     var totalPct = (f.tpLevels || []).reduce(function (a, l) { return a + (+l.pct || 0); }, 0);
-                    return (React.createElement("div", { key: lvl.id, style: { display: "grid", gridTemplateColumns: "1fr 80px auto", gap: 5, marginBottom: 6, alignItems: "end" } },
-                        React.createElement("div", null,
-                            React.createElement("div", { style: { fontSize: 7, color: "#555", marginBottom: 2 } },
-                                "PRECIO NIVEL ",
-                                i + 1,
-                                " (",
-                                isShort ? "↓ por debajo" : "↑ por encima",
-                                ")"),
-                            React.createElement("input", { type: "number", value: lvl.price || "", onChange: function (e) { updateTpLevel(lvl.id, "price", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10 }, placeholder: isShort ? "ej: 69000" : "ej: 72000" })),
-                        React.createElement("div", null,
-                            React.createElement("div", { style: { fontSize: 7, color: totalPct > 100 ? "#ff4444" : "#555", marginBottom: 2 } }, "% POSICI\u00D3N"),
-                            React.createElement("input", { type: "number", min: "1", max: "100", value: lvl.pct || "", onChange: function (e) { updateTpLevel(lvl.id, "pct", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10, color: totalPct > 100 ? "#ff4444" : "#e0e0e0" }, placeholder: "50" })),
-                        React.createElement("button", { type: "button", onClick: function () { removeTpLevel(lvl.id); }, style: { background: "transparent", border: "1px solid #333", color: "#555", padding: "7px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer", lineHeight: 1 } }, "\u00D7")));
+                    var pctOver = totalPct > 100;
+                    return (React.createElement("div", { key: lvl.id, style: { marginBottom: 8, padding: "8px", background: "rgba(0,255,136,.03)", border: "1px solid #1e1e2e", borderRadius: 4 } },
+                        React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 5 } },
+                            "NIVEL ",
+                            i + 1,
+                            " (",
+                            isShort ? "↓ por debajo entrada" : "↑ por encima entrada",
+                            ")"),
+                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 5, alignItems: "end" } },
+                            React.createElement("div", null,
+                                React.createElement("div", { style: { fontSize: 7, color: "#444", marginBottom: 2 } }, "PRECIO TP"),
+                                React.createElement("input", { type: "number", value: lvl.price || "", onChange: function (e) { updateTpLevel(lvl.id, "price", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10 }, placeholder: isShort ? "69000" : "72000" })),
+                            React.createElement("div", null,
+                                React.createElement("div", { style: { fontSize: 7, color: pctOver ? "#ff4444" : "#444", marginBottom: 2 } }, "% POSICI\u00D3N"),
+                                React.createElement("input", { type: "number", min: "1", max: "100", value: lvl.pct || "", onChange: function (e) { updateTpLevel(lvl.id, "pct", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10, color: pctOver ? "#ff4444" : "#e0e0e0" }, placeholder: "50" })),
+                            React.createElement("div", null,
+                                React.createElement("div", { style: { fontSize: 7, color: "#444", marginBottom: 2 } }, "CAPITAL ($)"),
+                                React.createElement("input", { type: "number", value: lvl.capInput || "", onChange: function (e) { updateTpLevel(lvl.id, "capInput", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10 }, placeholder: "1000" })),
+                            React.createElement("button", { type: "button", onClick: function () { removeTpLevel(lvl.id); }, style: { background: "transparent", border: "1px solid #333", color: "#555", padding: "7px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer", lineHeight: 1, alignSelf: "flex-end" } }, "\u00D7")),
+                        React.createElement("div", { style: { fontSize: 7, color: "#444", marginTop: 3 } }, "Introduce % o capital \u2014 el otro se calcula autom\u00E1ticamente")));
                 }),
                 (f.tpLevels || []).length > 0 && (function () {
                     var tot = (f.tpLevels || []).reduce(function (a, l) { return a + (+l.pct || 0); }, 0);

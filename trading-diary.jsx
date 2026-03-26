@@ -202,8 +202,8 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
   else if(lessons>mistakes)lines.push("Conviertes los errores en lecciones. Eso es lo que diferencia a un trader profesional.");
   else if(mistakes>lessons*2)lines.push("Tienes muchos errores documentados sin su leccion correspondiente. Reflexiona mas.");
 
-  // Patterns
-  const confPats=pats.filter(function(p){return p.conf>0;});
+  // Patterns — only include best pattern if tested at least 100 times
+  const confPats=pats.filter(function(p){return p.conf>0&&p.obs>=100;});
   if(confPats.length>0){
     const bestPat=confPats.sort(function(a,b){
       const ra=a.obs>0?(a.conf/a.obs):0;
@@ -211,7 +211,7 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
       return rb-ra;
     })[0];
     const bestRate=bestPat.obs>0?Math.round(bestPat.conf/bestPat.obs*100):0;
-    if(bestRate>=70)lines.push("Tu patron mas fiable es '"+bestPat.name+"' con un "+bestRate+"% de acierto.");
+    if(bestRate>=70)lines.push("Tu patron mas fiable es '"+bestPat.name+"' con un "+bestRate+"% de acierto ("+bestPat.obs+" observaciones).");
   }
 
   // Win rate
@@ -468,6 +468,9 @@ export default function App(){
     const key=localStorage.getItem("td-anthropic-key")||"";
     if(!key){alert("Configura tu clave API de Anthropic en el Chat (boton 🔑) primero.");return;}
     setAiProfileLoading(true);
+    // Clear old report before generating new one — never accumulate old analyses
+    setAiProfile(null);
+    localStorage.removeItem("td-ai-profile");
     const allH=[...xhist,...hist];
     const wins=allH.filter(function(h){return h.result>0;}).length;
     const losses=allH.filter(function(h){return h.result<0;}).length;
@@ -490,7 +493,7 @@ export default function App(){
     const jnlTypes=["win","lesson","analysis","mistake"].map(function(t){
       return t+": "+jnl.filter(function(j){return j.type===t;}).length;
     }).join(", ");
-    const bestPat=pats.filter(function(p){return p.obs>0;}).sort(function(a,b){return(b.conf/b.obs)-(a.conf/a.obs);})[0];
+    const bestPat=pats.filter(function(p){return p.obs>=100;}).sort(function(a,b){return(b.conf/b.obs)-(a.conf/a.obs);})[0];
 
     // Analisis de cierres y sus descripciones
     const totClose=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
@@ -622,31 +625,40 @@ export default function App(){
   // - CLOSE POSITION -
   function closePos(p,type,manualPrice){
     const isBE=p.be||p.sl===p.entry;
+    // Use capitalRemaining if partial TPs have already been closed
+    const hasPartials=p.tpLevels&&p.tpLevels.length>0&&p.tpLevels.some(function(l){return l.hit;});
+    const closeCap=hasPartials&&p.capitalRemaining!=null?p.capitalRemaining:p.capital;
+    const accPartial=p.accPartialResult||0;
     let result=0;
     let note="";
     const newPs={...D.current.ps};
     if(type==="sl"){
-      result=isBE?0:-(p.capital*Math.abs(p.entry-p.sl)/p.entry);
-      note=isBE?"BE - SL en entrada":"SL ejecutado";
+      result=isBE?0:-(closeCap*Math.abs(p.entry-p.sl)/p.entry);
+      note=isBE?"BE - SL en entrada":"SL ejecutado"+(hasPartials?" (+ parciales cerradas)":"");
       newPs.slOk=(newPs.slOk||0)+1;
     }else if(type==="tp"){
-      result=p.tp?p.capital*Math.abs(p.tp-p.entry)/p.entry:0;
+      result=p.tp?closeCap*Math.abs(p.tp-p.entry)/p.entry:0;
       note="TP alcanzado";
       newPs.tpAuto=(newPs.tpAuto||0)+1;
     }else{
       // Si hay precio manual, usar ese; si no, usar precio de mercado
       if(manualPrice&&manualPrice>0){
         const r=p.dir==="Short"?(p.entry-manualPrice)/p.entry:(manualPrice-p.entry)/p.entry;
-        result=parseFloat((p.capital*r).toFixed(2));
-        note="Cierre manual @ $"+manualPrice.toLocaleString();
+        result=parseFloat((closeCap*r).toFixed(2));
+        note="Cierre manual @ $"+manualPrice.toLocaleString()+(hasPartials?" (+ parciales cerradas)":"");
       }else{
-        result=parseFloat(getPnL(p).toFixed(2));
-        note="Cierre manual";
+        // recalculate getPnL with closeCap
+        const c=PM[p.asset]||p.entry;
+        const r2=p.dir==="Short"?(p.entry-c)/p.entry:(c-p.entry)/p.entry;
+        result=parseFloat((closeCap*r2).toFixed(2));
+        note="Cierre manual"+(hasPartials?" (+ parciales cerradas)":"");
       }
-      if(result>0)newPs.tpManual=(newPs.tpManual||0)+1;
-      else if(result<0)newPs.earlyClose=(newPs.earlyClose||0)+1;
+      if(result+accPartial>0)newPs.tpManual=(newPs.tpManual||0)+1;
+      else if(result+accPartial<0)newPs.earlyClose=(newPs.earlyClose||0)+1;
       else newPs.manualClose=(newPs.manualClose||0)+1;
     }
+    // Combine remaining close result with any accumulated partial results
+    result=parseFloat((result+accPartial).toFixed(2));
     // Calcular y guardar ratio R:R de esta operacion al cerrarla
     let closedRatio=null;
     if(p.sl&&p.entry){
@@ -668,7 +680,7 @@ export default function App(){
       newPs.ratioSum=(newPs.ratioSum||0)+closedRatio;
       newPs.ratioCount=(newPs.ratioCount||0)+1;
     }
-    const entry={id:Date.now(),asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(result.toFixed(2)),date:today(),note:note,...(closedRatio!==null?{ratio:closedRatio}:{})};
+    const entry={id:Date.now(),asset:p.asset,dir:p.dir,cap:p.capital,result:result,date:today(),note:note,...(closedRatio!==null?{ratio:closedRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})};
     const newX=[entry,...(D.current.xhist||[])];
     const newPos2=D.current.pos.filter(x=>x.id!==p.id);
     D.current.xhist=newX;D.current.pos=newPos2;D.current.ps=newPs;
@@ -735,31 +747,36 @@ export default function App(){
         }
       }
       if(!kept)continue;
-      // Partial TP levels
+      // Partial TP levels — stored as ONE xhist entry when all levels complete
       if(p.tpLevels&&p.tpLevels.length){
+        var newSessionResult=0;
         var updLevels=p.tpLevels.map(function(lvl){
           if(lvl.hit)return lvl;
           var hit=isShort?(price<=lvl.price):(price>=lvl.price);
           if(!hit)return lvl;
           var partCap=p.capital*lvl.pct/100;
           var partResult=isShort?(partCap*(p.entry-lvl.price)/p.entry):(partCap*(lvl.price-p.entry)/p.entry);
-          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:partCap,result:parseFloat(partResult.toFixed(2)),date:today(),note:"🎯 TP parcial "+lvl.pct+"% @ $"+price.toLocaleString()});
-          psU.tpAuto=(psU.tpAuto||0)+1;
+          newSessionResult+=partResult;
           changed=true;
           notifyAutoClose(p.asset,p.dir,"TP "+lvl.pct+"%",price,partResult);
           return{...lvl,hit:true};
         });
         var allHit=updLevels.every(function(l){return l.hit;});
         if(allHit){
-          // Todos los niveles alcanzados — guardar ratio de la operacion completa
+          // ALL levels done — save ONE consolidated xhist entry
+          var totalResult=(p.accPartialResult||0)+newSessionResult;
           var fullRatio=calcPosRatio(p);
           if(fullRatio!==null){psU.ratioSum=(psU.ratioSum||0)+fullRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
+          psU.tpAuto=(psU.tpAuto||0)+1;
+          var tpPrices=updLevels.map(function(l){return "$"+parseFloat(l.price).toLocaleString();}).join("/");
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(totalResult.toFixed(2)),date:today(),note:"🎯 TPs completados "+tpPrices,...(fullRatio!==null?{ratio:fullRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})});
           changed=true;continue;
         }
         var someNew=updLevels.some(function(l,i){return l.hit&&!p.tpLevels[i].hit;});
         if(someNew){
           var remPct=updLevels.filter(function(l){return!l.hit;}).reduce(function(a,l){return a+l.pct;},0);
-          newPos.push({...p,tpLevels:updLevels,capitalRemaining:p.capital*remPct/100});
+          var accResult=(p.accPartialResult||0)+newSessionResult;
+          newPos.push({...p,tpLevels:updLevels,capitalRemaining:p.capital*remPct/100,accPartialResult:accResult});
           continue;
         }
       } else if(p.tp){
@@ -1014,7 +1031,7 @@ export default function App(){
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ACTIVAS</div>
-                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]},editPosId:null}))} style={{...S.btn(true),padding:"4px 10px",fontSize:9}}>+ NUEVA OPERACION</button>
+                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[],patternId:""},editPosId:null}))} style={{...S.btn(true),padding:"4px 10px",fontSize:9}}>+ NUEVA OPERACION</button>
               </div>
               {!ethClosed&&(
                 <div style={S.row}>
@@ -1055,7 +1072,7 @@ export default function App(){
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ABIERTAS</div>
-              <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
+              <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[],patternId:""},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
             </div>
             {/* ETH legado - restaurar si fue cerrado */}
             {ethClosed&&(
@@ -1119,7 +1136,7 @@ export default function App(){
                     </div>
                     <div style={{display:"flex",gap:7,alignItems:"center"}}>
                       <span style={{fontSize:19,fontWeight:700,color:noLivePrice?"#ff8844":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"sin precio":fmtNum(g)}</span>
-                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[]},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
+                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[],patternId:p.patternId||""},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
                       <button onClick={()=>setModal(m=>({...m,close:p}))} style={{background:"rgba(240,180,41,.15)",border:"1px solid #f0b429",color:"#f0b429",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>CERRAR</button>
                     </div>
                   </div>
@@ -1645,7 +1662,7 @@ export default function App(){
       {/* ═══ MODAL NUEVA/EDITAR OPERACION ═══ */}
       {modal.pos&&(
         <ModalPos
-          form={modal.posForm||{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[]}}
+          form={modal.posForm||{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[],patternId:""}}
           editId={modal.editPosId}
           currentPos={D.current.pos}
           PM={PM}
@@ -1655,6 +1672,7 @@ export default function App(){
           setModal={setModal}
           fmtNum={fmtNum}
           S={S}
+          pats={pats}
         />
       )}
 
@@ -4420,12 +4438,28 @@ function HorariosTab({horarios,SH,S,fmtNum}){
   );
 }
 
-function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
+function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats}){
   const[f,setF]=useState(form);
   const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {ticker,price,name} | "error"
-  function addTpLevel(){setF(function(prev){return{...prev,tpLevels:[...(prev.tpLevels||[]),{id:Date.now(),price:"",pct:""}]};});}
+  function addTpLevel(){setF(function(prev){return{...prev,tpLevels:[...(prev.tpLevels||[]),{id:Date.now(),price:"",pct:"",capInput:""}]};});}
   function removeTpLevel(id){setF(function(prev){return{...prev,tpLevels:(prev.tpLevels||[]).filter(function(l){return l.id!==id;})};});}
-  function updateTpLevel(id,key,val){setF(function(prev){return{...prev,tpLevels:(prev.tpLevels||[]).map(function(l){return l.id===id?{...l,[key]:val}:l;})};});}
+  function updateTpLevel(id,key,val){setF(function(prev){
+    var cap=parseFloat(prev.capital)||0;
+    var newLevels=(prev.tpLevels||[]).map(function(l){
+      if(l.id!==id)return l;
+      var updated={...l,[key]:val};
+      // Auto-calc the other field
+      if(key==="pct"&&cap>0){
+        var pctN=parseFloat(val)||0;
+        updated.capInput=pctN>0?(cap*pctN/100).toFixed(2):"";
+      }else if(key==="capInput"&&cap>0){
+        var capN=parseFloat(val)||0;
+        updated.pct=capN>0?(capN/cap*100).toFixed(1):"";
+      }
+      return updated;
+    });
+    return{...prev,tpLevels:newLevels};
+  });}
   const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
 
   // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
@@ -4536,12 +4570,6 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
           <button onClick={checkLivePrice} disabled={!f.asset||liveCheck==="loading"}
             style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>
             {liveCheck==="loading"?"⏳":"⚡ Check"}</button>
-          {f.asset&&(
-            <a href={"https://www.tradingview.com/chart/?symbol="+f.asset.replace(/USDT$/,"")+"USDT"} target="_blank" rel="noopener noreferrer"
-              style={{background:"rgba(41,98,255,.1)",border:"1px solid rgba(41,98,255,.3)",color:"#2962ff",padding:"6px 8px",borderRadius:5,fontSize:9,cursor:"pointer",whiteSpace:"nowrap",textDecoration:"none",display:"inline-flex",alignItems:"center"}}>
-              📊 TV
-            </a>
-          )}
         </div>
         <div style={{fontSize:8,color:"#444",marginTop:3}}>Escribe el ticker del activo (TLT, AAPL, MSFT…), no el nombre completo</div>
         {liveCheck&&liveCheck!=="loading"&&liveCheck!=="error"&&(
@@ -4577,6 +4605,22 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
           ))}
         </div>
       </div>
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>PATRÓN CHARTISTA</div>
+        <select value={f.patternId||""} onChange={function(e){setF({...f,patternId:e.target.value});}}
+          style={{...S.inp,width:"100%",cursor:"pointer"}}>
+          <option value="">— Ninguno / Tesis propia —</option>
+          {(pats||[]).map(function(p){
+            var rate=p.obs>0?Math.round(p.conf/p.obs*100):0;
+            return <option key={p.id} value={p.id}>{p.name}{p.obs>0?" ("+rate+"% · "+p.obs+" tests)":""}</option>;
+          })}
+        </select>
+        {f.patternId&&(function(){
+          var pat=(pats||[]).find(function(p){return String(p.id)===String(f.patternId);});
+          if(!pat)return null;
+          return <div style={{fontSize:8,color:"#f0b429",marginTop:3}}>📊 {pat.name} — {pat.obs} observaciones, {pat.obs>0?Math.round(pat.conf/pat.obs*100):0}% confirmado</div>;
+        })()}
+      </div>
       {[["CAPITAL ($)","capital","2000"],["PRECIO ENTRADA","entry","70800"],["PRECIO STOP LOSS","sl","71775"],["PRECIO TAKE PROFIT","tp","44000"]].map(([l,k,ph])=>(
         <div key={k} style={{marginBottom:9}}>
           <div style={S.lbl}>{l}</div>
@@ -4594,19 +4638,29 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
         )}
         {(f.tpLevels||[]).map(function(lvl,i){
           var totalPct=(f.tpLevels||[]).reduce(function(a,l){return a+(+l.pct||0);},0);
+          var pctOver=totalPct>100;
           return(
-            <div key={lvl.id} style={{display:"grid",gridTemplateColumns:"1fr 80px auto",gap:5,marginBottom:6,alignItems:"end"}}>
-              <div>
-                <div style={{fontSize:7,color:"#555",marginBottom:2}}>PRECIO NIVEL {i+1} ({isShort?"↓ por debajo":"↑ por encima"})</div>
-                <input type="number" value={lvl.price||""} onChange={function(e){updateTpLevel(lvl.id,"price",e.target.value);}}
-                  style={{...S.inp,padding:"5px 8px",fontSize:10}} placeholder={isShort?"ej: 69000":"ej: 72000"}/>
+            <div key={lvl.id} style={{marginBottom:8,padding:"8px",background:"rgba(0,255,136,.03)",border:"1px solid #1e1e2e",borderRadius:4}}>
+              <div style={{fontSize:8,color:"#555",marginBottom:5}}>NIVEL {i+1} ({isShort?"↓ por debajo entrada":"↑ por encima entrada"})</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:5,alignItems:"end"}}>
+                <div>
+                  <div style={{fontSize:7,color:"#444",marginBottom:2}}>PRECIO TP</div>
+                  <input type="number" value={lvl.price||""} onChange={function(e){updateTpLevel(lvl.id,"price",e.target.value);}}
+                    style={{...S.inp,padding:"5px 8px",fontSize:10}} placeholder={isShort?"69000":"72000"}/>
+                </div>
+                <div>
+                  <div style={{fontSize:7,color:pctOver?"#ff4444":"#444",marginBottom:2}}>% POSICIÓN</div>
+                  <input type="number" min="1" max="100" value={lvl.pct||""} onChange={function(e){updateTpLevel(lvl.id,"pct",e.target.value);}}
+                    style={{...S.inp,padding:"5px 8px",fontSize:10,color:pctOver?"#ff4444":"#e0e0e0"}} placeholder="50"/>
+                </div>
+                <div>
+                  <div style={{fontSize:7,color:"#444",marginBottom:2}}>CAPITAL ($)</div>
+                  <input type="number" value={lvl.capInput||""} onChange={function(e){updateTpLevel(lvl.id,"capInput",e.target.value);}}
+                    style={{...S.inp,padding:"5px 8px",fontSize:10}} placeholder="1000"/>
+                </div>
+                <button type="button" onClick={function(){removeTpLevel(lvl.id);}} style={{background:"transparent",border:"1px solid #333",color:"#555",padding:"7px 8px",borderRadius:4,fontSize:11,cursor:"pointer",lineHeight:1,alignSelf:"flex-end"}}>×</button>
               </div>
-              <div>
-                <div style={{fontSize:7,color:totalPct>100?"#ff4444":"#555",marginBottom:2}}>% POSICIÓN</div>
-                <input type="number" min="1" max="100" value={lvl.pct||""} onChange={function(e){updateTpLevel(lvl.id,"pct",e.target.value);}}
-                  style={{...S.inp,padding:"5px 8px",fontSize:10,color:totalPct>100?"#ff4444":"#e0e0e0"}} placeholder="50"/>
-              </div>
-              <button type="button" onClick={function(){removeTpLevel(lvl.id);}} style={{background:"transparent",border:"1px solid #333",color:"#555",padding:"7px 8px",borderRadius:4,fontSize:11,cursor:"pointer",lineHeight:1}}>×</button>
+              <div style={{fontSize:7,color:"#444",marginTop:3}}>Introduce % o capital — el otro se calcula automáticamente</div>
             </div>
           );
         })}
