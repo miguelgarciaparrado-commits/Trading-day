@@ -3203,12 +3203,8 @@ function AlertasTab({S}){
         // Pre-compute RSI history from historical closes (enables divergence on startup)
         var histRsiSeries=calcRSISeries(closesRef.current[key],14);
         rsiHistRef.current[key]=histRsiSeries.slice(-80);
-        // Initialize RSI zone silently (no notification on startup if already in zone)
-        var initRsi=calcRSI(closesRef.current[key],14);
-        if(initRsi!==null){
-          var initZone=initRsi<=30?"oversold":initRsi>=70?"overbought":"neutral";
-          lastTrigRef.current[sid+"_rsizone"]=initZone;
-        }
+        // Do NOT pre-initialize RSI zone — leave as undefined so zone defaults to "neutral"
+        // This ensures the first WebSocket tick fires the alert if RSI is already in zone
         const ws=new WebSocket("wss://stream.binance.com:9443/ws/"+alert.symbol.toLowerCase()+"@kline_"+alert.interval);
         ws.onmessage=function(e){
           const d=JSON.parse(e.data);
