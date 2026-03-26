@@ -736,8 +736,30 @@ function App() {
                         if (pred.note) {
                             tgText += "\n\n📌 " + pred.note;
                         }
-                        var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
-                        fetch(tgUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: tgChatId, text: tgText }) }).catch(function () { });
+                        var tgBase = "https://api.telegram.org/bot" + tgToken + "/";
+                        if (pred.userImage && pred.userImage.base64) {
+                            // Enviar como foto con el texto como caption
+                            try {
+                                var binary = atob(pred.userImage.base64);
+                                var bytes = new Uint8Array(binary.length);
+                                for (var bi = 0; bi < binary.length; bi++) {
+                                    bytes[bi] = binary.charCodeAt(bi);
+                                }
+                                var blob = new Blob([bytes], { type: pred.userImage.mediaType || "image/jpeg" });
+                                var fd = new FormData();
+                                fd.append("chat_id", tgChatId);
+                                fd.append("caption", tgText.slice(0, 1024)); // Telegram caption limit
+                                fd.append("photo", blob, "chart.jpg");
+                                fetch(tgBase + "sendPhoto", { method: "POST", body: fd }).catch(function () { });
+                            }
+                            catch (imgErr) {
+                                // Fallback a texto si falla la imagen
+                                fetch(tgBase + "sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: tgChatId, text: tgText }) }).catch(function () { });
+                            }
+                        }
+                        else {
+                            fetch(tgBase + "sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: tgChatId, text: tgText }) }).catch(function () { });
+                        }
                     }
                 }
                 catch (e) {
@@ -2297,6 +2319,12 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
         const asset = detectedInfo ? detectedInfo.display : marketData ? marketData.asset : "";
         const tf = detectedInfo ? detectedInfo.tf : marketData ? marketData.tf : "";
         const now = new Date();
+        // Capturar imagen del usuario si existe (limitar a 150KB base64 para no saturar Supabase)
+        var userImage = null;
+        if (userMsg && userMsg.image && userMsg.image.base64) {
+            var b64 = userMsg.image.base64;
+            userImage = { mediaType: userMsg.image.mediaType || "image/jpeg", base64: b64.length > 200000 ? b64.slice(0, 200000) : b64 };
+        }
         const pred = {
             id: Date.now(),
             savedDate: now.toLocaleDateString("es-ES"),
@@ -2305,6 +2333,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
             asset, tf,
             content: msg.content,
             userQuery: (userMsg && userMsg.role === "user") ? userMsg.content.slice(0, 400) : "",
+            userImage: userImage,
             note: note || "",
             status: "pending"
         };
