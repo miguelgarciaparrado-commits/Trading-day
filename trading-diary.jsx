@@ -1897,6 +1897,61 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     return[];
   });
 
+  // ── Voz ──
+  const[isRecording,setIsRecording]=useState(false);
+  const[speechSupported,setSpeechSupported]=useState(false);
+  const[pendingVoice,setPendingVoice]=useState(false); // marca el próximo send como voz
+  const[voiceSaved,setVoiceSaved]=useState({}); // {msgIdx: true}
+  const[voiceSaveIdx,setVoiceSaveIdx]=useState(null); // índice del msg mostrando selector de tipo
+  const speechRef=useRef(null);
+
+  useEffect(function(){
+    setSpeechSupported(!!(window.SpeechRecognition||window.webkitSpeechRecognition));
+  },[]);
+
+  function startVoiceRecording(){
+    var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR)return;
+    // Toggle off if already recording
+    if(speechRef.current){speechRef.current.stop();speechRef.current=null;setIsRecording(false);return;}
+    var r=new SR();
+    r.lang="es-ES";
+    r.continuous=true; // keep recording until stopped
+    r.interimResults=true;
+    r.onresult=function(e){
+      var txt="";
+      for(var i=0;i<e.results.length;i++){txt+=e.results[i][0].transcript;}
+      setInput(txt);
+      setPendingVoice(true);
+    };
+    r.onend=function(){setIsRecording(false);speechRef.current=null;};
+    r.onerror=function(){setIsRecording(false);speechRef.current=null;};
+    r.start();
+    speechRef.current=r;
+    setIsRecording(true);
+  }
+
+  function stopAndSendVoice(){
+    if(speechRef.current){speechRef.current.stop();speechRef.current=null;}
+    setIsRecording(false);
+    // sendMessage will be called by user clicking send or Enter after
+  }
+
+  function saveVoiceToDiary(msgContent,type,msgIdx){
+    var typeLabels={win:"VICTORIA",lesson:"LECCIÓN",mistake:"ERROR",analysis:"ANÁLISIS"};
+    var entry={
+      id:Date.now(),
+      type:type,
+      text:"🎙️ [Audio] "+msgContent.slice(0,600),
+      date:new Date().toLocaleDateString("es-ES"),
+      fromVoice:true
+    };
+    var newJnl=[entry,...(jnl||[])];
+    SJ(newJnl);
+    setVoiceSaved(function(prev){var n={};Object.keys(prev).forEach(function(k){n[k]=prev[k];});n[String(msgIdx)]=typeLabels[type]||type;return n;});
+    setVoiceSaveIdx(null);
+  }
+
   function savePredictions(arr){
     setPredictions(arr);
     try{localStorage.setItem("td-predictions",JSON.stringify(arr));}catch(e){}
@@ -2038,7 +2093,10 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     const confirmedPats=pats.filter(function(p){return p.conf>0;}).map(function(p){
       return p.name+" ("+Math.round(p.conf/(p.obs||1)*100)+"% exito, "+p.conf+"/"+p.obs+" obs)";
     }).join(", ")||"Sin patrones confirmados";
-    const recentJournal=jnl.slice(0,5).map(function(j){return j.type.toUpperCase()+": "+j.text.slice(0,80);}).join(" | ")||"Sin entradas";
+    const recentJournal=jnl.slice(0,8).map(function(j){
+      var voiceTag=(j.fromVoice?"[VOZ] ":"");
+      return voiceTag+j.type.toUpperCase()+": "+j.text.slice(0,100);
+    }).join(" | ")||"Sin entradas";
     const slTotal=ps.slOk+ps.slBroken;
     const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
 
@@ -2161,12 +2219,16 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       return;
     }
     const img=pendingImage;
-    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),image:img||null};
+    var isVoiceMsg=pendingVoice;
+    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),image:img||null,isVoice:isVoiceMsg};
     const newMessages=[...messages,userMsg];
     setMessages(newMessages);
     var currentInput=input;
     setInput("");
     setPendingImage(null);
+    setPendingVoice(false);
+    // Stop any active recording when sending
+    if(speechRef.current){speechRef.current.stop();speechRef.current=null;setIsRecording(false);}
     setLoading(true);
 
     try{
@@ -2407,10 +2469,43 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
               fontSize:11,color:"#e0e0e0",lineHeight:1.7,whiteSpace:"pre-wrap",
             }}>
               {m.image&&<img src={"data:"+m.image.mediaType+";base64,"+m.image.base64} style={{display:"block",maxWidth:"100%",maxHeight:220,borderRadius:6,marginBottom:8,objectFit:"contain"}}/>}
+              {m.isVoice&&<span style={{fontSize:8,color:"#00cc66",display:"block",marginBottom:4}}>🎙️ Mensaje de voz</span>}
               {m.content}
             </div>
+            {/* Voice diary save bar — shown for voice user messages */}
+            {m.role==="user"&&m.isVoice&&!voiceSaved[String(i)]&&(
+              <div style={{marginTop:4,padding:"6px 8px",background:"rgba(0,255,136,.05)",border:"1px solid rgba(0,255,136,.15)",borderRadius:6,maxWidth:"88%",alignSelf:"flex-end"}}>
+                {voiceSaveIdx===i?(
+                  <div>
+                    <div style={{fontSize:8,color:"#888",marginBottom:5}}>¿Qué tipo de entrada del diario?</div>
+                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                      {[["win","🏆 Victoria","#00ff88"],["lesson","📚 Lección","#f0b429"],["mistake","⚠️ Error","#ff4444"],["analysis","🔍 Análisis","#88aaff"]].map(function(row){
+                        var t=row[0],lbl=row[1],col=row[2];
+                        return(
+                          <button key={t} onClick={function(){saveVoiceToDiary(m.content,t,i);}}
+                            style={{background:"rgba(255,255,255,.05)",border:"1px solid "+col+"55",color:col,padding:"4px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
+                            {lbl}
+                          </button>
+                        );
+                      })}
+                      <button onClick={function(){setVoiceSaveIdx(null);}} style={{background:"transparent",border:"none",color:"#444",fontSize:10,cursor:"pointer"}}>✕</button>
+                    </div>
+                  </div>
+                ):(
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:8,color:"#555"}}>🎙️ Audio transcrito</span>
+                    <button onClick={function(){setVoiceSaveIdx(i);}} style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>📓 Guardar en diario</button>
+                  </div>
+                )}
+              </div>
+            )}
+            {m.role==="user"&&m.isVoice&&voiceSaved[String(i)]&&(
+              <div style={{marginTop:3,fontSize:8,color:"#00ff88",alignSelf:"flex-end"}}>
+                ✓ Guardado en diario como {voiceSaved[String(i)]}
+              </div>
+            )}
             <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
-              <span style={{fontSize:8,color:"#333"}}>{m.role==="user"?"Tu":"Claude"} · {m.time}</span>
+              <span style={{fontSize:8,color:"#333"}}>{m.role==="user"?"Tu":"Claude"} · {m.time}{m.isVoice?" · 🎙️":""}</span>
               {m.role==="assistant"&&i>0&&(
                 <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);}}
                   title="Guardar como prediccion"
@@ -2446,17 +2541,38 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
           <button onClick={function(){setPendingImage(null);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:14}}>✕</button>
         </div>
       )}
+      {/* Recording indicator */}
+      {isRecording&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.3)",borderRadius:6,marginBottom:4}}>
+          <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#ff4444",animation:"pulse 1s infinite"}}/>
+          <span style={{fontSize:10,color:"#ff6666",flex:1}}>Grabando... habla ahora · Tu voz aparece en el campo de texto</span>
+          <button onClick={stopAndSendVoice} style={{background:"rgba(255,68,68,.15)",border:"1px solid #ff4444",color:"#ff4444",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>■ Parar</button>
+        </div>
+      )}
+      {pendingVoice&&!isRecording&&input.trim()&&(
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"rgba(0,255,136,.05)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,marginBottom:4}}>
+          <span style={{fontSize:9,color:"#00ff88"}}>🎙️ Mensaje de voz listo — revisa el texto y pulsa →</span>
+          <button onClick={function(){setPendingVoice(false);}} style={{background:"transparent",border:"none",color:"#444",cursor:"pointer",fontSize:10}}>✕</button>
+        </div>
+      )}
       <div style={{display:"flex",gap:6,paddingTop:8,borderTop:"1px solid #1a1a2a"}}>
         <button
           onClick={function(){fileInputRef.current&&fileInputRef.current.click();}}
           title="Adjuntar grafico"
           style={{background:"rgba(136,170,255,.1)",border:"1px solid rgba(136,170,255,.3)",color:"#88aaff",padding:"10px 12px",borderRadius:6,fontSize:16,cursor:"pointer"}}
         >📷</button>
+        {speechSupported&&(
+          <button
+            onClick={startVoiceRecording}
+            title={isRecording?"Detener grabación":"Grabar audio (transcripción automática)"}
+            style={{background:isRecording?"rgba(255,68,68,.15)":"rgba(0,255,136,.08)",border:"1px solid "+(isRecording?"#ff4444":"rgba(0,255,136,.3)"),color:isRecording?"#ff4444":"#00ff88",padding:"10px 12px",borderRadius:6,fontSize:16,cursor:"pointer"}}
+          >{isRecording?"⏹":"🎙️"}</button>
+        )}
         <input
-          style={{...S.inp,flex:1,fontSize:12,padding:"10px 12px"}}
-          placeholder="Ej: en 4H en LINK veo una ineficiencia FVG, puedo entrar?"
+          style={{...S.inp,flex:1,fontSize:12,padding:"10px 12px",borderColor:pendingVoice?"rgba(0,255,136,.4)":""}}
+          placeholder={speechSupported?"Escribe o usa 🎙️ para hablar · Nombra activo y temporalidad":"Ej: en 4H en LINK veo una ineficiencia FVG, puedo entrar?"}
           value={input}
-          onChange={function(e){setInput(e.target.value);}}
+          onChange={function(e){setInput(e.target.value);if(isRecording)setPendingVoice(false);}}
           onKeyDown={function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
         />
         <button
@@ -2468,7 +2584,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
         </button>
       </div>
       <div style={{fontSize:8,color:"#333",marginTop:4,textAlign:"center"}}>
-        Nombra el activo y temporalidad en tu mensaje · Los datos se cargan automaticamente · Enter para enviar
+        {speechSupported?"🎙️ Voz disponible · Nombra activo y temporalidad · Enter para enviar":"Nombra el activo y temporalidad en tu mensaje · Los datos se cargan automaticamente · Enter para enviar"}
       </div>
     </div>
   );
