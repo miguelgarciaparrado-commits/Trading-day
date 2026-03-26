@@ -104,7 +104,7 @@ const J0=[
   {id:3,date:"19/03/2026",text:"Ineficiencia Fibonacci 0.5 en BTC confirmado. Patron validado.",emoji:"💪",type:"win"},
   {id:4,date:"20/03/2026",text:"BTC/USDT 70800 salio en BE. El SL hizo su trabajo.",emoji:"🧘",type:"lesson",linkedClose:"sl"},
 ];
-const PS0={slOk:14,slBroken:2,earlyClose:8,tpAuto:0,tpManual:2,revenge:1,manualClose:4};
+const PS0={slOk:14,slBroken:2,slBreakeven:0,earlyClose:8,tpAuto:0,tpManual:2,revenge:1,manualClose:4};
 // Precios eliminados - se actualizan manualmente en la app
 
 // - HELPERS -
@@ -117,8 +117,9 @@ function fmtP(v){return v>=1000?"$"+v.toLocaleString():"$"+v;}
 function today(){return new Date().toLocaleDateString("es-ES");}
 function calcScore(ps,pats,jnl){
   // S1 — Disciplina SL (0–35 pts): respetar el stop loss es la base de todo
-  const slT=(ps.slOk||0)+(ps.slBroken||0);
-  const s1=slT>0?((ps.slOk||0)/slT)*35:0;
+  // slOk=1.0 pts, slBreakeven=0.5 pts (gestión activa pero no pérdida controlada), slBroken=0 pts
+  const slT=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
+  const s1=slT>0?(((ps.slOk||0)+(ps.slBreakeven||0)*0.5)/slT)*35:0;
   // S2 — Gestión de salidas (0–20 pts): dejar correr ganadores hasta el TP
   const exitTot=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
   const s2=exitTot>0?((ps.tpAuto||0)+(ps.tpManual||0))/exitTot*20:0;
@@ -152,8 +153,8 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
   var totalOps=allHist.length;
   var wins=allHist.filter(function(h){return h.result>0;}).length;
   var winRate=totalOps>0?Math.round(wins/totalOps*100):0;
-  var slTotal=(ps.slOk||0)+(ps.slBroken||0);
-  var slRate=slTotal>0?Math.round((ps.slOk||0)/slTotal*100):null;
+  var slTotal=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
+  var slRate=slTotal>0?Math.round(((ps.slOk||0)+(ps.slBreakeven||0)*0.5)/slTotal*100):null;
   var totClose=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
   var earlyPct=totClose>0?Math.round((ps.earlyClose||0)/totClose*100):null;
   var tpPct=totClose>0?Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totClose*100):null;
@@ -493,8 +494,8 @@ export default function App(){
     const losses=allH.filter(function(h){return h.result<0;}).length;
     const totalPnl=allH.reduce(function(s,h){return s+h.result;},0).toFixed(2);
     const winRate=allH.length>0?Math.round(wins/allH.length*100):0;
-    const slTotal=ps.slOk+ps.slBroken;
-    const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
+    const slTotal=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
+    const slRate=slTotal>0?Math.round(((ps.slOk||0)+(ps.slBreakeven||0)*0.5)/slTotal*100):100;
     const recentTrades=allH.slice(-10).map(function(h){
       return h.asset+" "+(h.result>0?"+":"")+h.result.toFixed(0)+"$";
     }).join(", ");
@@ -654,10 +655,20 @@ export default function App(){
     let result=0;
     let note="";
     const newPs={...D.current.ps};
-    if(type==="sl"){
+    if(type==="be"){
+      // Breakeven explícito — SL movido a entrada
+      result=0;
+      note="⚖️ SL Breakeven";
+      newPs.slBreakeven=(newPs.slBreakeven||0)+1;
+    }else if(type==="sl"){
       result=isBE?0:-(closeCap*Math.abs(p.entry-p.sl)/p.entry);
-      note=isBE?"BE - SL en entrada":"SL ejecutado"+(hasPartials?" (+ parciales cerradas)":"");
-      newPs.slOk=(newPs.slOk||0)+1;
+      if(isBE){
+        note="⚖️ SL Breakeven (SL en entrada)";
+        newPs.slBreakeven=(newPs.slBreakeven||0)+1;
+      }else{
+        note="SL ejecutado"+(hasPartials?" (+ parciales cerradas)":"");
+        newPs.slOk=(newPs.slOk||0)+1;
+      }
     }else if(type==="tp"){
       // For tpLevels positions: calculate remaining portion from unhit levels or use closeCap at last level price
       if(p.tpLevels&&p.tpLevels.length>0){
@@ -780,8 +791,9 @@ export default function App(){
           var slResult=isBE?0:-(p.capital*Math.abs(p.entry-p.sl)/p.entry);
           var slRatio=calcPosRatio(p);
           if(slRatio!==null){psU.ratioSum=(psU.ratioSum||0)+slRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
-          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(slResult.toFixed(2)),date:today(),note:"🛑 SL auto @ $"+price.toLocaleString(),...(slRatio!==null?{ratio:slRatio}:{})});
-          psU.slOk=(psU.slOk||0)+1;
+          var slAutoNote=isBE?"⚖️ BE auto @ $"+price.toLocaleString():"🛑 SL auto @ $"+price.toLocaleString();
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(slResult.toFixed(2)),date:today(),note:slAutoNote,...(slRatio!==null?{ratio:slRatio}:{})});
+          if(isBE){psU.slBreakeven=(psU.slBreakeven||0)+1;}else{psU.slOk=(psU.slOk||0)+1;}
           changed=true;
           notifyAutoClose(p.asset,p.dir,"SL ejecutado",price,slResult);
           kept=false;
@@ -1035,7 +1047,7 @@ export default function App(){
               allH.forEach(function(h){assetCount[h.asset]=(assetCount[h.asset]||0)+1;});
               var topAssetArr=Object.keys(assetCount).sort(function(a,b){return assetCount[b]-assetCount[a];});
               var topAsset=topAssetArr.length?[topAssetArr[0],assetCount[topAssetArr[0]]]:null;
-              var slPct=ps.slOk+ps.slBroken>0?Math.round(ps.slOk/(ps.slOk+ps.slBroken)*100):null;
+              var slPct=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0)>0?Math.round(((ps.slOk||0)+(ps.slBreakeven||0)*0.5)/((ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0))*100):null;
               var todayColor=todayPnl>0?"#00ff88":todayPnl<0?"#ff4444":"#666";
               return(
                 <div style={{...S.card,marginBottom:10}}>
@@ -1554,15 +1566,22 @@ export default function App(){
               <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:10}}>GESTION RIESGO</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 <div>
+                  {(function(){var slT=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);return(
+                  <div>
                   <div style={{fontSize:9,color:"#555",fontWeight:700,marginBottom:8}}>STOP LOSS</div>
                   <div style={{marginBottom:7}}>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}><span style={{color:"#555"}}>SL Respetados</span><span style={{color:"#00ff88",fontWeight:700}}>{ps.slOk}/{ps.slOk+ps.slBroken}</span></div>
-                    <div style={S.bar}><div style={S.fill((ps.slOk+ps.slBroken)>0?ps.slOk/(ps.slOk+ps.slBroken)*100:0,"#00ff88")}/></div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}><span style={{color:"#555"}}>SL Respetados</span><span style={{color:"#00ff88",fontWeight:700}}>{ps.slOk||0}/{slT}</span></div>
+                    <div style={S.bar}><div style={S.fill(slT>0?(ps.slOk||0)/slT*100:0,"#00ff88")}/></div>
+                  </div>
+                  <div style={{marginBottom:7}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}><span style={{color:"#555"}}>⚖️ Breakeven</span><span style={{color:"#88aaff",fontWeight:700}}>{ps.slBreakeven||0}/{slT}</span></div>
+                    <div style={S.bar}><div style={S.fill(slT>0?(ps.slBreakeven||0)/slT*100:0,"#88aaff")}/></div>
                   </div>
                   <div>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}><span style={{color:"#555"}}>SL Eliminados</span><span style={{color:"#ff4444",fontWeight:700}}>{ps.slBroken}/{ps.slOk+ps.slBroken}</span></div>
-                    <div style={S.bar}><div style={S.fill((ps.slOk+ps.slBroken)>0?ps.slBroken/(ps.slOk+ps.slBroken)*100:0,"#ff4444")}/></div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}><span style={{color:"#555"}}>SL Eliminados</span><span style={{color:"#ff4444",fontWeight:700}}>{ps.slBroken||0}/{slT}</span></div>
+                    <div style={S.bar}><div style={S.fill(slT>0?(ps.slBroken||0)/slT*100:0,"#ff4444")}/></div>
                   </div>
+                  </div>);})()}
                 </div>
                 <div>
                   <div style={{fontSize:9,color:"#555",fontWeight:700,marginBottom:8}}>TAKE PROFIT Y CIERRES</div>
@@ -1598,7 +1617,7 @@ export default function App(){
                 );})}
                 <div style={{fontSize:8,color:"#ff4444",fontWeight:700,marginTop:7,marginBottom:4}}>PENALIZACIONES ACTUALES</div>
                 {(function(){
-                  const slT=(ps.slOk||0)+(ps.slBroken||0);
+                  const slT=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
                   const slLost=slT>0?parseFloat(((ps.slBroken||0)/slT*35).toFixed(1)):0;
                   const exitTot=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
                   const earlyRatioLost=exitTot>0?parseFloat(((ps.earlyClose||0)/exitTot*20).toFixed(1)):0;
@@ -1887,7 +1906,7 @@ export default function App(){
         <div style={S.modal}><div style={S.mc}>
           <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>METRICAS PSICOLOGICAS</div>
           {[
-            ["SL Respetados","slOk"],["SL Eliminados","slBroken"],
+            ["SL Respetados","slOk"],["SL Breakeven","slBreakeven"],["SL Eliminados","slBroken"],
             ["TP Automatico","tpAuto"],["TP Manual ganador","tpManual"],
             ["Cierres prematuros","earlyClose"],["Cierres manuales BE","manualClose"],
             ["Trading revancha","revenge"],
@@ -2231,8 +2250,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     const recentJournal=jnl.slice(0,8).map(function(j){
       var tag=j.fromChat?"[CHAT] ":""; return tag+j.type.toUpperCase()+": "+j.text.slice(0,100);
     }).join(" | ")||"Sin entradas";
-    const slTotal=ps.slOk+ps.slBroken;
-    const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
+    const slTotal=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
+    const slRate=slTotal>0?Math.round(((ps.slOk||0)+(ps.slBreakeven||0)*0.5)/slTotal*100):100;
 
     var mdContext="";
     if(md){
@@ -2355,8 +2374,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     const recentJournal=jnl.slice(0,6).map(function(j){
       return j.type.toUpperCase()+": "+j.text.slice(0,120);
     }).join("\n")||"Sin entradas de diario";
-    const slTotal=ps.slOk+ps.slBroken;
-    const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
+    const slTotal=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
+    const slRate=slTotal>0?Math.round(((ps.slOk||0)+(ps.slBreakeven||0)*0.5)/slTotal*100):100;
     return "Eres el coach psicológico personal de Miguel, un trader que busca convertirse en profesional.\n"+
       "Tu rol en este modo es EXCLUSIVAMENTE el de apoyo emocional, reflexión y coaching mental.\n"+
       "NO hagas análisis técnico del mercado a menos que Miguel lo pida explícitamente.\n"+
@@ -4826,9 +4845,19 @@ function ModalCerrar({p,PM,getPnL,fmtNum,fmtP,closePos,setModal,S}){
             <div style={{fontSize:11,color:"#ff4444",fontWeight:700,marginBottom:3}}>SALTO EL STOP LOSS</div>
             <div style={{fontSize:9,color:"#555"}}>{"SL: "+(p.sl?fmtP(p.sl):"--")}</div>
           </div>
-          <div style={{fontSize:15,fontWeight:700,color:isBE?"#00ff88":"#ff4444"}}>{isBE?"$0.00":fmtNum(-mL)}</div>
+          <div style={{fontSize:15,fontWeight:700,color:"#ff4444"}}>{fmtNum(-mL)}</div>
         </div>
-        <div style={{fontSize:9,color:"#555",marginTop:4}}>SL respetado +1</div>
+        <div style={{fontSize:9,color:"#555",marginTop:4}}>SL respetado +1 · pérdida controlada</div>
+      </button>
+      <button onClick={()=>closePos(p,"be")} style={{background:"rgba(136,170,255,.08)",border:"1px solid rgba(136,170,255,.4)",borderRadius:8,padding:"12px 14px",cursor:"pointer",textAlign:"left",marginBottom:8,width:"100%",display:"block"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:11,color:"#88aaff",fontWeight:700,marginBottom:3}}>⚖️ SALTO EL BREAKEVEN</div>
+            <div style={{fontSize:9,color:"#555"}}>{"SL movido a entrada: "+(p.entry?fmtP(p.entry):"--")}</div>
+          </div>
+          <div style={{fontSize:15,fontWeight:700,color:"#88aaff"}}>$0.00</div>
+        </div>
+        <div style={{fontSize:9,color:"#888",marginTop:4}}>BE +1 · vale 0.5 en disciplina SL</div>
       </button>
       <button onClick={()=>closePos(p,"tp")} style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",borderRadius:8,padding:"12px 14px",cursor:"pointer",textAlign:"left",marginBottom:8,width:"100%",display:"block"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
