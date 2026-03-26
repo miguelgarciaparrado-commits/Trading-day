@@ -2421,8 +2421,10 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
         }
         systemPrompt=buildSystemPrompt(md);
       }
-      const hasImage=newMessages.some(function(m){return m.image;});
-      const apiMessages=newMessages.map(function(m){
+      // Only include messages from the current chat mode in API context
+      var contextMessages=newMessages.filter(function(m){return isReflexion?m.isReflexion:!m.isReflexion;});
+      const hasImage=contextMessages.some(function(m){return m.image;});
+      const apiMessages=contextMessages.map(function(m){
         if(m.role==="user"&&m.image){
           return{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:m.image.mediaType,data:m.image.base64}},
@@ -2655,7 +2657,16 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
 
       {/* Messages */}
       <div ref={listRef} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,paddingBottom:8}}>
-        {messages.map(function(m,i){return(
+        {chatMode==="reflexion"&&messages.filter(function(m){return m.isReflexion;}).length===0&&(
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,opacity:.4}}>
+            <div style={{fontSize:28}}>💭</div>
+            <div style={{fontSize:10,color:"#888",textAlign:"center",lineHeight:1.6}}>Nuevo chat de reflexión<br/><span style={{fontSize:8}}>No se guarda en el historial del chat</span></div>
+          </div>
+        )}
+        {messages.map(function(m,i){
+          if(chatMode==="reflexion"&&!m.isReflexion)return null;
+          if(chatMode==="analisis"&&m.isReflexion)return null;
+          return(
           <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}}>
             <div style={{
               maxWidth:"88%",
