@@ -445,7 +445,7 @@ export default function App(){
 
   // D ref always has latest state for storage writes
   const D=useRef({pr:{SOL:91.33,BTC:84000,ETH:2000,MSTR:300,GOOGL:170,LINK:9.20},pos:P0,pats:PAT0,jnl:J0,ps:PS0,
-    xhist:[],ethClosed:false,predictions:[]});
+    xhist:[],ethClosed:false,predictions:[],chatMsgs:[]});
   const tmr=useRef(null);
 
   // - LOAD -
@@ -478,6 +478,7 @@ export default function App(){
 
           if(d.xhist){D.current.xhist=d.xhist;setXhist(d.xhist);}
           if(d.predictions){D.current.predictions=d.predictions;setPredictions(d.predictions);}
+          if(d.chatMsgs&&d.chatMsgs.length){D.current.chatMsgs=d.chatMsgs;}
           if(d.ethClosed)setEthClosed(true);
           // carga de fotos eliminada
         }
@@ -600,7 +601,8 @@ export default function App(){
       jnl:D.current.jnl,ps:D.current.ps,
       xhist:D.current.xhist||[],
       ethClosed:D.current.ethClosed||false,
-      predictions:D.current.predictions||[]
+      predictions:D.current.predictions||[],
+      chatMsgs:D.current.chatMsgs||[]
     };
     const json=JSON.stringify(payload);
     // 1. Guardar siempre en localStorage (offline backup)
@@ -1904,7 +1906,7 @@ export default function App(){
         </div>
 
         {tab==="Chat"&&(
-          <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save} predictions={predictions} SPred={SPred}/>
+          <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save} predictions={predictions} SPred={SPred} initialChatMsgs={D.current.chatMsgs||[]}/>
         )}
       </div>
 
@@ -2115,18 +2117,17 @@ async function getStockData(symbol,tf){
   }catch(e){return null;}
 }
 
-function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,SPred}){
+function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,SPred,initialChatMsgs}){
   var INIT_MSG={
     role:"assistant",
     content:"Hola Miguel. Soy tu analista personal.\n\nPuedo analizar cualquier activo de crypto (BTC, ETH, SOL, LINK...) o acciones (NVDA, GOOGL, TSLA, MSTR...) con datos en tiempo real.\n\nSimplemente describeme lo que ves, por ejemplo:\n- \"En 4H en LINK veo una ineficiencia FVG, puedo entrar?\"\n- \"En diario en BTC el RSI esta en 65, hay sobrecompra?\"\n- \"NVDA en semanal, como ve la estructura?\"\n\nNo necesitas seleccionar activo ni temporalidad, yo los detecto de tu mensaje.",
     time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})
   };
   const[messages,setMessages]=useState(function(){
-    try{
-      var saved=localStorage.getItem("td-chat-msgs");
-      if(saved){var parsed=JSON.parse(saved);if(parsed&&parsed.length>0)return parsed;}
-    }catch(e){}
-    return [INIT_MSG];
+    // Prioridad: Supabase (initialChatMsgs) > localStorage > mensaje inicial
+    if(initialChatMsgs&&initialChatMsgs.length>0)return initialChatMsgs;
+    try{var s=localStorage.getItem("td-chat-msgs");if(s){var parsed=JSON.parse(s);if(parsed&&parsed.length>0)return parsed;}}catch(e){}
+    return[INIT_MSG];
   });
   const[input,setInput]=useState("");
   const[loading,setLoading]=useState(false);
@@ -2325,10 +2326,16 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
         return m;
       });
       localStorage.setItem("td-chat-msgs",JSON.stringify(toSave));
+      // Sincronizar con Supabase: solo texto, sin imágenes, últimos 40 mensajes de análisis
+      var forSupabase=analysisOnly.slice(-40).map(function(m){return m.image?{...m,image:null}:m;});
+      D.current.chatMsgs=forSupabase;
+      save();
     }catch(e){
       try{
         var slim=messages.filter(function(m){return !m.isReflexion;}).slice(-60).map(function(m){return m.image?{...m,image:null}:m;});
         localStorage.setItem("td-chat-msgs",JSON.stringify(slim));
+        D.current.chatMsgs=slim.slice(-40);
+        save();
       }catch(e2){}
     }
   },[messages]);
