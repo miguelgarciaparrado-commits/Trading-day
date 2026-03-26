@@ -2647,7 +2647,7 @@ function AlertasTab({ S }) {
     const [alerts, setAlerts] = useState([]);
     const alertsRef = useRef([]);
     const [showForm, setShowForm] = useState(false);
-    const [draft, setDraft] = useState({ selectedSymbols: ["BTCUSDT"], interval: "4h", rsiCustomEnabled: false, rsiCustomTarget: 50, rsiCustomCondition: "below", channelEnabled: false, fvgEnabled: false });
+    const [draft, setDraft] = useState({ selectedSymbols: ["BTCUSDT"], interval: "4h", rsiCustomEnabled: false, rsiCustomTarget: 50, rsiCustomCondition: "below" });
     const [logs, setLogs] = useState([]);
     const [notifPerm, setNotifPerm] = useState("default");
     const [lastAlert, setLastAlert] = useState(null);
@@ -3349,7 +3349,7 @@ function AlertasTab({ S }) {
                 // Canal + FVG: siempre activos en vela confirmada (ya no requieren toggle manual)
                 if (k.x) {
                     var channelResult = detectChannelAlert(ohlc);
-                    var fvgResult = alert.fvgEnabled ? checkFVGCovered(ohlc, closePrice) : null;
+                    var fvgResult = checkFVGCovered(ohlc, closePrice);
                     // Canal: usar tipo específico como llave de deduplicación
                     // Reset cuando el tipo cambia (precio salió de la zona)
                     var chanTypeNow2 = channelResult ? channelResult.type : "";
@@ -3372,8 +3372,8 @@ function AlertasTab({ S }) {
                             }
                         }
                     }
-                    // FVG sin canal (sigue requiriendo toggle)
-                    if (!channelResult && fvgResult && alert.fvgEnabled) {
+                    // FVG sin canal (siempre activo)
+                    if (!channelResult && fvgResult) {
                         var fvgKey2 = ak + "fvg_" + fvgResult.subtype + "_" + fvgResult.age;
                         if (!lastTrigRef.current[fvgKey2]) {
                             lastTrigRef.current[fvgKey2] = true;
@@ -3432,7 +3432,6 @@ function AlertasTab({ S }) {
             return {
                 id: Date.now() + i, symbol: symInfo.symbol, label: symInfo.label, interval: draft.interval,
                 rsiCustomEnabled: draft.rsiCustomEnabled, rsiCustomTarget: draft.rsiCustomTarget, rsiCustomCondition: draft.rsiCustomCondition,
-                channelEnabled: draft.channelEnabled, fvgEnabled: draft.fvgEnabled,
                 active: false, currentRsi: null, currentPrice: null, error: false
             };
         });
@@ -3610,19 +3609,14 @@ function AlertasTab({ S }) {
                             draft.rsiCustomCondition === "below" ? "≤" : "≥",
                             ")"),
                         React.createElement("input", { type: "number", min: "31", max: "69", value: draft.rsiCustomTarget, onChange: function (e) { setDraft({ ...draft, rsiCustomTarget: +e.target.value }); }, style: { ...S.inp, width: 56, padding: "5px", fontSize: 22, textAlign: "center", fontWeight: 700, color: "#f0b429" } }))))),
-            React.createElement("div", { style: { background: "rgba(255,100,200,.04)", border: "1px solid rgba(255,100,200,.2)", borderRadius: 6, padding: 10, marginBottom: 12 } },
-                React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#ff88dd", marginBottom: 4 } }, "PATRONES CHARTISTAS"),
-                React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 8, lineHeight: 1.5 } },
-                    "Detecta canales alcistas/bajistas y FVGs cubiertas en tiempo real.",
+            React.createElement("div", { style: { background: "rgba(255,100,200,.04)", border: "1px solid rgba(255,100,200,.15)", borderRadius: 6, padding: "8px 10px", marginBottom: 12 } },
+                React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#ff88dd", marginBottom: 3 } }, "\u26A1 PATRONES CHARTISTAS (siempre activos)"),
+                React.createElement("div", { style: { fontSize: 8, color: "#555", lineHeight: 1.8 } },
+                    "\u2705 Canales alcistas y bajistas (soporte / resistencia / rupturas)",
                     React.createElement("br", null),
-                    "La alerta m\u00E1s potente es cuando ambas coinciden en la misma vela."),
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 } },
-                    React.createElement("button", { onClick: function () { setDraft({ ...draft, channelEnabled: !draft.channelEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.channelEnabled ? "#ff88dd" : "#333"), background: draft.channelEnabled ? "rgba(255,136,221,.08)" : "transparent", color: draft.channelEnabled ? "#ff88dd" : "#555", fontSize: 8, fontWeight: draft.channelEnabled ? 700 : 400, cursor: "pointer" } },
-                        draft.channelEnabled ? "🔔" : "🔕",
-                        " Canal (soporte/resistencia)"),
-                    React.createElement("button", { onClick: function () { setDraft({ ...draft, fvgEnabled: !draft.fvgEnabled }); }, style: { padding: "8px 4px", borderRadius: 5, border: "1px solid " + (draft.fvgEnabled ? "#ffaa44" : "#333"), background: draft.fvgEnabled ? "rgba(255,170,68,.08)" : "transparent", color: draft.fvgEnabled ? "#ffaa44" : "#555", fontSize: 8, fontWeight: draft.fvgEnabled ? 700 : 400, cursor: "pointer" } },
-                        draft.fvgEnabled ? "🔔" : "🔕",
-                        " FVG cubierta (ineficiencia)"))),
+                    "\u2705 FVG cubiertas (ineficiencias de mercado)",
+                    React.createElement("br", null),
+                    "\u2705 Bander\u00EDn alcista \u2014 ruptura confirmada o falsa")),
             React.createElement("div", { style: { display: "flex", gap: 6 } },
                 React.createElement("button", { onClick: addAlert, disabled: draft.selectedSymbols.length === 0, style: { flex: 2, padding: "10px", background: draft.selectedSymbols.length === 0 ? "#2a2a3a" : "#f0b429", color: draft.selectedSymbols.length === 0 ? "#444" : "#0a0a0f", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: draft.selectedSymbols.length === 0 ? "not-allowed" : "pointer" } }, draft.selectedSymbols.length <= 1 ? "CREAR Y MONITORIZAR" : "CREAR " + draft.selectedSymbols.length + " ALERTAS"),
                 React.createElement("button", { onClick: function () { setShowForm(false); }, style: { flex: 1, padding: "10px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
@@ -3654,9 +3648,8 @@ function AlertasTab({ S }) {
                     alert.emaDeathEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(204,68,204,.08)", color: "#cc44cc", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(204,68,204,.25)" } }, "Muerte 7/25"),
                     alert.ema200GoldenEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,215,0,.08)", color: "#ffd700", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,215,0,.25)" } }, "Dorado 50/200"),
                     alert.ema200DeathEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(204,68,204,.08)", color: "#cc44cc", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(204,68,204,.25)" } }, "Muerte 50/200"),
-                    alert.channelEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,136,221,.08)", color: "#ff88dd", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,136,221,.25)" } }, "\uD83D\uDCD0 Canal"),
-                    alert.fvgEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,170,68,.08)", color: "#ffaa44", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,170,68,.25)" } }, "\u26A1 FVG"),
-                    !alert.rsiEnabled && !alert.emaGoldenEnabled && !alert.emaDeathEnabled && !alert.ema200GoldenEnabled && !alert.ema200DeathEnabled && !alert.channelEnabled && !alert.fvgEnabled && (React.createElement("span", { style: { fontSize: 8, color: "#333" } }, "Sin notificaciones"))),
+                    React.createElement("span", { style: { fontSize: 8, background: "rgba(255,136,221,.08)", color: "#ff88dd", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,136,221,.15)" } }, "\uD83D\uDCD0 Canal + FVG + \uD83D\uDEA9 Bander\u00EDn"),
+                    !alert.rsiCustomEnabled && !alert.rsiEnabled && !alert.emaGoldenEnabled && !alert.emaDeathEnabled && !alert.ema200GoldenEnabled && !alert.ema200DeathEnabled && (React.createElement("span", { style: { fontSize: 8, color: "#333" } }, "Solo patrones autom\u00E1ticos"))),
                 rsi !== null && (React.createElement("div", { style: { marginBottom: 8 } },
                     React.createElement("div", { style: { height: 6, borderRadius: 3, background: "#1e1e2e", position: "relative", overflow: "hidden" } },
                         React.createElement("div", { style: { position: "absolute", left: 0, width: "30%", height: "100%", background: "rgba(0,255,136,.08)" } }),

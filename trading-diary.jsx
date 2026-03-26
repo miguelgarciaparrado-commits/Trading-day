@@ -2792,7 +2792,7 @@ function AlertasTab({S}){
   const[alerts,setAlerts]=useState([]);
   const alertsRef=useRef([]);
   const[showForm,setShowForm]=useState(false);
-  const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below",channelEnabled:false,fvgEnabled:false});
+  const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below"});
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
   const[lastAlert,setLastAlert]=useState(null);
@@ -3282,7 +3282,7 @@ function AlertasTab({S}){
           // Canal + FVG: siempre activos en vela confirmada (ya no requieren toggle manual)
           if(k.x){
             var channelResult=detectChannelAlert(ohlc);
-            var fvgResult=alert.fvgEnabled?checkFVGCovered(ohlc,closePrice):null;
+            var fvgResult=checkFVGCovered(ohlc,closePrice);
 
             // Canal: usar tipo específico como llave de deduplicación
             // Reset cuando el tipo cambia (precio salió de la zona)
@@ -3309,8 +3309,8 @@ function AlertasTab({S}){
               }
             }
 
-            // FVG sin canal (sigue requiriendo toggle)
-            if(!channelResult&&fvgResult&&alert.fvgEnabled){
+            // FVG sin canal (siempre activo)
+            if(!channelResult&&fvgResult){
               var fvgKey2=ak+"fvg_"+fvgResult.subtype+"_"+fvgResult.age;
               if(!lastTrigRef.current[fvgKey2]){
                 lastTrigRef.current[fvgKey2]=true;
@@ -3366,7 +3366,6 @@ function AlertasTab({S}){
       return{
         id:Date.now()+i,symbol:symInfo.symbol,label:symInfo.label,interval:draft.interval,
         rsiCustomEnabled:draft.rsiCustomEnabled,rsiCustomTarget:draft.rsiCustomTarget,rsiCustomCondition:draft.rsiCustomCondition,
-        channelEnabled:draft.channelEnabled,fvgEnabled:draft.fvgEnabled,
         active:false,currentRsi:null,currentPrice:null,error:false
       };
     });
@@ -3605,22 +3604,13 @@ function AlertasTab({S}){
               </div>
             )}
           </div>
-          {/* Patrones chartistas */}
-          <div style={{background:"rgba(255,100,200,.04)",border:"1px solid rgba(255,100,200,.2)",borderRadius:6,padding:10,marginBottom:12}}>
-            <div style={{fontSize:9,fontWeight:700,color:"#ff88dd",marginBottom:4}}>PATRONES CHARTISTAS</div>
-            <div style={{fontSize:8,color:"#555",marginBottom:8,lineHeight:1.5}}>
-              Detecta canales alcistas/bajistas y FVGs cubiertas en tiempo real.<br/>
-              La alerta más potente es cuando ambas coinciden en la misma vela.
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
-              <button onClick={function(){setDraft({...draft,channelEnabled:!draft.channelEnabled});}}
-                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.channelEnabled?"#ff88dd":"#333"),background:draft.channelEnabled?"rgba(255,136,221,.08)":"transparent",color:draft.channelEnabled?"#ff88dd":"#555",fontSize:8,fontWeight:draft.channelEnabled?700:400,cursor:"pointer"}}>
-                {draft.channelEnabled?"🔔":"🔕"} Canal (soporte/resistencia)
-              </button>
-              <button onClick={function(){setDraft({...draft,fvgEnabled:!draft.fvgEnabled});}}
-                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.fvgEnabled?"#ffaa44":"#333"),background:draft.fvgEnabled?"rgba(255,170,68,.08)":"transparent",color:draft.fvgEnabled?"#ffaa44":"#555",fontSize:8,fontWeight:draft.fvgEnabled?700:400,cursor:"pointer"}}>
-                {draft.fvgEnabled?"🔔":"🔕"} FVG cubierta (ineficiencia)
-              </button>
+          {/* Patrones chartistas — siempre activos, sin toggle */}
+          <div style={{background:"rgba(255,100,200,.04)",border:"1px solid rgba(255,100,200,.15)",borderRadius:6,padding:"8px 10px",marginBottom:12}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#ff88dd",marginBottom:3}}>⚡ PATRONES CHARTISTAS (siempre activos)</div>
+            <div style={{fontSize:8,color:"#555",lineHeight:1.8}}>
+              ✅ Canales alcistas y bajistas (soporte / resistencia / rupturas)<br/>
+              ✅ FVG cubiertas (ineficiencias de mercado)<br/>
+              ✅ Banderín alcista — ruptura confirmada o falsa
             </div>
           </div>
           <div style={{display:"flex",gap:6}}>
@@ -3670,10 +3660,9 @@ function AlertasTab({S}){
               {alert.emaDeathEnabled&&<span style={{fontSize:8,background:"rgba(204,68,204,.08)",color:"#cc44cc",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(204,68,204,.25)"}}>Muerte 7/25</span>}
               {alert.ema200GoldenEnabled&&<span style={{fontSize:8,background:"rgba(255,215,0,.08)",color:"#ffd700",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,215,0,.25)"}}>Dorado 50/200</span>}
               {alert.ema200DeathEnabled&&<span style={{fontSize:8,background:"rgba(204,68,204,.08)",color:"#cc44cc",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(204,68,204,.25)"}}>Muerte 50/200</span>}
-              {alert.channelEnabled&&<span style={{fontSize:8,background:"rgba(255,136,221,.08)",color:"#ff88dd",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,136,221,.25)"}}>📐 Canal</span>}
-              {alert.fvgEnabled&&<span style={{fontSize:8,background:"rgba(255,170,68,.08)",color:"#ffaa44",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,170,68,.25)"}}>⚡ FVG</span>}
-              {!alert.rsiEnabled&&!alert.emaGoldenEnabled&&!alert.emaDeathEnabled&&!alert.ema200GoldenEnabled&&!alert.ema200DeathEnabled&&!alert.channelEnabled&&!alert.fvgEnabled&&(
-                <span style={{fontSize:8,color:"#333"}}>Sin notificaciones</span>
+              <span style={{fontSize:8,background:"rgba(255,136,221,.08)",color:"#ff88dd",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,136,221,.15)"}}>📐 Canal + FVG + 🚩 Banderín</span>
+              {!alert.rsiCustomEnabled&&!alert.rsiEnabled&&!alert.emaGoldenEnabled&&!alert.emaDeathEnabled&&!alert.ema200GoldenEnabled&&!alert.ema200DeathEnabled&&(
+                <span style={{fontSize:8,color:"#333"}}>Solo patrones automáticos</span>
               )}
             </div>
 
