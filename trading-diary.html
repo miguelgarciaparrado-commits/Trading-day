@@ -781,6 +781,11 @@ function App() {
     const sTot = hist.filter(h => h.dir === "Short").length;
     // - CLOSE POSITION -
     function closePos(p, type, manualPrice) {
+        // Guard: position might have been auto-closed while ModalCerrar was open
+        if (!D.current.pos.some(function (x) { return x.id === p.id; })) {
+            setModal(function (m) { return { ...m, close: null }; });
+            return;
+        }
         const isBE = p.be || p.sl === p.entry;
         // Use capitalRemaining if partial TPs have already been closed
         const hasPartials = p.tpLevels && p.tpLevels.length > 0 && p.tpLevels.some(function (l) { return l.hit; });
@@ -795,8 +800,28 @@ function App() {
             newPs.slOk = (newPs.slOk || 0) + 1;
         }
         else if (type === "tp") {
-            result = p.tp ? closeCap * Math.abs(p.tp - p.entry) / p.entry : 0;
-            note = "TP alcanzado";
+            // For tpLevels positions: calculate remaining portion from unhit levels or use closeCap at last level price
+            if (p.tpLevels && p.tpLevels.length > 0) {
+                // Calculate result for any unhit levels using their configured prices
+                var unhitLvls = p.tpLevels.filter(function (l) { return !l.hit; });
+                if (unhitLvls.length > 0) {
+                    // Use weighted average of remaining TP prices × remaining capital
+                    result = unhitLvls.reduce(function (sum, lvl) {
+                        var lvlCap = p.capital * lvl.pct / 100;
+                        var lvlRes = p.dir === "Short" ? (lvlCap * (p.entry - lvl.price) / p.entry) : (lvlCap * (lvl.price - p.entry) / p.entry);
+                        return sum + lvlRes;
+                    }, 0);
+                }
+                else {
+                    // All levels already hit but position still in pos — treat remaining as 0
+                    result = 0;
+                }
+                note = "🎯 TPs alcanzados" + (hasPartials ? " (+ parciales cerradas)" : "");
+            }
+            else {
+                result = p.tp ? closeCap * Math.abs(p.tp - p.entry) / p.entry : 0;
+                note = "TP alcanzado";
+            }
             newPs.tpAuto = (newPs.tpAuto || 0) + 1;
         }
         else {
@@ -3921,10 +3946,14 @@ function ModalCerrar({ p, PM, getPnL, fmtNum, fmtP, closePos, setModal, S }) {
             React.createElement("button", { onClick: () => closePos(p, "tp"), style: { background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", borderRadius: 8, padding: "12px 14px", cursor: "pointer", textAlign: "left", marginBottom: 8, width: "100%", display: "block" } },
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                     React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 11, color: "#00ff88", fontWeight: 700, marginBottom: 3 } }, "LLEGO AL TAKE PROFIT"),
-                        React.createElement("div", { style: { fontSize: 9, color: "#555" } }, "TP: " + (p.tp ? fmtP(p.tp) : "--"))),
+                        React.createElement("div", { style: { fontSize: 11, color: "#00ff88", fontWeight: 700, marginBottom: 3 } }, (p.tpLevels && p.tpLevels.length > 0) ? "TODOS LOS TPs ALCANZADOS" : "LLEGO AL TAKE PROFIT"),
+                        (p.tpLevels && p.tpLevels.length > 0) ? (React.createElement("div", { style: { fontSize: 9, color: "#555" } },
+                            p.tpLevels.filter(function (l) { return l.hit; }).length,
+                            "/",
+                            p.tpLevels.length,
+                            " niveles cerrados \u2014 cierra como 1 operaci\u00F3n")) : (React.createElement("div", { style: { fontSize: 9, color: "#555" } }, "TP: " + (p.tp ? fmtP(p.tp) : "--")))),
                     React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: "#00ff88" } }, mG ? fmtNum(mG) : "--")),
-                React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 4 } }, "TP automatico +1")),
+                React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 4 } }, "1 operaci\u00F3n cerrada \u00B7 TP autom\u00E1tico +1")),
             React.createElement("button", { onClick: () => setStep(2), style: { background: "rgba(240,180,41,.08)", border: "1px solid #f0b429", borderRadius: 8, padding: "12px 14px", cursor: "pointer", textAlign: "left", marginBottom: 8, width: "100%", display: "block" } },
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                     React.createElement("div", null,
