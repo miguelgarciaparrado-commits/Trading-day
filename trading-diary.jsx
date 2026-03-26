@@ -2145,7 +2145,13 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   const[showPredictions,setShowPredictions]=useState(false);
   const[savingMsgIdx,setSavingMsgIdx]=useState(null); // index del mensaje que se quiere guardar
   const[predNote,setPredNote]=useState("");
-  const[monitoredMsgs,setMonitoredMsgs]=useState({}); // {i: true} mensajes ya enviados a monitoreo
+  // monitoredMsgs: derivado de predictions — un mensaje está monitorizado si existe prediction con mismo content y status pending
+  var monitoredMsgs={};
+  messages.forEach(function(m,i){
+    if(m.role==="assistant"&&predictions&&predictions.some(function(p){return p.content===m.content&&p.status==="pending";})){
+      monitoredMsgs[String(i)]=true;
+    }
+  });
 
   // ── Chat export/import ──
   const[showChatImport,setShowChatImport]=useState(false);
@@ -2259,8 +2265,15 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   }
 
   function saveMessageAsPrediction(msg,note,userMsg){
-    const asset=detectedInfo?detectedInfo.display:marketData?marketData.asset:"";
-    const tf=detectedInfo?detectedInfo.tf:marketData?marketData.tf:"";
+    var asset=detectedInfo?detectedInfo.display:marketData?marketData.asset:"";
+    var tf=detectedInfo?detectedInfo.tf:marketData?marketData.tf:"";
+    // Fallback: detectar asset desde el contenido del mensaje si no hay contexto activo
+    if(!asset){
+      var searchText=(msg.content||"").slice(0,400);
+      if(userMsg&&userMsg.content)searchText=userMsg.content.slice(0,400)+" "+searchText;
+      var fallback=detectAssetFromText(searchText);
+      if(fallback){asset=fallback.display||fallback.symbol||"";tf=tf||fallback.tf||"";}
+    }
     const now=new Date();
     // Capturar imagen del usuario si existe (limitar a 150KB base64 para no saturar Supabase)
     var userImage=null;
@@ -2909,7 +2922,6 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
                       <button title="Guardar y monitorizar — recibirás updates en Telegram" onClick={function(){
                         var userMsg=messages[i-1]&&messages[i-1].role==="user"?messages[i-1]:null;
                         saveMessageAsPrediction(m,"",userMsg);
-                        setMonitoredMsgs(function(prev){var n={};Object.keys(prev).forEach(function(k){n[k]=prev[k];});n[String(i)]=true;return n;});
                       }} style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #1a2a3a",color:"#0088cc",cursor:"pointer"}}>
                         ✈️ Monitorizar
                       </button>
@@ -4165,8 +4177,11 @@ function AlertasTab({S}){
             // Leer predicciones pendientes con activo
             var savedPreds=[];
             try{var sp=localStorage.getItem("td-predictions");if(sp)savedPreds=JSON.parse(sp);}catch(e){}
-            var pendingPreds=savedPreds.filter(function(p){return p.status==="pending"&&p.asset;});
-            var predLines=pendingPreds.length?pendingPreds.map(function(p){return "  • "+p.asset.toUpperCase()+(p.tf?" "+tfLabel[p.tf]||p.tf:"")+(p.note?" — "+p.note:"");}).join("\n"):"  (ninguna activa)";
+            var pendingPreds=savedPreds.filter(function(p){return p.status==="pending";});
+            var predLines=pendingPreds.length?pendingPreds.map(function(p){
+              var label=p.asset?p.asset.toUpperCase():"(sin activo)";
+              return "  • "+label+(p.tf?" "+(tfLabel[p.tf]||p.tf):"")+(p.note?" — "+p.note:"")+(p.asset?"":" ⚠️ no monitoreada");
+            }).join("\n"):"  (ninguna guardada)";
             var msg="📋 NOTIFICACIONES ACTIVAS — Trading Diary\n\n"+
               "📡 ALERTAS DE MERCADO\n"+alertLines+
               "\n🛡 POSICIONES (cada 60s)\n"+
