@@ -1905,9 +1905,9 @@ export default function App(){
           <AlertasTab S={S}/>
         </div>
 
-        {tab==="Chat"&&(
+        <div style={{display:tab==="Chat"?"block":"none"}}>
           <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save} predictions={predictions} SPred={SPred} initialChatMsgs={D.current.chatMsgs||[]}/>
-        )}
+        </div>
       </div>
 
       {/* ═══ MODAL CERRAR POSICION ═══ */}
