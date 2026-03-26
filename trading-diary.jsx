@@ -2098,6 +2098,12 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       "6. Responde en espanol, directo y tecnico, max 250 palabras\n"+
       "7. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
       "8. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n"+
+      "DIVERGENCIA vs CONVERGENCIA RSI:\n"+
+      "- Divergencia alcista: precio hace LL, RSI hace HL → señal de giro al alza (momentum se recupera antes que el precio)\n"+
+      "- Divergencia bajista: precio hace HH, RSI hace LH → señal de giro a la baja (momentum se agota)\n"+
+      "- Convergencia alcista: precio HL + RSI HL → confirma tendencia alcista (seguir la tendencia)\n"+
+      "- Convergencia bajista: precio LH + RSI LH → confirma tendencia bajista\n"+
+      "Siempre menciona si hay divergencia o convergencia cuando analices el RSI.\n\n"+
       "=== PERFIL (SOLO para EVALUACION_TRADER al final) ===\n"+
       "Nivel trader: "+sc+"/100 | Tasa ganadora: "+winRate+"% | P&L: $"+totalPnl+"\n"+
       "SL respetados: "+slRate+"% | Cierre anticipado: "+earlyPctC+"% | Revancha: "+(ps.revenge||0)+"x\n"+
