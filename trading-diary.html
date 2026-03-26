@@ -3307,6 +3307,12 @@ function AlertasTab({ S }) {
         else if (type === "pennant_fake") {
             title = "⚠️ Banderín Alcista — Posible Falsa Ruptura";
         }
+        else if (type === "pennant_bear") {
+            title = "🔻 Banderín Bajista — Ruptura Bajista Confirmada";
+        }
+        else if (type === "pennant_bear_fake") {
+            title = "⚠️ Banderín Bajista — Posible Falsa Ruptura";
+        }
         else if (type === "canal_bajista_soporte") {
             title = "📐 Canal Bajista — Precio en Soporte";
             body = (customDesc || "") + priceStr;
@@ -3378,6 +3384,9 @@ function AlertasTab({ S }) {
             // Precio de entrada y operación sugerida
             var ohlcData = extra.ohlc || [];
             var isLong = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "patron_fvg", "pennant_bull", "pennant_fake", "canal_bajista_ruptura_alcista", "canal_alcista_soporte", "canal_alcista_ruptura_alcista"].indexOf(type) >= 0;
+            // Bearish pennant overrides direction to Short
+            if (type === "pennant_bear" || type === "pennant_bear_fake")
+                isLong = false;
             var sugDir = isLong ? "Long" : "Short";
             var entryPrice = price || 0;
             var slPct = 0.02;
@@ -3406,10 +3415,10 @@ function AlertasTab({ S }) {
                     }
                 }
             }
-            // Banderín alcista: TP = altura del asta proyectada desde la ruptura
+            // Banderín: TP = altura del asta proyectada (alcista o bajista)
             if (!tpPrice && extra.pennantResult && extra.pennantResult.targetPrice) {
                 tpPrice = extra.pennantResult.targetPrice;
-                tpNote = "Objetivo banderín (altura asta)";
+                tpNote = (type === "pennant_bear" || type === "pennant_bear_fake") ? "Objetivo banderín bajista (altura asta)" : "Objetivo banderín (altura asta)";
             }
             if (!tpPrice)
                 tpPrice = isLong ? entryPrice * (1 + slPct * 2) : entryPrice * (1 - slPct * 2);
@@ -3440,11 +3449,20 @@ function AlertasTab({ S }) {
             if (extra.pennantResult) {
                 var pr2 = extra.pennantResult;
                 tgLines.push("");
-                tgLines.push("🚩 BANDERÍN ALCISTA:");
-                tgLines.push("   📏 Asta: +" + (pr2.poleGainPct * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
-                tgLines.push("   📐 Triángulo: línea sup $" + pr2.upperLine.toFixed(2) + " | línea inf $" + pr2.lowerLine.toFixed(2));
-                tgLines.push("   🎯 Objetivo (altura asta): $" + pr2.targetPrice.toFixed(2));
-                if (type === "pennant_fake" && pr2.falseBrkReasons && pr2.falseBrkReasons.length > 0) {
+                var isBearPennant = (type === "pennant_bear" || type === "pennant_bear_fake");
+                tgLines.push(isBearPennant ? "🔻 BANDERÍN BAJISTA:" : "🚩 BANDERÍN ALCISTA:");
+                if (isBearPennant) {
+                    tgLines.push("   📏 Mástil: −" + (pr2.poleDropPct * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
+                    tgLines.push("   📐 Triángulo: línea sup $" + pr2.upperLine.toFixed(2) + " | línea inf $" + pr2.lowerLine.toFixed(2));
+                    tgLines.push("   🎯 Objetivo (proyección mástil): $" + pr2.targetPrice.toFixed(2));
+                    tgLines.push("   ⚠️ Ruptura por DEBAJO del triángulo — continuación bajista");
+                }
+                else {
+                    tgLines.push("   📏 Asta: +" + (pr2.poleGainPct * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
+                    tgLines.push("   📐 Triángulo: línea sup $" + pr2.upperLine.toFixed(2) + " | línea inf $" + pr2.lowerLine.toFixed(2));
+                    tgLines.push("   🎯 Objetivo (altura asta): $" + pr2.targetPrice.toFixed(2));
+                }
+                if ((type === "pennant_fake" || type === "pennant_bear_fake") && pr2.falseBrkReasons && pr2.falseBrkReasons.length > 0) {
                     tgLines.push("   ⚠️ Señales falsa ruptura: " + pr2.falseBrkReasons.join(" · "));
                 }
             }
@@ -3479,7 +3497,7 @@ function AlertasTab({ S }) {
             // Feedback system — ALL pattern types tracked for first 50 signals
             var FEEDBACK_TYPES = ["rsi_oversold", "rsi_overbought", "rsi_custom", "golden", "death", "ema200_golden", "ema200_death",
                 "rsi_div_bull", "rsi_div_bear", "rsi_conv_bull", "rsi_conv_bear",
-                "pennant_bull", "pennant_fake",
+                "pennant_bull", "pennant_fake", "pennant_bear", "pennant_bear_fake",
                 "canal_bajista_soporte", "canal_bajista_resistencia", "canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista",
                 "canal_alcista_soporte", "canal_alcista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista",
                 "patron_combo", "patron_fvg"];
@@ -3852,7 +3870,6 @@ function AlertasTab({ S }) {
                     }
                     if (pennantResult && pennantResult.breakout) {
                         if (!pennantResult.falseBrkWarning) {
-                            // Confirmed breakout — fire once per price level
                             if (!lastTrigRef.current[ak + "pennant_bull"]) {
                                 lastTrigRef.current[ak + "pennant_bull"] = true;
                                 lastTrigRef.current[ak + "pennant_fake"] = false;
@@ -3860,10 +3877,30 @@ function AlertasTab({ S }) {
                             }
                         }
                         else {
-                            // Possible false breakout — warn once
                             if (!lastTrigRef.current[ak + "pennant_fake"] && !lastTrigRef.current[ak + "pennant_bull"]) {
                                 lastTrigRef.current[ak + "pennant_fake"] = true;
                                 sendAlert(alert.label, alert.interval, rsi, "pennant_fake", null, null, "Posible falsa ruptura: " + pennantResult.falseBrkReasons.join(", "), closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: pennantResult });
+                            }
+                        }
+                    }
+                    // ─── BANDERÍN BAJISTA ───
+                    var bearPennantResult = detectBearishPennant(ohlc);
+                    if (!bearPennantResult || !bearPennantResult.breakout) {
+                        lastTrigRef.current[ak + "pennant_bear"] = false;
+                        lastTrigRef.current[ak + "pennant_bear_fake"] = false;
+                    }
+                    if (bearPennantResult && bearPennantResult.breakout) {
+                        if (!bearPennantResult.falseBrkWarning) {
+                            if (!lastTrigRef.current[ak + "pennant_bear"]) {
+                                lastTrigRef.current[ak + "pennant_bear"] = true;
+                                lastTrigRef.current[ak + "pennant_bear_fake"] = false;
+                                sendAlert(alert.label, alert.interval, rsi, "pennant_bear", null, null, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: bearPennantResult });
+                            }
+                        }
+                        else {
+                            if (!lastTrigRef.current[ak + "pennant_bear_fake"] && !lastTrigRef.current[ak + "pennant_bear"]) {
+                                lastTrigRef.current[ak + "pennant_bear_fake"] = true;
+                                sendAlert(alert.label, alert.interval, rsi, "pennant_bear_fake", null, null, "Posible falsa ruptura bajista: " + bearPennantResult.falseBrkReasons.join(", "), closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: bearPennantResult });
                             }
                         }
                     }
@@ -4476,11 +4513,15 @@ function AlertasTab({ S }) {
                     icon = "🚩";
                     color = "#00ff88";
                 }
+                else if (log.type === "pennant_bear" || log.type === "pennant_bear_fake") {
+                    icon = "🔻";
+                    color = "#ff4444";
+                }
                 var fb = patternStats[log.type] || null;
                 var fbPct = fb && fb.total > 0 ? Math.round(fb.correct / fb.total * 100) : null;
                 var rated = ratedLogs[log.id];
                 var ALL_FB_TYPES = ["rsi_oversold", "rsi_overbought", "rsi_custom", "golden", "death", "ema200_golden", "ema200_death",
-                    "rsi_div_bull", "rsi_div_bear", "rsi_conv_bull", "rsi_conv_bear", "pennant_bull", "pennant_fake",
+                    "rsi_div_bull", "rsi_div_bear", "rsi_conv_bull", "rsi_conv_bear", "pennant_bull", "pennant_fake", "pennant_bear", "pennant_bear_fake",
                     "canal_bajista_soporte", "canal_bajista_resistencia", "canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista",
                     "canal_alcista_soporte", "canal_alcista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista",
                     "patron_combo", "patron_fvg"];
@@ -5585,6 +5626,118 @@ function detectBullishPennant(ohlc) {
             breakout: breakout, falseBrkWarning: falseBrkWarning, falseBrkReasons: falseBrkReasons,
             targetPrice: targetPrice, upperLine: upperNow, lowerLine: lowerNow,
             poleGainPct: poleData.gainPct, poleHeight: poleData.height,
+            consLength: consLen, avgConsVol: avgConsVol
+        };
+        break;
+    }
+    return best;
+}
+// ─── BEARISH PENNANT DETECTION ───
+// Structure: strong downward pole → converging triangle consolidation (descending highs,
+// ascending lows, decreasing volume) → bearish breakout below lower trendline with volume
+function detectBearishPennant(ohlc) {
+    if (!ohlc || ohlc.length < 30)
+        return null;
+    var best = null;
+    for (var consLen = 15; consLen >= 5; consLen--) {
+        var consEnd = ohlc.length - 1;
+        var consStart = consEnd - consLen + 1;
+        if (consStart < 8)
+            continue;
+        var consSlice = ohlc.slice(consStart, consEnd + 1);
+        var highPts = consSlice.map(function (c, i) { return { x: i, y: c.h }; });
+        var lowPts = consSlice.map(function (c, i) { return { x: i, y: c.l }; });
+        var rH = linReg(highPts);
+        var rL = linReg(lowPts);
+        if (!rH || !rL)
+            continue;
+        // Pennant consolidation: highs slope DOWN, lows slope UP (symmetric converging triangle)
+        if (rH.slope >= 0 || rL.slope <= 0)
+            continue;
+        // Lines must be converging (spread narrowing by at least 10%)
+        var spreadStart = rH.intercept - rL.intercept;
+        var spreadEnd = (rH.slope * (consLen - 1) + rH.intercept) - (rL.slope * (consLen - 1) + rL.intercept);
+        if (spreadEnd <= 0 || spreadEnd >= spreadStart * 0.9)
+            continue;
+        // Volume declining during consolidation (pause before continuation)
+        var vols = consSlice.map(function (c) { return c.v || 0; });
+        var halfLen = Math.floor(consLen / 2);
+        var firstHalfVol = vols.slice(0, halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(halfLen, 1);
+        var secondHalfVol = vols.slice(halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(vols.slice(halfLen).length, 1);
+        var avgConsVol = vols.reduce(function (a, v) { return a + v; }, 0) / vols.length;
+        if (firstHalfVol > 0 && secondHalfVol > firstHalfVol * 1.1)
+            continue; // volume should not increase
+        // Find the pole: bearish impulse BEFORE consolidation
+        var poleFound = false;
+        var poleData = null;
+        for (var pLen = 3; pLen <= 20; pLen++) {
+            var ps = consStart - pLen;
+            if (ps < 0)
+                break;
+            var pSlice = ohlc.slice(ps, consStart + 1);
+            var poleOpen = pSlice[0].o;
+            var poleClose = pSlice[pSlice.length - 1].c;
+            var drop = (poleOpen - poleClose) / poleOpen; // positive value = downward move
+            if (drop < 0.03)
+                continue; // pole must drop at least 3%
+            var bearCount = pSlice.filter(function (c) { return c.c < c.o; }).length;
+            if (bearCount < pLen * 0.5)
+                continue; // majority bearish candles
+            // Pole volume must be higher than consolidation (strong impulse)
+            var poleVols = pSlice.map(function (c) { return c.v || 0; });
+            var avgPoleVol = poleVols.reduce(function (a, v) { return a + v; }, 0) / pSlice.length;
+            if (avgConsVol > 0 && avgPoleVol < avgConsVol)
+                continue;
+            poleFound = true;
+            poleData = { start: ps, end: consStart, dropPct: drop, height: poleOpen - poleClose, poleClose: poleClose };
+            break;
+        }
+        if (!poleFound)
+            continue;
+        // Project trendlines to current bar
+        var n = consLen - 1;
+        var upperNow = rH.slope * n + rH.intercept;
+        var lowerNow = rL.slope * n + rL.intercept;
+        var lastC = ohlc[consEnd];
+        var curPrice = lastC.c;
+        // Breakout: close BELOW the lower trendline
+        var breakout = curPrice < lowerNow;
+        // Target: project pole height downward from breakout
+        var projBase = breakout ? curPrice : lowerNow;
+        var targetPrice = projBase - poleData.height;
+        // False-breakout evaluation
+        var falseBrkWarning = false;
+        var falseBrkReasons = [];
+        if (breakout) {
+            var body = Math.abs(lastC.c - lastC.o);
+            var lowerWick = Math.min(lastC.c, lastC.o) - lastC.l;
+            var totalRange = lastC.h - lastC.l;
+            // 1. Long lower wick: price poked below but closed higher — trap
+            if (totalRange > 0 && body > 0 && lowerWick > body) {
+                falseBrkWarning = true;
+                falseBrkReasons.push("mecha inferior > cuerpo (cierre débil)");
+            }
+            // 2. Candle closed back above the lower trendline — inside the triangle
+            if (lastC.c > lowerNow) {
+                falseBrkWarning = true;
+                falseBrkReasons.push("cierre dentro del triángulo");
+            }
+            // 3. Low breakout volume
+            var brkVol = lastC.v || 0;
+            if (avgConsVol > 0 && brkVol < avgConsVol * 1.2) {
+                falseBrkWarning = true;
+                falseBrkReasons.push("volumen de ruptura insuficiente");
+            }
+            // 4. Breakout is in opposite direction to the pole (upward break after bearish pole = likely fake)
+            // Not applicable here — we check for downward break, same as pole direction
+        }
+        best = {
+            type: "pennant_bear",
+            poleStart: poleData.start, poleEnd: poleData.end,
+            consStart: consStart, consEnd: consEnd,
+            breakout: breakout, falseBrkWarning: falseBrkWarning, falseBrkReasons: falseBrkReasons,
+            targetPrice: targetPrice, upperLine: upperNow, lowerLine: lowerNow,
+            poleDropPct: poleData.dropPct, poleHeight: poleData.height,
             consLength: consLen, avgConsVol: avgConsVol
         };
         break;
