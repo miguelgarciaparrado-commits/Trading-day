@@ -924,6 +924,10 @@ function App() {
                 newPos.push(p);
                 continue;
             }
+            if (p.status === "pending") {
+                newPos.push(p);
+                continue;
+            }
             var isShort = p.dir === "Short";
             var kept = true;
             // Helper: calcular ratio R:R de la posicion
@@ -1266,8 +1270,10 @@ function App() {
                         React.createElement("span", { style: { fontSize: 16, fontWeight: 700, color: actPnl >= 0 ? "#00ff88" : "#ff4444" } }, fmtNum(actPnl)))))),
             tab === "Posiciones" && (React.createElement("div", null,
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
-                    React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700 } }, "POSICIONES ABIERTAS"),
-                    React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [], patternId: "" }, editPosId: null })), style: S.btn(true) }, "+ NUEVA OPERACION")),
+                    React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700 } }, "POSICIONES"),
+                    React.createElement("div", { style: { display: "flex", gap: 6 } },
+                        React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [], patternId: "", status: "open" }, editPosId: null })), style: { ...S.btn(true), fontSize: 8, padding: "4px 10px" } }, "+ ABRIR TRADE"),
+                        React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: "", dir: "Short", capital: "", entry: "", sl: "", tp: "", tpLevels: [], patternId: "", status: "pending" }, editPosId: null })), style: { background: "rgba(240,180,41,.15)", border: "1px solid #f0b429", color: "#f0b429", padding: "4px 10px", borderRadius: 4, fontSize: 8, fontWeight: 700, cursor: "pointer" } }, "+ EN ESPERA"))),
                 ethClosed && (React.createElement("div", { style: { textAlign: "center", padding: "10px", marginBottom: 10, background: "rgba(136,170,255,.05)", border: "1px solid rgba(136,170,255,.15)", borderRadius: 8, fontSize: 9, color: "#555" } },
                     "ETH legado marcada como cerrada.",
                     " ",
@@ -1298,7 +1304,11 @@ function App() {
                     React.createElement("div", { style: S.bar },
                         React.createElement("div", { style: S.fill(Math.min(pr.ETH / 9000 * 100, 100), "linear-gradient(90deg,#ff4444,#f0b429,#00ff88)") })),
                     React.createElement("button", { onClick: () => setModal(m => ({ ...m, closeEth: true })), style: { marginTop: 8, width: "100%", padding: "7px", background: "rgba(255,68,68,.1)", border: "1px solid rgba(255,68,68,.4)", color: "#ff6666", borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "CERRAR POSICION ETH LEGADO"))),
-                pos.map(p => {
+                pos.filter(function (p) { return !p.status || p.status === "open"; }).length > 0 && (React.createElement("div", { style: { fontSize: 9, color: "#00ff88", fontWeight: 700, marginBottom: 6, letterSpacing: 1 } },
+                    "ABIERTAS (",
+                    pos.filter(function (p) { return !p.status || p.status === "open"; }).length,
+                    ")")),
+                pos.filter(function (p) { return !p.status || p.status === "open"; }).map(p => {
                     const g = getPnL(p);
                     const isBE = p.be || p.sl === p.entry;
                     const mL = p.sl ? p.capital * Math.abs(p.entry - p.sl) / p.entry : 0;
@@ -1351,7 +1361,46 @@ function App() {
                                     "Ratio 1:",
                                     Math.round(mG / mL)))))));
                 }),
-                pos.length > 0 && React.createElement(PositionAdvisor, { pos: pos, PM: PM, getPnL: getPnL, fmtNum: fmtNum, S: S }))),
+                pos.filter(function (p) { return !p.status || p.status === "open"; }).length > 0 && React.createElement(PositionAdvisor, { pos: pos.filter(function (p) { return !p.status || p.status === "open"; }), PM: PM, getPnL: getPnL, fmtNum: fmtNum, S: S }),
+                pos.filter(function (p) { return p.status === "pending"; }).length > 0 && (React.createElement("div", { style: { marginTop: 16 } },
+                    React.createElement("div", { style: { fontSize: 9, color: "#f0b429", fontWeight: 700, marginBottom: 8, letterSpacing: 1 } },
+                        "EN ESPERA (",
+                        pos.filter(function (p) { return p.status === "pending"; }).length,
+                        ")"),
+                    pos.filter(function (p) { return p.status === "pending"; }).map(function (p) {
+                        var mL = p.sl ? p.capital * Math.abs(p.entry - p.sl) / p.entry : 0;
+                        var mG = p.tp ? p.capital * Math.abs(p.tp - p.entry) / p.entry : null;
+                        return (React.createElement("div", { key: p.id, style: { ...S.card, border: "1px solid rgba(240,180,41,.25)", marginBottom: 8, opacity: 0.85 } },
+                            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
+                                React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
+                                    React.createElement("span", { style: { fontSize: 14, fontWeight: 700 } }, p.asset),
+                                    React.createElement("span", { style: S.bdg(p.dir === "Short" ? "#ff4444" : "#00ff88") }, p.dir),
+                                    React.createElement("span", { style: { fontSize: 7, color: "#f0b429", background: "rgba(240,180,41,.1)", padding: "2px 6px", borderRadius: 3, border: "1px solid rgba(240,180,41,.3)" } }, "EN ESPERA")),
+                                React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+                                    React.createElement("button", { onClick: function () {
+                                            var updated = pos.map(function (x) { return x.id === p.id ? { ...x, status: "open" } : x; });
+                                            SPos(updated);
+                                        }, style: { background: "rgba(0,255,136,.15)", border: "1px solid #00ff88", color: "#00ff88", padding: "3px 9px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "Activar"),
+                                    React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "", tpLevels: p.tpLevels || [], patternId: p.patternId || "", status: "pending" }, editPosId: p.id })), style: { background: "transparent", border: "1px solid #2a2a3a", color: "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
+                                    React.createElement("button", { onClick: function () { SPos(pos.filter(function (x) { return x.id !== p.id; })); }, style: { background: "transparent", border: "1px solid #333", color: "#555", padding: "3px 6px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "\u00D7"))),
+                            React.createElement("div", { style: S.grid(105) }, [
+                                { l: "CAPITAL", v: "$" + p.capital.toLocaleString() },
+                                { l: "ENTRADA ESPERADA", v: p.entry ? ("$" + parseFloat(p.entry).toLocaleString()) : "--" },
+                                { l: "RATIO", v: mG && mL && mL > 0 ? "1:" + Math.round(mG / mL) : "--" },
+                            ].map(function (i) { return React.createElement("div", { key: i.l },
+                                React.createElement("div", { style: S.lbl }, i.l),
+                                React.createElement("div", { style: { fontSize: 11, fontWeight: 600, color: i.c || "#e0e0e0" } }, i.v)); })),
+                            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 4 } },
+                                React.createElement("div", { style: { background: "rgba(255,68,68,.06)", border: "1px solid rgba(255,68,68,.2)", borderRadius: 6, padding: "8px 10px" } },
+                                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 2 } }, "STOP LOSS"),
+                                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#ff6600" } }, p.sl ? ("$" + parseFloat(p.sl).toLocaleString()) : "--"),
+                                    React.createElement("div", { style: { fontSize: 11, color: "#ff4444" } }, mL ? ("-$" + mL.toFixed(0)) : "--")),
+                                React.createElement("div", { style: { background: "rgba(0,255,136,.06)", border: "1px solid rgba(0,255,136,.2)", borderRadius: 6, padding: "8px 10px" } },
+                                    React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 2 } }, "TAKE PROFIT"),
+                                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#00cc66" } }, p.tp ? ("$" + parseFloat(p.tp).toLocaleString()) : "--"),
+                                    React.createElement("div", { style: { fontSize: 11, color: "#00ff88" } }, mG ? ("+$" + mG.toFixed(0)) : "--"))),
+                            p.note && React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 6, fontStyle: "italic" } }, p.note)));
+                    }))))),
             tab === "Historial" && (React.createElement("div", null,
                 React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 4 } }, "HISTORIAL QUANTFURY"),
                 React.createElement("div", { style: { fontSize: 9, color: "#555", marginBottom: 10 } }, "239 ops. PDF oficial"),
@@ -4548,7 +4597,7 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
         var tpLvls = (f.tpLevels || []).filter(function (l) { return l.price && l.pct; }).map(function (l) { return { id: l.id, price: +l.price, pct: +l.pct, hit: l.hit || false }; });
         var posId = editId || Date.now();
         var reflText = preReflection ? preReflection.trim() : "";
-        const obj = { ...f, id: posId, capital: +f.capital, entry: +f.entry, sl: +f.sl, tp: +f.tp, tpLevels: tpLvls, capitalRemaining: +f.capital, be: false, preReflection: reflText };
+        const obj = { ...f, id: posId, capital: +f.capital, entry: +f.entry, sl: +f.sl, tp: +f.tp, tpLevels: tpLvls, capitalRemaining: +f.capital, be: false, preReflection: reflText, status: f.status || "open" };
         const nv = editId ? currentPos.map(x => x.id === editId ? obj : x) : [...currentPos, obj];
         SPos(nv);
         if (reflText && SJ && !editId) {
@@ -4604,6 +4653,16 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
                                 setLiveCheck({ ticker: base, price: val.toFixed(2), name: base + " (Manual)" });
                             }, style: { background: "rgba(255,136,68,.2)", border: "1px solid #ff8844", color: "#ff8844", padding: "5px 10px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "Usar")),
                     React.createElement("div", { style: { marginTop: 5, color: "#555", fontSize: 8 } }, "Tickers v\u00E1lidos: TLT \u00B7 AAPL \u00B7 MSFT \u00B7 SPY \u00B7 NVDA \u00B7 cualquier s\u00EDmbolo de bolsa")))),
+            React.createElement("div", { style: { marginBottom: 9 } },
+                React.createElement("div", { style: S.lbl }, "ESTADO"),
+                React.createElement("div", { style: { display: "flex", gap: 7 } }, [{ v: "open", l: "Abrir ahora", c: "#00ff88" }, { v: "pending", l: "En espera", c: "#f0b429" }].map(function (opt) {
+                    var sel = (f.status || "open") === opt.v;
+                    return React.createElement("button", { key: opt.v, onClick: function () { setF({ ...f, status: opt.v }); }, style: { flex: 1, padding: "7px", borderRadius: 4, fontSize: 9, fontWeight: 700,
+                            border: "1px solid " + (sel ? opt.c : "#333"),
+                            background: sel ? "rgba(" + (opt.v === "open" ? "0,255,136" : "240,180,41") + ", .12)" : "transparent",
+                            color: sel ? opt.c : "#555", cursor: "pointer" } }, opt.l);
+                })),
+                (f.status || "open") === "pending" && React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 3 } }, "No contabilizada hasta que la actives manualmente.")),
             React.createElement("div", { style: { marginBottom: 9 } },
                 React.createElement("div", { style: S.lbl }, "DIRECCION"),
                 React.createElement("div", { style: { display: "flex", gap: 7 } }, ["Short", "Long"].map(d => (React.createElement("button", { key: d, onClick: () => setF({ ...f, dir: d }), style: { flex: 1, padding: "7px", borderRadius: 4, fontSize: 10, fontWeight: 700, border: "1px solid " + (d === "Short" ? "#ff4444" : "#00ff88"), background: f.dir === d ? (d === "Short" ? "rgba(255,68,68,.15)" : "rgba(0,255,136,.15)") : "transparent", color: d === "Short" ? "#ff4444" : "#00ff88", cursor: "pointer" } }, d.toUpperCase()))))),

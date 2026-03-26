@@ -746,6 +746,7 @@ export default function App(){
       var base=p.asset.replace(/\/.*$/,"").toUpperCase();
       var price=newPr[base];
       if(!price||price<=0){newPos.push(p);continue;}
+      if(p.status==="pending"){newPos.push(p);continue;}
       var isShort=p.dir==="Short";
       var kept=true;
       // Helper: calcular ratio R:R de la posicion
@@ -1103,8 +1104,11 @@ export default function App(){
         {tab==="Posiciones"&&(
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ABIERTAS</div>
-              <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[],patternId:""},editPosId:null}))} style={S.btn(true)}>+ NUEVA OPERACION</button>
+              <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES</div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[],patternId:"",status:"open"},editPosId:null}))} style={{...S.btn(true),fontSize:8,padding:"4px 10px"}}>+ ABRIR TRADE</button>
+                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[],patternId:"",status:"pending"},editPosId:null}))} style={{background:"rgba(240,180,41,.15)",border:"1px solid #f0b429",color:"#f0b429",padding:"4px 10px",borderRadius:4,fontSize:8,fontWeight:700,cursor:"pointer"}}>+ EN ESPERA</button>
+              </div>
             </div>
             {/* ETH legado - restaurar si fue cerrado */}
             {ethClosed&&(
@@ -1151,7 +1155,11 @@ export default function App(){
                 </button>
               </div>
             )}
-            {pos.map(p=>{
+            {/* ── ABIERTAS ── */}
+            {pos.filter(function(p){return !p.status||p.status==="open";}).length>0&&(
+              <div style={{fontSize:9,color:"#00ff88",fontWeight:700,marginBottom:6,letterSpacing:1}}>ABIERTAS ({pos.filter(function(p){return !p.status||p.status==="open";}).length})</div>
+            )}
+            {pos.filter(function(p){return !p.status||p.status==="open";}).map(p=>{
               const g=getPnL(p);
               const isBE=p.be||p.sl===p.entry;
               const mL=p.sl?p.capital*Math.abs(p.entry-p.sl)/p.entry:0;
@@ -1218,7 +1226,56 @@ export default function App(){
                 </div>
               );
             })}
-          {pos.length>0&&<PositionAdvisor pos={pos} PM={PM} getPnL={getPnL} fmtNum={fmtNum} S={S}/>}
+          {pos.filter(function(p){return !p.status||p.status==="open";}).length>0&&<PositionAdvisor pos={pos.filter(function(p){return !p.status||p.status==="open";})} PM={PM} getPnL={getPnL} fmtNum={fmtNum} S={S}/>}
+            {/* ── EN ESPERA ── */}
+            {pos.filter(function(p){return p.status==="pending";}).length>0&&(
+              <div style={{marginTop:16}}>
+                <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:8,letterSpacing:1}}>EN ESPERA ({pos.filter(function(p){return p.status==="pending";}).length})</div>
+                {pos.filter(function(p){return p.status==="pending";}).map(function(p){
+                  var mL=p.sl?p.capital*Math.abs(p.entry-p.sl)/p.entry:0;
+                  var mG=p.tp?p.capital*Math.abs(p.tp-p.entry)/p.entry:null;
+                  return(
+                    <div key={p.id} style={{...S.card,border:"1px solid rgba(240,180,41,.25)",marginBottom:8,opacity:0.85}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                          <span style={{fontSize:14,fontWeight:700}}>{p.asset}</span>
+                          <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
+                          <span style={{fontSize:7,color:"#f0b429",background:"rgba(240,180,41,.1)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(240,180,41,.3)"}}>EN ESPERA</span>
+                        </div>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <button onClick={function(){
+                            var updated=pos.map(function(x){return x.id===p.id?{...x,status:"open"}:x;});
+                            SPos(updated);
+                          }} style={{background:"rgba(0,255,136,.15)",border:"1px solid #00ff88",color:"#00ff88",padding:"3px 9px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>Activar</button>
+                          <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[],patternId:p.patternId||"",status:"pending"},editPosId:p.id}))} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
+                          <button onClick={function(){SPos(pos.filter(function(x){return x.id!==p.id;}));}} style={{background:"transparent",border:"1px solid #333",color:"#555",padding:"3px 6px",borderRadius:4,fontSize:9,cursor:"pointer"}}>×</button>
+                        </div>
+                      </div>
+                      <div style={S.grid(105)}>
+                        {[
+                          {l:"CAPITAL",v:"$"+p.capital.toLocaleString()},
+                          {l:"ENTRADA ESPERADA",v:p.entry?("$"+parseFloat(p.entry).toLocaleString()):"--"},
+                          {l:"RATIO",v:mG&&mL&&mL>0?"1:"+Math.round(mG/mL):"--"},
+                        ].map(function(i){return <div key={i.l}><div style={S.lbl}>{i.l}</div><div style={{fontSize:11,fontWeight:600,color:i.c||"#e0e0e0"}}>{i.v}</div></div>;})}
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
+                        <div style={{background:"rgba(255,68,68,.06)",border:"1px solid rgba(255,68,68,.2)",borderRadius:6,padding:"8px 10px"}}>
+                          <div style={{fontSize:8,color:"#555",marginBottom:2}}>STOP LOSS</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#ff6600"}}>{p.sl?("$"+parseFloat(p.sl).toLocaleString()):"--"}</div>
+                          <div style={{fontSize:11,color:"#ff4444"}}>{mL?("-$"+mL.toFixed(0)):"--"}</div>
+                        </div>
+                        <div style={{background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:"8px 10px"}}>
+                          <div style={{fontSize:8,color:"#555",marginBottom:2}}>TAKE PROFIT</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#00cc66"}}>{p.tp?("$"+parseFloat(p.tp).toLocaleString()):"--"}</div>
+                          <div style={{fontSize:11,color:"#00ff88"}}>{mG?("+$"+mG.toFixed(0)):"--"}</div>
+                        </div>
+                      </div>
+                      {p.note&&<div style={{fontSize:8,color:"#555",marginTop:6,fontStyle:"italic"}}>{p.note}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -4753,7 +4810,7 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
     var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
     var posId=editId||Date.now();
     var reflText=preReflection?preReflection.trim():"";
-    const obj={...f,id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText};
+    const obj={...f,id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:f.status||"open"};
     const nv=editId?currentPos.map(x=>x.id===editId?obj:x):[...currentPos,obj];
     SPos(nv);
     if(reflText&&SJ&&!editId){
@@ -4810,6 +4867,20 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
             <div style={{marginTop:5,color:"#555",fontSize:8}}>Tickers válidos: TLT · AAPL · MSFT · SPY · NVDA · cualquier símbolo de bolsa</div>
           </div>
         )}
+      </div>
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>ESTADO</div>
+        <div style={{display:"flex",gap:7}}>
+          {[{v:"open",l:"Abrir ahora",c:"#00ff88"},{v:"pending",l:"En espera",c:"#f0b429"}].map(function(opt){
+            var sel=(f.status||"open")===opt.v;
+            return <button key={opt.v} onClick={function(){setF({...f,status:opt.v});}}
+              style={{flex:1,padding:"7px",borderRadius:4,fontSize:9,fontWeight:700,
+                border:"1px solid "+(sel?opt.c:"#333"),
+                background:sel?"rgba("+( opt.v==="open"?"0,255,136":"240,180,41")+", .12)":"transparent",
+                color:sel?opt.c:"#555",cursor:"pointer"}}>{opt.l}</button>;
+          })}
+        </div>
+        {(f.status||"open")==="pending"&&<div style={{fontSize:8,color:"#555",marginTop:3}}>No contabilizada hasta que la actives manualmente.</div>}
       </div>
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>DIRECCION</div>
