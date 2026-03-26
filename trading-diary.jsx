@@ -3014,6 +3014,8 @@ function AlertasTab({S}){
   const[addInterval,setAddInterval]=useState("1h");
   const[addStatus,setAddStatus]=useState(null);
   const[addFound,setAddFound]=useState(null); // {sym, label} when verified
+  const[patternStats,setPatternStats]=useState(function(){try{return JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){return {};}});
+  const[ratedLogs,setRatedLogs]=useState({});
   const[addConfig,setAddConfig]=useState({
     rsiOversoldEnabled:true,rsiOversoldTarget:30,
     rsiOverboughtEnabled:true,rsiOverboughtTarget:70,
@@ -3209,6 +3211,19 @@ function AlertasTab({S}){
     }else{doNotif();}
   }
 
+  function rateFeedback(logId,patternType,isCorrect){
+    var fbAll={};
+    try{fbAll=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
+    var fb=fbAll[patternType]||{total:0,correct:0,wrong:0};
+    fb.total=(fb.total||0)+1;
+    if(isCorrect)fb.correct=(fb.correct||0)+1;
+    else fb.wrong=(fb.wrong||0)+1;
+    fbAll[patternType]=fb;
+    localStorage.setItem("td-pattern-fb",JSON.stringify(fbAll));
+    setPatternStats(Object.assign({},fbAll));
+    setRatedLogs(function(prev){var n=Object.assign({},prev);n[logId]=isCorrect?"correct":"wrong";return n;});
+  }
+
   function addQuickAsset(){
     var raw=addInput.trim().toUpperCase();
     if(!raw)return;
@@ -3318,7 +3333,7 @@ function AlertasTab({S}){
     if(!body)body=label+" "+tf+priceStr;
     // ─── IN-APP: log + banner + vibración ───
     var ts=new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"});
-    var logEntry={type:type,title:title,body:body,time:ts};
+    var logEntry={id:Date.now()+Math.random(),type:type,label:label,interval:interval,title:title,body:body,time:ts};
     setLogs(function(prev){return [logEntry].concat(prev).slice(0,50);});
     setLastAlert(logEntry);
     if(navigator.vibrate)navigator.vibrate([200,100,200]);
@@ -3400,10 +3415,31 @@ function AlertasTab({S}){
       tgLines.push("   ⚖️ Ratio: 1:"+ratioBot);
       tgLines.push("");
       tgLines.push("⏰ "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
-      // Feedback system — first 50 detections per chartist pattern ask user if signal is correct
-      var FEEDBACK_TYPES=["pennant_bull","pennant_fake","rsi_div_bull","rsi_div_bear","rsi_conv_bull","rsi_conv_bear",
+      // Canal ascendente: bloque detallado en Telegram
+      if(extra.channelResult){
+        var cr=extra.channelResult;
+        tgLines.push("");
+        var cLabel=cr.canalType==="alcista"?"📈 CANAL ASCENDENTE":"📉 CANAL DESCENDENTE";
+        tgLines.push(cLabel+":");
+        tgLines.push("   Toques soporte: "+cr.supportTouches+"  |  Toques resistencia: "+cr.resistTouches);
+        tgLines.push("   Calidad canal: "+cr.channelQuality+"% | Posición precio: "+Math.round(cr.pos*100)+"%");
+        tgLines.push("   Soporte $"+cr.botLine.toFixed(2)+"  —  Resistencia $"+cr.topLine.toFixed(2));
+        if(cr.canalType==="alcista"){
+          tgLines.push("   ⚠️ En canal ascendente la ruptura más frecuente es BAJISTA (compradores se agotan)");
+          if(cr.ascLowsOk)tgLines.push("   ✅ Mínimos ascendentes confirmados");
+          if(cr.ascHighsOk)tgLines.push("   ✅ Máximos ascendentes confirmados");
+        }
+        if(cr.breakout&&cr.falseBrkReasons&&cr.falseBrkReasons.length>0){
+          tgLines.push("   ⚠️ Señales de fakeout: "+cr.falseBrkReasons.join(" · "));
+        }
+      }
+      // Feedback system — ALL pattern types tracked for first 50 signals
+      var FEEDBACK_TYPES=["rsi_oversold","rsi_overbought","rsi_custom","golden","death","ema200_golden","ema200_death",
+        "rsi_div_bull","rsi_div_bear","rsi_conv_bull","rsi_conv_bear",
+        "pennant_bull","pennant_fake",
         "canal_bajista_soporte","canal_bajista_resistencia","canal_bajista_ruptura_alcista","canal_bajista_ruptura_bajista",
-        "canal_alcista_soporte","canal_alcista_resistencia","canal_alcista_ruptura_alcista","canal_alcista_ruptura_bajista"];
+        "canal_alcista_soporte","canal_alcista_resistencia","canal_alcista_ruptura_alcista","canal_alcista_ruptura_bajista",
+        "patron_combo","patron_fvg"];
       var needsFb=FEEDBACK_TYPES.indexOf(type)>=0;
       var fbAll={};
       try{fbAll=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
@@ -4416,24 +4452,60 @@ function AlertasTab({S}){
           {logs.slice(0,20).map(function(log){
             var icon="🔔";
             var color="#88aaff";
-            if(log.type==="oversold"){icon="🟢";color="#00ff88";}
-            else if(log.type==="overbought"){icon="🔴";color="#ff4444";}
-            else if(log.type==="golden"||log.type.indexOf("golden")>-1){icon="🌟";color="#ffd700";}
-            else if(log.type==="death"||log.type.indexOf("death")>-1){icon="💀";color="#cc44cc";}
-            else if(log.type==="ema200_golden"){icon="🌟";color="#ffd700";}
-            else if(log.type==="ema200_death"){icon="💀";color="#cc44cc";}
+            if(log.type==="rsi_oversold"){icon="📉";color="#00ff88";}
+            else if(log.type==="rsi_overbought"){icon="📈";color="#ff4444";}
+            else if(log.type==="golden"||log.type==="ema200_golden"){icon="🌟";color="#ffd700";}
+            else if(log.type==="death"||log.type==="ema200_death"){icon="💀";color="#cc44cc";}
             else if(log.type==="price_target"){icon="🎯";color="#f0b429";}
+            else if(log.type==="rsi_div_bull"||log.type==="rsi_conv_bull"){icon="🟢";color="#00ff88";}
+            else if(log.type==="rsi_div_bear"||log.type==="rsi_conv_bear"){icon="🔴";color="#ff4444";}
+            else if(log.type&&log.type.indexOf("canal_alcista")===0){icon="📈";color="#88aaff";}
+            else if(log.type&&log.type.indexOf("canal_bajista")===0){icon="📉";color="#ff8844";}
+            else if(log.type==="pennant_bull"){icon="🚩";color="#00ff88";}
+            var fb=patternStats[log.type]||null;
+            var fbPct=fb&&fb.total>0?Math.round(fb.correct/fb.total*100):null;
+            var rated=ratedLogs[log.id];
+            var ALL_FB_TYPES=["rsi_oversold","rsi_overbought","rsi_custom","golden","death","ema200_golden","ema200_death",
+              "rsi_div_bull","rsi_div_bear","rsi_conv_bull","rsi_conv_bear","pennant_bull","pennant_fake",
+              "canal_bajista_soporte","canal_bajista_resistencia","canal_bajista_ruptura_alcista","canal_bajista_ruptura_bajista",
+              "canal_alcista_soporte","canal_alcista_resistencia","canal_alcista_ruptura_alcista","canal_alcista_ruptura_bajista",
+              "patron_combo","patron_fvg"];
+            var canRate=ALL_FB_TYPES.indexOf(log.type)>=0;
             return(
-              <div key={log.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"6px 0",borderBottom:"1px solid #1a1a2a",fontSize:9}}>
-                <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                  <span style={{fontSize:14,lineHeight:1}}>{icon}</span>
-                  <div>
-                    <span style={{fontWeight:700,color:"#e0e0e0"}}>{log.label}</span>
-                    <span style={{color:"#555",marginLeft:5,background:"rgba(240,180,41,.1)",padding:"1px 5px",borderRadius:3}}>{log.interval}</span>
-                    <div style={{color:color,marginTop:2,fontWeight:700,fontSize:8}}>{log.body}</div>
+              <div key={log.id} style={{padding:"7px 0",borderBottom:"1px solid #1a1a2a",fontSize:9}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <span style={{fontSize:14,lineHeight:1}}>{icon}</span>
+                    <div>
+                      <span style={{fontWeight:700,color:"#e0e0e0"}}>{log.label}</span>
+                      <span style={{color:"#555",marginLeft:5,background:"rgba(240,180,41,.1)",padding:"1px 5px",borderRadius:3}}>{log.interval}</span>
+                      {fbPct!==null&&<span style={{color:fbPct>=60?"#00ff88":fbPct>=40?"#f0b429":"#ff4444",marginLeft:5,fontSize:7}}>
+                        {fbPct}% precisión ({fb.total})
+                      </span>}
+                      <div style={{color:color,marginTop:2,fontWeight:700,fontSize:8}}>{log.body}</div>
+                    </div>
                   </div>
+                  <span style={{color:"#444",fontSize:8,whiteSpace:"nowrap",marginLeft:8}}>{log.time}</span>
                 </div>
-                <span style={{color:"#444",fontSize:8,whiteSpace:"nowrap",marginLeft:8}}>{log.time}</span>
+                {canRate&&!rated&&(
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5,marginLeft:22}}>
+                    <span style={{fontSize:7,color:"#444"}}>¿Señal correcta?</span>
+                    <button onClick={function(){rateFeedback(log.id,log.type,true);}}
+                      style={{background:"rgba(0,255,136,.12)",border:"1px solid #00ff88",color:"#00ff88",padding:"2px 8px",borderRadius:3,fontSize:8,cursor:"pointer",fontWeight:700}}>
+                      ✓ Sí
+                    </button>
+                    <button onClick={function(){rateFeedback(log.id,log.type,false);}}
+                      style={{background:"rgba(255,68,68,.12)",border:"1px solid #ff4444",color:"#ff4444",padding:"2px 8px",borderRadius:3,fontSize:8,cursor:"pointer",fontWeight:700}}>
+                      ✗ No
+                    </button>
+                  </div>
+                )}
+                {canRate&&rated&&(
+                  <div style={{marginTop:4,marginLeft:22,fontSize:7,color:rated==="correct"?"#00ff88":"#ff4444"}}>
+                    {rated==="correct"?"✓ Marcada como correcta":"✗ Marcada como falsa señal"}
+                    {fb&&fb.total>0&&<span style={{color:"#444",marginLeft:6}}>· Acumulado: {fb.correct}/{fb.total}</span>}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -5718,6 +5790,32 @@ function detectChannelAlert(ohlc){
   var isDescending=rH.slope<0; // canal bajista si ambas líneas bajan
   var canalType=isDescending?"bajista":"alcista";
 
+  // ─── Canal Ascendente: validaciones adicionales ───
+  // Verificar que los mínimos pivot son realmente ascendentes (no solo la regresión)
+  var ascLowsOk=true;var ascHighsOk=true;
+  if(!isDescending){
+    // Al menos los últimos 3 mínimos deben ser ascendentes
+    var lastPL=pivs.pL.slice(-3);
+    for(var li=1;li<lastPL.length;li++){if(lastPL[li][1]<=lastPL[li-1][1]){ascLowsOk=false;break;}}
+    // Al menos los últimos 3 máximos deben ser ascendentes
+    var lastPH=pivs.pH.slice(-3);
+    for(var hi2=1;hi2<lastPH.length;hi2++){if(lastPH[hi2][1]<=lastPH[hi2-1][1]){ascHighsOk=false;break;}}
+    if(!ascLowsOk&&!ascHighsOk)return null; // ambas fallando → no es canal ascendente válido
+  }
+
+  // Calidad: contar toques reales en cada línea (pivots dentro del 12% de altura del canal)
+  var touchMargin=ch*0.12;
+  var supportTouches=pivs.pL.filter(function(pt){
+    var lineVal=rL.slope*pt[0]+rL.intercept;
+    return Math.abs(pt[1]-lineVal)<=touchMargin;
+  }).length;
+  var resistTouches=pivs.pH.filter(function(pt){
+    var lineVal=rH.slope*pt[0]+rH.intercept;
+    return Math.abs(pt[1]-lineVal)<=touchMargin;
+  }).length;
+  // Calidad general: más toques = canal más fiable
+  var channelQuality=Math.min(100,Math.round((supportTouches+resistTouches)/2*25));
+
   // Posición del precio dentro del canal (0 = soporte, 1 = resistencia)
   var pos=(price-botLine)/ch;
 
@@ -5759,13 +5857,15 @@ function detectChannelAlert(ohlc){
       :(isDescending&&!isBreakoutUp)
       ?"🔽 Ruptura bajista de canal bajista — aceleración bajista"
       :(!isDescending&&isBreakoutUp)
-      ?"🔼 Ruptura alcista de canal alcista — continuación"
-      :"🔽 Ruptura bajista de canal alcista — posible giro bajista";
+      ?"🚀 Ruptura alcista de canal alcista — aceleración (poco frecuente, alta euforia)"
+      :"🔽 Ruptura bajista de canal alcista — LA MÁS PROBABLE. Compradores debilitados, posible corrección mayor";
     if(falseBrk)desc="⚠️ POSIBLE FALSO BREAKOUT: "+desc;
     return{
       type:alertType,desc:desc,canalType:canalType,
       breakout:true,breakoutDir:dir,falseBrk:falseBrk,falseBrkReasons:falseBrkReasons,
-      topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos
+      topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos,
+      supportTouches:supportTouches,resistTouches:resistTouches,channelQuality:channelQuality,
+      ascLowsOk:ascLowsOk,ascHighsOk:ascHighsOk
     };
   }
 
@@ -5774,17 +5874,21 @@ function detectChannelAlert(ohlc){
     // Precio en soporte del canal
     var suppDesc=isDescending
       ?"📉 Canal bajista — precio en soporte dinámico (posible rebote o ruptura alcista)"
-      :"📈 Canal alcista — precio en soporte (zona de compra, continuación alcista)";
+      :"📈 Canal alcista — precio en soporte (mínimos ascendentes, zona de compra). Vigilar: si pierde el soporte la ruptura bajista es la más probable";
     return{type:"canal_"+canalType+"_soporte",desc:suppDesc,canalType:canalType,
-      breakout:false,topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos};
+      breakout:false,topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos,
+      supportTouches:supportTouches,resistTouches:resistTouches,channelQuality:channelQuality,
+      ascLowsOk:ascLowsOk,ascHighsOk:ascHighsOk};
   }
   if(pos>0.82){
     // Precio en resistencia del canal
     var resDesc=isDescending
       ?"📉 Canal bajista — precio en resistencia dinámica (zona de venta, rebote bajista esperado)"
-      :"📈 Canal alcista — precio en resistencia (posible ruptura o rechazo)";
+      :"📈 Canal alcista — precio en resistencia (máximos ascendentes, posible rechazo o ruptura explosiva al alza)";
     return{type:"canal_"+canalType+"_resistencia",desc:resDesc,canalType:canalType,
-      breakout:false,topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos};
+      breakout:false,topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos,
+      supportTouches:supportTouches,resistTouches:resistTouches,channelQuality:channelQuality,
+      ascLowsOk:ascLowsOk,ascHighsOk:ascHighsOk};
   }
   return null; // precio en zona media — sin señal
 }
