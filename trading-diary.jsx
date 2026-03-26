@@ -1466,7 +1466,6 @@ export default function App(){
                   {l:"Lecciones +1.5pts",v:jnl.filter(j=>j.type==="lesson").length,c:"#f0b429"},
                   {l:"Analisis +1pt",v:jnl.filter(j=>j.type==="analysis").length,c:"#888"},
                   {l:"Errores +-0",v:jnl.filter(j=>j.type==="mistake").length,c:"#ff4444"},
-                  {l:"Cierres doc.",v:jnl.filter(j=>j.linkedClose).length,c:"#f0b429"},
                 ].map(x=><div key={x.l} style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:6}}><span style={{color:"#555"}}>{x.l}</span><span style={{color:x.c,fontWeight:700}}>{x.v}</span></div>)}
               </div>
               <div style={S.card}>
@@ -2806,6 +2805,9 @@ function AlertasTab({S}){
   const[emaData,setEmaData]=useState({});
   const[showImport,setShowImport]=useState(false);
   const[importText,setImportText]=useState("");
+  const[patternFb,setPatternFb]=useState(function(){
+    try{return JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){return{};}
+  });
 
   // Telegram config
   const[tgToken,setTgToken]=useState(function(){return localStorage.getItem("td-tg-token")||"";});
@@ -2826,6 +2828,51 @@ function AlertasTab({S}){
   function releaseWakeLock(){
     if(wakeLockRef.current){wakeLockRef.current.release().catch(function(){});wakeLockRef.current=null;}
   }
+
+  // Poll Telegram for pattern feedback responses (callback_query from inline keyboards)
+  function pollTelegramFeedback(){
+    var tk=localStorage.getItem("td-tg-token");
+    var cid=localStorage.getItem("td-tg-chatid");
+    if(!tk||!cid)return;
+    var offset=0;
+    try{offset=parseInt(localStorage.getItem("td-tg-offset")||"0",10);}catch(e){}
+    var url="https://api.telegram.org/bot"+tk+"/getUpdates?offset="+offset+"&timeout=0&limit=10";
+    fetch(url).then(function(r){return r.json();}).then(function(data){
+      if(!data.ok||!data.result||!data.result.length)return;
+      var fb={};
+      try{fb=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
+      var maxId=offset-1;
+      data.result.forEach(function(upd){
+        if(upd.update_id>maxId)maxId=upd.update_id;
+        if(!upd.callback_query)return;
+        var cbq=upd.callback_query;
+        var d=cbq.data||"";
+        if(d.indexOf("fb_")!==0)return;
+        var rest=d.slice(3); // strip "fb_"
+        var sepIdx=rest.indexOf("_");
+        if(sepIdx<0)return;
+        var verdict=rest.slice(0,sepIdx); // "correct" or "wrong"
+        var patType=rest.slice(sepIdx+1); // e.g. "pennant_bull"
+        if(!fb[patType])fb[patType]={total:0,correct:0,wrong:0};
+        fb[patType].total=(fb[patType].total||0)+1;
+        if(verdict==="correct")fb[patType].correct=(fb[patType].correct||0)+1;
+        else fb[patType].wrong=(fb[patType].wrong||0)+1;
+        fetch("https://api.telegram.org/bot"+tk+"/answerCallbackQuery",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({callback_query_id:cbq.id,
+            text:verdict==="correct"?"✅ Correcto registrado":"❌ Incorrecto registrado",show_alert:false})
+        }).catch(function(){});
+      });
+      localStorage.setItem("td-pattern-fb",JSON.stringify(fb));
+      localStorage.setItem("td-tg-offset",String(maxId+1));
+      setPatternFb(fb);
+    }).catch(function(){});
+  }
+  useEffect(function(){
+    var iv=setInterval(pollTelegramFeedback,30000);
+    return function(){clearInterval(iv);};
+  },[]);
+
   // Re-acquire wake lock when tab becomes visible again
   useEffect(function(){
     function onVis(){
@@ -2941,6 +2988,14 @@ function AlertasTab({S}){
     else if(type==="patron_fvg"){title="⚡ FVG Cubierta";body=(customDesc||"")+priceStr;}
     else if(type==="pennant_bull"){title="🚩 Banderín Alcista — Ruptura Confirmada";}
     else if(type==="pennant_fake"){title="⚠️ Banderín Alcista — Posible Falsa Ruptura";}
+    else if(type==="canal_bajista_soporte"){title="📐 Canal Bajista — Precio en Soporte";body=(customDesc||"")+priceStr;}
+    else if(type==="canal_bajista_resistencia"){title="📐 Canal Bajista — Precio en Resistencia";body=(customDesc||"")+priceStr;}
+    else if(type==="canal_bajista_ruptura_alcista"){title="🚀 Canal Bajista — Ruptura Alcista";body=(customDesc||"")+priceStr;}
+    else if(type==="canal_bajista_ruptura_bajista"){title="📐 Canal Bajista — Ruptura Bajista Confirmada";body=(customDesc||"")+priceStr;}
+    else if(type==="canal_alcista_soporte"){title="📐 Canal Alcista — Precio en Soporte";body=(customDesc||"")+priceStr;}
+    else if(type==="canal_alcista_resistencia"){title="📐 Canal Alcista — Precio en Resistencia";body=(customDesc||"")+priceStr;}
+    else if(type==="canal_alcista_ruptura_alcista"){title="🚀 Canal Alcista — Ruptura Alcista Confirmada";body=(customDesc||"")+priceStr;}
+    else if(type==="canal_alcista_ruptura_bajista"){title="⚠️ Canal Alcista — Ruptura Bajista";body=(customDesc||"")+priceStr;}
     else if(customDesc){title="Alerta";body=customDesc+priceStr;}
     else{title="Alerta";body=type+priceStr;}
     // Body corto para la UI (sin toda la info del Telegram)
@@ -2960,7 +3015,7 @@ function AlertasTab({S}){
       }
       // Precio de entrada y operación sugerida
       var ohlcData=extra.ohlc||[];
-      var isLong=["rsi_oversold","golden","ema200_golden","rsi_div_bull","rsi_conv_bull","patron_fvg","pennant_bull","pennant_fake"].indexOf(type)>=0;
+      var isLong=["rsi_oversold","golden","ema200_golden","rsi_div_bull","rsi_conv_bull","patron_fvg","pennant_bull","pennant_fake","canal_bajista_ruptura_alcista","canal_alcista_soporte","canal_alcista_ruptura_alcista"].indexOf(type)>=0;
       var sugDir=isLong?"Long":"Short";
       var entryPrice=price||0;
       var slPct=0.02;
@@ -3022,8 +3077,33 @@ function AlertasTab({S}){
       tgLines.push("   ⚖️ Ratio: 1:"+ratioBot);
       tgLines.push("");
       tgLines.push("⏰ "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
-      var tgText=encodeURIComponent(tgLines.join("\n"));
-      fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+tgText).catch(function(){});
+      // Feedback system — first 50 detections per chartist pattern ask user if signal is correct
+      var FEEDBACK_TYPES=["pennant_bull","pennant_fake","rsi_div_bull","rsi_div_bear","rsi_conv_bull","rsi_conv_bear",
+        "canal_bajista_soporte","canal_bajista_resistencia","canal_bajista_ruptura_alcista","canal_bajista_ruptura_bajista",
+        "canal_alcista_soporte","canal_alcista_resistencia","canal_alcista_ruptura_alcista","canal_alcista_ruptura_bajista"];
+      var needsFb=FEEDBACK_TYPES.indexOf(type)>=0;
+      var fbAll={};
+      try{fbAll=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
+      var fbStats=fbAll[type]||{total:0,correct:0,wrong:0};
+      if(needsFb&&fbStats.total>0){
+        var fbPct=Math.round(fbStats.correct/(fbStats.total||1)*100);
+        tgLines.push("📊 Precisión histórica: "+fbPct+"% ("+fbStats.correct+" correctas / "+fbStats.total+" total)");
+      }
+      var tgFullText=tgLines.join("\n");
+      if(needsFb&&fbStats.total<50){
+        // Send with inline keyboard asking for feedback
+        fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({chat_id:cid,text:tgFullText,reply_markup:{inline_keyboard:[[
+            {text:"✅ Detección correcta",callback_data:"fb_correct_"+type},
+            {text:"❌ Falsa señal",callback_data:"fb_wrong_"+type}
+          ]]}})
+        }).catch(function(){});
+      }else{
+        var tgText=encodeURIComponent(tgFullText);
+        fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+tgText).catch(function(){});
+      }
     }
     if(Notification.permission==="granted"){
       const notifOpts={body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",requireInteraction:true,silent:false};
@@ -3199,40 +3279,44 @@ function AlertasTab({S}){
             if(cross50_200!=="golden")lastTrigRef.current[ak+"g200"]=false;
             if(cross50_200!=="death")lastTrigRef.current[ak+"d200"]=false;
           }
-          // Channel detection (only on closed candles to avoid noise)
-          if(k.x&&(alert.channelEnabled||alert.fvgEnabled)){
-            var channelResult=alert.channelEnabled?detectChannelAlert(ohlc):null;
+          // Canal + FVG: siempre activos en vela confirmada (ya no requieren toggle manual)
+          if(k.x){
+            var channelResult=detectChannelAlert(ohlc);
             var fvgResult=alert.fvgEnabled?checkFVGCovered(ohlc,closePrice):null;
-            // After every closed candle, reset channel trigger so new touches re-fire
-            // (FVG trigger stays locked per age to avoid repeated fires on same gap)
-            lastTrigRef.current[ak+"chan_prev"]=lastTrigRef.current[ak+"chan_cur"]||"";
-            var chanTypeNow=channelResult?channelResult.type:"";
-            if(chanTypeNow!==lastTrigRef.current[ak+"chan_prev"]){
-              lastTrigRef.current[ak+"chan_cur"]=chanTypeNow;
-            }
-            // Combo: channel boundary + FVG covered at same time (highest quality signal)
-            if(channelResult&&fvgResult){
-              var comboKey=ak+"combo_"+channelResult.type+"_"+fvgResult.age;
-              if(!lastTrigRef.current[comboKey]){
-                lastTrigRef.current[comboKey]=true;
-                sendAlert(alert.label,alert.interval,rsi,"patron_combo",null,null,
-                  "PATRÓN: "+channelResult.desc+" + FVG "+fvgResult.subtype+" cubierta ($"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+")",closePrice);
-              }
-            }else{
+
+            // Canal: usar tipo específico como llave de deduplicación
+            // Reset cuando el tipo cambia (precio salió de la zona)
+            var chanTypeNow2=channelResult?channelResult.type:"";
+            if(chanTypeNow2!==lastTrigRef.current[ak+"chan_cur"]){
+              lastTrigRef.current[ak+"chan_cur"]=chanTypeNow2;
+              // Solo dispara si tenemos un nuevo tipo de señal de canal
               if(channelResult){
-                var chanKey=ak+"chan_"+channelResult.type+"_"+Math.round(closePrice/10);
-                if(!lastTrigRef.current[chanKey]){
-                  lastTrigRef.current[chanKey]=true;
-                  sendAlert(alert.label,alert.interval,rsi,"patron_canal",null,null,channelResult.desc,closePrice);
+                var cExtra={ohlc:ohlc,volDir:volDir,divResult:divResult,channelResult:channelResult};
+                // Combo con FVG (señal de mayor calidad)
+                if(fvgResult){
+                  var comboKey2=ak+"combo_"+channelResult.type+"_"+fvgResult.age;
+                  if(!lastTrigRef.current[comboKey2]){
+                    lastTrigRef.current[comboKey2]=true;
+                    sendAlert(alert.label,alert.interval,rsi,"patron_combo",null,null,
+                      channelResult.desc+" + FVG "+fvgResult.subtype+" ($"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+")",
+                      closePrice,cExtra);
+                  }
+                }else{
+                  // Canal solo
+                  sendAlert(alert.label,alert.interval,rsi,channelResult.type,null,null,
+                    channelResult.desc,closePrice,cExtra);
                 }
               }
-              if(fvgResult){
-                var fvgKey=ak+"fvg_"+fvgResult.subtype+"_"+fvgResult.age;
-                if(!lastTrigRef.current[fvgKey]){
-                  lastTrigRef.current[fvgKey]=true;
-                  sendAlert(alert.label,alert.interval,rsi,"patron_fvg",null,null,
-                    "FVG "+fvgResult.subtype+" cubierta — zona $"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+" (hace "+fvgResult.age+" velas)",closePrice);
-                }
+            }
+
+            // FVG sin canal (sigue requiriendo toggle)
+            if(!channelResult&&fvgResult&&alert.fvgEnabled){
+              var fvgKey2=ak+"fvg_"+fvgResult.subtype+"_"+fvgResult.age;
+              if(!lastTrigRef.current[fvgKey2]){
+                lastTrigRef.current[fvgKey2]=true;
+                sendAlert(alert.label,alert.interval,rsi,"patron_fvg",null,null,
+                  "FVG "+fvgResult.subtype+" cubierta — zona $"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+" (hace "+fvgResult.age+" velas)",
+                  closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult});
               }
             }
           }
@@ -3680,6 +3764,47 @@ function AlertasTab({S}){
               );
             })
           )
+        );
+      })()}
+
+      {/* Precisión de patrones chartistas */}
+      {(function(){
+        var FB_LABELS={
+          pennant_bull:"🚩 Banderín Alcista",pennant_fake:"⚠️ Banderín Falso",
+          rsi_div_bull:"🟢 Div. Alcista RSI",rsi_div_bear:"🔴 Div. Bajista RSI",
+          rsi_conv_bull:"📈 Conv. Alcista RSI",rsi_conv_bear:"📉 Conv. Bajista RSI",
+          canal_bajista_ruptura_alcista:"🚀 Canal Baj. Ruptura ↑",canal_bajista_ruptura_bajista:"📐 Canal Baj. Ruptura ↓",
+          canal_bajista_soporte:"📐 Canal Baj. Soporte",canal_bajista_resistencia:"📐 Canal Baj. Resistencia",
+          canal_alcista_ruptura_alcista:"🚀 Canal Alc. Ruptura ↑",canal_alcista_ruptura_bajista:"⚠️ Canal Alc. Ruptura ↓",
+          canal_alcista_soporte:"📐 Canal Alc. Soporte",canal_alcista_resistencia:"📐 Canal Alc. Resistencia"
+        };
+        var entries=Object.keys(patternFb).filter(function(k){return patternFb[k]&&patternFb[k].total>0;});
+        if(entries.length===0)return null;
+        return(
+          <div style={{background:"#111118",border:"1px solid rgba(255,136,221,.2)",borderRadius:8,padding:12,marginTop:8,marginBottom:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{fontSize:9,color:"#ff88dd",fontWeight:700,letterSpacing:1}}>PRECISIÓN PATRONES (feedback)</div>
+              <button onClick={function(){localStorage.removeItem("td-pattern-fb");localStorage.removeItem("td-tg-offset");setPatternFb({});}}
+                style={{background:"transparent",border:"none",color:"#444",fontSize:8,cursor:"pointer"}}>Reset</button>
+            </div>
+            {entries.map(function(k){
+              var s=patternFb[k];
+              var pct=s.total>0?Math.round(s.correct/s.total*100):0;
+              var barColor=pct>=60?"#00ff88":pct>=40?"#f0b429":"#ff4444";
+              var remaining=50-s.total;
+              return(
+                <div key={k} style={{marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                    <span style={{fontSize:8,color:"#e0e0e0"}}>{FB_LABELS[k]||k}</span>
+                    <span style={{fontSize:8,fontWeight:700,color:barColor}}>{pct}% ({s.correct}/{s.total}){s.total<50?" — "+remaining+" restantes":""}</span>
+                  </div>
+                  <div style={{height:4,background:"#1e1e2e",borderRadius:2,overflow:"hidden"}}>
+                    <div style={{width:pct+"%",height:"100%",background:barColor,borderRadius:2,transition:"width .4s"}}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         );
       })()}
 
@@ -5165,41 +5290,109 @@ function detectBullishPennant(ohlc){
   return best;
 }
 
+// ─── CANAL DETECTADO (descendente / ascendente) ───
+// Retorna null, o un objeto con tipo, posición, breakout y validación de falsa ruptura
 function detectChannelAlert(ohlc){
-  if(!ohlc||ohlc.length<60)return null;
+  if(!ohlc||ohlc.length<40)return null;
   var recent=ohlc.slice(-80);
+  var n=recent.length-1;
   var highs=recent.map(function(c){return c.h;});
   var lows=recent.map(function(c){return c.l;});
-  var price=recent[recent.length-1].c;
+  var vols=recent.map(function(c){return c.v||0;});
+  var price=recent[n].c;
+
+  // Pivot detection with window=3 (necesita al menos 3 pivots de cada lado)
   var pivs=detectPivots(highs,lows,3);
   if(pivs.pH.length<3||pivs.pL.length<3)return null;
+
   var rH=linReg(pivs.pH);
   var rL=linReg(pivs.pL);
   if(!rH||!rL)return null;
-  var n=recent.length-1;
+
+  // Líneas proyectadas al índice actual
   var topLine=rH.slope*n+rH.intercept;
   var botLine=rL.slope*n+rL.intercept;
   var ch=topLine-botLine;
   if(ch<=0||price<=0)return null;
-  var pos=(price-botLine)/ch; // 0=bottom 1=top
-  // Slopes must have same sign (parallel) and ratio between 0.25–4
+
+  // Paralelismo: misma dirección + ratio de pendientes 0.25–4
   var sameSign=(rH.slope<0&&rL.slope<0)||(rH.slope>0&&rL.slope>0);
   if(!sameSign)return null;
-  var sRatio=Math.abs(rH.slope)/Math.abs(rL.slope);
-  if(sRatio<0.25||sRatio>4)return null;
-  // Price must be near a boundary (within 20% of channel height)
-  var isDescending=rH.slope<0;
-  if(pos<0.2){
-    return isDescending
-      ?{type:"bajista_soporte",desc:"Canal bajista — precio en soporte (posible rebote/ruptura alcista)"}
-      :{type:"alcista_soporte",desc:"Canal alcista — precio en soporte (zona de compra)"};
+  var sRatio=Math.abs(rH.slope)/(Math.abs(rL.slope)||0.0001);
+  if(sRatio<0.20||sRatio>5)return null;
+
+  var isDescending=rH.slope<0; // canal bajista si ambas líneas bajan
+  var canalType=isDescending?"bajista":"alcista";
+
+  // Posición del precio dentro del canal (0 = soporte, 1 = resistencia)
+  var pos=(price-botLine)/ch;
+
+  // Volumen medio últimas 10 velas (para validar ruptura)
+  var avgVol10=vols.slice(-10).reduce(function(a,v){return a+v;},0)/10;
+  var lastVol=vols[n]||0;
+  var highVolume=avgVol10>0&&lastVol>avgVol10*1.3;
+
+  // ─── Detección de RUPTURA ───
+  var isBreakoutUp=price>topLine*1.002;   // cierre 0.2% por encima del techo
+  var isBreakoutDown=price<botLine*0.998; // cierre 0.2% por debajo del suelo
+
+  if(isBreakoutUp||isBreakoutDown){
+    // Validar: ¿es ruptura real o fakeout?
+    var lastCandle=recent[n];
+    var body=Math.abs(lastCandle.c-lastCandle.o);
+    var upperWick=lastCandle.h-Math.max(lastCandle.c,lastCandle.o);
+    var lowerWick=Math.min(lastCandle.c,lastCandle.o)-lastCandle.l;
+    var totalRange=lastCandle.h-lastCandle.l;
+    var falseBrkReasons=[];
+
+    if(isBreakoutUp){
+      // Ruptura alcista de canal bajista (lo más común) o canal alcista (continuación)
+      if(totalRange>0&&body>0&&upperWick>body){falseBrkReasons.push("mecha superior > cuerpo");}
+      if(!highVolume){falseBrkReasons.push("volumen insuficiente");}
+      if(lastCandle.c<topLine){falseBrkReasons.push("cierre dentro del canal");}
+    }else{
+      // Ruptura bajista
+      if(totalRange>0&&body>0&&lowerWick>body){falseBrkReasons.push("mecha inferior > cuerpo");}
+      if(!highVolume){falseBrkReasons.push("volumen insuficiente");}
+      if(lastCandle.c>botLine){falseBrkReasons.push("cierre dentro del canal");}
+    }
+    var falseBrk=falseBrkReasons.length>=2; // 2+ señales = posible fakeout
+
+    var dir=isBreakoutUp?"alcista":"bajista";
+    var alertType=(isBreakoutUp?"canal_"+canalType+"_ruptura_alcista":"canal_"+canalType+"_ruptura_bajista");
+    var desc=(isDescending&&isBreakoutUp)
+      ?"🔼 Ruptura alcista de canal bajista — posible cambio de tendencia"
+      :(isDescending&&!isBreakoutUp)
+      ?"🔽 Ruptura bajista de canal bajista — aceleración bajista"
+      :(!isDescending&&isBreakoutUp)
+      ?"🔼 Ruptura alcista de canal alcista — continuación"
+      :"🔽 Ruptura bajista de canal alcista — posible giro bajista";
+    if(falseBrk)desc="⚠️ POSIBLE FALSO BREAKOUT: "+desc;
+    return{
+      type:alertType,desc:desc,canalType:canalType,
+      breakout:true,breakoutDir:dir,falseBrk:falseBrk,falseBrkReasons:falseBrkReasons,
+      topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos
+    };
   }
-  if(pos>0.8){
-    return isDescending
-      ?{type:"bajista_resistencia",desc:"Canal bajista — precio en resistencia (zona de venta)"}
-      :{type:"alcista_resistencia",desc:"Canal alcista — precio en resistencia (posible ruptura)"};
+
+  // ─── Sin ruptura: precio cerca de soporte o resistencia ───
+  if(pos<0.18){
+    // Precio en soporte del canal
+    var suppDesc=isDescending
+      ?"📉 Canal bajista — precio en soporte dinámico (posible rebote o ruptura alcista)"
+      :"📈 Canal alcista — precio en soporte (zona de compra, continuación alcista)";
+    return{type:"canal_"+canalType+"_soporte",desc:suppDesc,canalType:canalType,
+      breakout:false,topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos};
   }
-  return null;
+  if(pos>0.82){
+    // Precio en resistencia del canal
+    var resDesc=isDescending
+      ?"📉 Canal bajista — precio en resistencia dinámica (zona de venta, rebote bajista esperado)"
+      :"📈 Canal alcista — precio en resistencia (posible ruptura o rechazo)";
+    return{type:"canal_"+canalType+"_resistencia",desc:resDesc,canalType:canalType,
+      breakout:false,topLine:topLine,botLine:botLine,channelHeight:ch,slope:rH.slope,pos:pos};
+  }
+  return null; // precio en zona media — sin señal
 }
 
 function checkFVGCovered(ohlc,price){
