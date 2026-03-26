@@ -4239,11 +4239,22 @@ function AlertasTab({S}){
             <div key={alert.id} style={{display:"flex",alignItems:"center",gap:8,background:"#111118",border:"1px solid "+(alert.active&&!globalPaused?"rgba(0,255,136,.18)":alert.error?"rgba(255,68,68,.18)":globalPaused&&alert.active?"rgba(240,180,41,.18)":"#1a1a2a"),borderRadius:7,padding:"10px 12px",marginBottom:6}}>
               <div style={{width:8,height:8,borderRadius:"50%",flexShrink:0,background:dotColor,boxShadow:alert.active&&!globalPaused?"0 0 6px "+dotColor:"none"}}/>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                   <span style={{fontWeight:700,fontSize:11,color:"#e0e0e0"}}>{alert.label}</span>
                   <span style={{fontSize:8,padding:"2px 5px",borderRadius:3,background:"rgba(240,180,41,.1)",color:"#f0b429"}}>{intv.label}</span>
                   {isBtc&&<span style={{fontSize:7,color:"#444"}}>siempre activo</span>}
-                  {alert.error&&<span style={{fontSize:7,color:"#ff4444"}}>error de conexion</span>}
+                  {alert.error&&<span style={{fontSize:7,color:"#ff4444"}}>{(/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol))?"error de conexion":"clave Finnhub no configurada"}</span>}
+                </div>
+                {/* Notificaciones configuradas */}
+                <div style={{display:"flex",gap:3,flexWrap:"wrap",marginTop:4}}>
+                  {alert.rsiOversoldEnabled!==false&&<span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.25)",color:"#00ff88"}}>RSI≤{alert.rsiOversoldTarget!=null?alert.rsiOversoldTarget:30}</span>}
+                  {alert.rsiOverboughtEnabled!==false&&<span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.25)",color:"#ff6666"}}>RSI≥{alert.rsiOverboughtTarget!=null?alert.rsiOverboughtTarget:70}</span>}
+                  {alert.rsiCustomEnabled&&<span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(240,180,41,.12)",border:"1px solid rgba(240,180,41,.35)",color:"#f0b429"}}>RSI{alert.rsiCustomCondition==="below"?"≤":"≥"}{alert.rsiCustomTarget}</span>}
+                  {alert.emaCross725Enabled!==false&&<span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(136,170,255,.1)",border:"1px solid rgba(136,170,255,.25)",color:"#88aaff"}}>Cruce EMA 7/25</span>}
+                  {alert.emaCross50200Enabled!==false&&<span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(200,150,255,.1)",border:"1px solid rgba(200,150,255,.25)",color:"#c896ff"}}>Cruce EMA 50/200</span>}
+                  {alert.rsiDivEnabled!==false&&<span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(255,136,170,.1)",border:"1px solid rgba(255,136,170,.25)",color:"#ff88aa"}}>Div RSI</span>}
+                  {alert.channelEnabled&&<span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(255,200,100,.1)",border:"1px solid rgba(255,200,100,.25)",color:"#ffc864"}}>Canal</span>}
+                  {alert.fvgEnabled&&<span style={{fontSize:7,padding:"1px 5px",borderRadius:3,background:"rgba(100,200,255,.1)",border:"1px solid rgba(100,200,255,.25)",color:"#64c8ff"}}>FVG</span>}
                 </div>
                 {rsi!==null&&(
                   <div style={{marginTop:5}}>
@@ -4254,6 +4265,7 @@ function AlertasTab({S}){
                     </div>
                   </div>
                 )}
+                {emaData[alert.id]&&<div style={{fontSize:7,color:"#333",marginTop:6,marginBottom:1,fontWeight:600,letterSpacing:.5}}>ESTADO ACTUAL DEL MERCADO</div>}
                 <EmaDisplay data={emaData[alert.id]}/>
               </div>
               <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
