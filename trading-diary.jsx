@@ -763,7 +763,7 @@ export default function App(){
     const newPos2=D.current.pos.filter(x=>x.id!==p.id);
     D.current.xhist=newX;D.current.pos=newPos2;D.current.ps=newPs;
     setXhist(newX);setPos(newPos2);setPs(newPs);save();
-    setModal(m=>({...m,close:null,postData:{asset:p.asset,type:type,result:parseFloat(result.toFixed(2)),isBE:isBE}}));
+    setModal(m=>({...m,close:null}));
   }
 
   function notifyAutoClose(asset,dir,type,price,result){
@@ -1619,24 +1619,21 @@ export default function App(){
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
               <div style={S.card}>
-                <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>DIARIO DESGLOSE</div>
-                {[
-                  {l:"Victorias +2pts",v:jnl.filter(function(j){return j.type==="win"&&!j.fromReflexion;}).length,c:"#00ff88"},
-                  {l:"Lecciones +1.5pts",v:jnl.filter(function(j){return j.type==="lesson"&&!j.fromReflexion;}).length,c:"#f0b429"},
-                  {l:"Analisis +1pt",v:jnl.filter(function(j){return j.type==="analysis"&&!j.fromReflexion;}).length,c:"#888"},
-                  {l:"Errores +-0",v:jnl.filter(function(j){return j.type==="mistake";}).length,c:"#ff4444"},
-                ].map(x=><div key={x.l} style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:6}}><span style={{color:"#555"}}>{x.l}</span><span style={{color:x.c,fontWeight:700}}>{x.v}</span></div>)}
-                <div style={{borderTop:"1px solid #1e1e2e",marginTop:6,paddingTop:6}}>
-                  {(function(){var rc=jnl.filter(function(j){return j.fromReflexion;}).length;var bonR=Math.min(5,rc);return(
-                    <div>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:3}}>
-                        <span style={{color:"#88aaff"}}>🧠 Reflexiones IA</span>
-                        <span style={{color:"#88aaff",fontWeight:700}}>{rc} sesiones → +{bonR} pts</span>
-                      </div>
-                      <div style={{fontSize:7,color:"#444"}}>{rc>=5?"✅ Máximo alcanzado":("Faltan "+(5-rc)+" para el máximo (+5 pts)")}</div>
+                <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>REFLEXIONES IA</div>
+                {(function(){var rc=jnl.filter(function(j){return j.fromReflexion;}).length;var bonR=Math.min(5,rc);return(
+                  <div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:6}}>
+                      <span style={{color:"#88aaff"}}>🧠 Sesiones completadas</span>
+                      <span style={{color:"#88aaff",fontWeight:700}}>{rc}</span>
                     </div>
-                  );})()}
-                </div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:6}}>
+                      <span style={{color:"#555"}}>Puntos ganados</span>
+                      <span style={{color:"#00ff88",fontWeight:700}}>+{bonR} pts</span>
+                    </div>
+                    <div style={{fontSize:7,color:"#444",marginTop:4}}>{rc>=5?"✅ Máximo alcanzado":("Faltan "+(5-rc)+" sesiones para el máximo (+5 pts)")}</div>
+                    <div style={{fontSize:7,color:"#333",marginTop:4}}>Cada reflexión guiada en el Chat suma 1 punto (máx 5)</div>
+                  </div>
+                );})()}
               </div>
               <div style={S.card}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>SCORE: SUBE / BAJA</div>
@@ -1645,8 +1642,6 @@ export default function App(){
                   {l:"TP automático / manual",c:"#00ff88",pts:"+20 max"},
                   {l:"Control emocional",c:"#88aaff",pts:"+15 base"},
                   {l:"Patrón confirmado",c:"#88aaff",pts:"+7 c/u"},
-                  {l:"Victoria diario",c:"#f0b429",pts:"+2"},
-                  {l:"Lección diario",c:"#f0b429",pts:"+1.5"},
                   {l:"🧠 Reflexión IA (máx 5)",c:"#88aaff",pts:"+1 c/u"},
                 ].map(function(x){return(
                   <div key={x.l} style={{background:"#0d0d16",borderRadius:4,padding:"5px 8px",border:"1px solid "+x.c+"22",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
@@ -1718,25 +1713,6 @@ export default function App(){
             {/* ═══ OBJETIVO DE RECUPERACION ═══ */}
             <GoalTracker h0Total={h0Total} ethT={ethT} actPnl={actPnl} xhist={xhist} S={S}/>
 
-            <div style={S.card}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>DIARIO PSICOLOGICO</div>
-                <button onClick={()=>setModal(m=>({...m,journal:true,journalForm:{text:"",emoji:"💪",type:"analysis"}}))} style={S.btn(true)}>+ ENTRADA</button>
-              </div>
-              {jnl.map(e=>(
-                <div key={e.id} style={{padding:"8px 10px",background:"#0d0d16",borderRadius:6,border:"1px solid "+TC[e.type]+"1a",marginBottom:6}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                      <span style={{fontSize:13}}>{e.emoji}</span>
-                      <span style={{fontSize:8,color:TC[e.type],border:"1px solid "+TC[e.type],padding:"1px 5px",borderRadius:3}}>{TL[e.type]}</span>
-                      {e.linkedClose&&<span style={{fontSize:8,color:"#555",border:"1px solid #333",padding:"1px 4px",borderRadius:3}}>{e.linkedClose==="tp"?"TP":e.linkedClose==="sl"?"SL":"MANUAL"}</span>}
-                    </div>
-                    <span style={{fontSize:8,color:"#444"}}>{e.date}</span>
-                  </div>
-                  <div style={{fontSize:10,color:"#666",lineHeight:1.5}}>{e.text}</div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
@@ -1807,19 +1783,6 @@ export default function App(){
           closePos={closePos}
           setModal={setModal}
           S={S}
-        />
-      )}
-
-      {/* ═══ MODAL POST CIERRE ═══ */}
-      {modal.postData&&(
-        <ModalPostCierre
-          data={modal.postData}
-          jnl={D.current.jnl}
-          SJ={SJ}
-          setModal={setModal}
-          fmtNum={fmtNum}
-          S={S}
-          TC={TC}
         />
       )}
 
@@ -1908,36 +1871,6 @@ export default function App(){
       {/* ═══ MODAL CERRAR ETH LEGADO ═══ */}
       {modal.closeEth&&(
         <ModalCloseEth pr={pr} closeEthLegacy={closeEthLegacy} setModal={setModal} S={S}/>
-      )}
-
-      {/* ═══ MODAL DIARIO ═══ */}
-      {modal.journal&&(
-        <div style={S.modal}><div style={S.mc}>
-          <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>NUEVA ENTRADA DIARIO</div>
-          <div style={S.lbl}>QUE PASO? COMO TE SENTISTE?</div>
-          <textarea style={{...S.inp,height:80,resize:"none",marginBottom:10}} placeholder="Describe la operacion, tus pensamientos..." value={(modal.journalForm&&modal.journalForm.text)||""||""} onChange={e=>setModal(m=>({...m,journalForm:{...m.journalForm,text:e.target.value}}))}/>
-          <div style={S.lbl}>EMOCION</div>
-          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
-            {["😰","😅","💪","🎯","😤","🧘","😊","😬"].map(em=>(
-              <button key={em} onClick={()=>setModal(m=>({...m,journalForm:{...m.journalForm,emoji:em}}))} style={{fontSize:17,background:(modal.journalForm&&modal.journalForm.emoji)===em?"rgba(240,180,41,.15)":"transparent",border:"1px solid "+((modal.journalForm&&modal.journalForm.emoji)===em?"#f0b429":"#2a2a3a"),borderRadius:5,padding:"3px 6px",cursor:"pointer"}}>{em}</button>
-            ))}
-          </div>
-          <div style={S.lbl}>TIPO</div>
-          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>
-            {[["win","VICTORIA +2","#00ff88"],["lesson","LECCION +1.5","#f0b429"],["analysis","ANALISIS +1","#888"],["mistake","ERROR","#ff4444"]].map(([v,l,c])=>(
-              <button key={v} onClick={()=>setModal(m=>({...m,journalForm:{...m.journalForm,type:v}}))} style={{padding:"4px 9px",borderRadius:4,fontSize:9,fontWeight:700,border:"1px solid "+c,background:(modal.journalForm&&modal.journalForm.type)===v?c+"22":"transparent",color:c,cursor:"pointer"}}>{l}</button>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:7}}>
-            <button onClick={()=>{
-              const jf=modal.journalForm||{};
-              if(!jf.text)return;
-              SJ([{...jf,id:Date.now(),date:today()},...D.current.jnl]);
-              setModal(m=>({...m,journal:false,journalForm:null}));
-            }} style={{...S.btn(true),flex:1,padding:8}}>GUARDAR</button>
-            <button onClick={()=>setModal(m=>({...m,journal:false,journalForm:null}))} style={{...S.btn(false),flex:1}}>CANCELAR</button>
-          </div>
-        </div></div>
       )}
 
       {/* ═══ MODAL METRICAS ═══ */}
@@ -5044,55 +4977,6 @@ function ModalCerrar({p,PM,getPnL,fmtNum,fmtP,closePos,setModal,S}){
     </div></div>
   );
 }
-
-function ModalPostCierre({data,jnl,SJ,setModal,fmtNum,S,TC}){
-  const[form,setForm]=useState({text:"",emoji:"💪",type:"analysis"});
-  const typeColor=data.type==="tp"?"#00ff88":data.isBE?"#f0b429":"#ff6600";
-  const typeLabel=data.type==="tp"?"Take Profit":data.isBE?"Breakeven":"Stop Loss / Cierre";
-  return(
-    <div style={S.modal}><div style={S.mc}>
-      <div style={{textAlign:"center",marginBottom:14}}>
-        <div style={{fontSize:26,marginBottom:4}}>{form.emoji}</div>
-        <div style={{fontSize:13,fontWeight:700,color:typeColor}}>{typeLabel}</div>
-        <div style={{fontSize:10,color:"#555",marginTop:3}}>{data.asset} - {data.result===0?"$0.00":fmtNum(data.result)}</div>
-      </div>
-      <div style={{padding:"7px 10px",background:"rgba(240,180,41,.05)",borderRadius:5,border:"1px solid rgba(240,180,41,.2)",marginBottom:12,fontSize:9,color:"#888"}}>
-        Documenta este cierre para sumar puntos al score
-      </div>
-      <div style={{fontSize:9,color:"#555",marginBottom:3}}>
-        {data.type==="tp"?"¿POR QUE CERRASTE? ¿SEGUISTE EL PLAN?":data.type==="sl"?"¿QUE FALLO? ¿RESPETASTE EL SL?":"¿POR QUE CERRASTE ANTES? ¿FUE LA DECISION CORRECTA?"}
-      </div>
-      <textarea
-        style={{...S.inp,height:80,resize:"none",marginBottom:10}}
-        placeholder={data.type==="tp"?"Ej: Segui el plan hasta el TP, RSI en sobrecompra confirmaba la salida...":data.type==="sl"?"Ej: El SL se activo correctamente, la tesis se invalido en 4H...":"Ej: Cerre antes porque vi debilidad en el momentum, aunque el TP estaba cerca..."}
-        value={form.text}
-        onChange={function(e){setForm(function(f){return{...f,text:e.target.value};});}}
-      />
-      <div style={{fontSize:9,color:"#555",marginBottom:5}}>EMOCION</div>
-      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
-        {["😰","😅","💪","🎯","😤","🧘","😊","😬"].map(em=>(
-          <button key={em} onClick={()=>setForm(f=>({...f,emoji:em}))} style={{fontSize:17,background:form.emoji===em?"rgba(240,180,41,.15)":"transparent",border:"1px solid "+(form.emoji===em?"#f0b429":"#2a2a3a"),borderRadius:5,padding:"3px 6px",cursor:"pointer"}}>{em}</button>
-        ))}
-      </div>
-      <div style={{fontSize:9,color:"#555",marginBottom:5}}>TIPO</div>
-      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>
-        {[["win","VICTORIA +2","#00ff88"],["lesson","LECCION +1.5","#f0b429"],["analysis","ANALISIS +1","#888"],["mistake","ERROR","#ff4444"]].map(([v,l,c])=>(
-          <button key={v} onClick={()=>setForm(f=>({...f,type:v}))} style={{padding:"4px 9px",borderRadius:4,fontSize:9,fontWeight:700,border:"1px solid "+c,background:form.type===v?c+"22":"transparent",color:c,cursor:"pointer"}}>{l}</button>
-        ))}
-      </div>
-      <div style={{display:"flex",gap:7}}>
-        <button onClick={()=>{
-          if(form.text){
-            SJ([{...form,id:Date.now(),date:new Date().toLocaleDateString("es-ES"),linkedClose:data.type},...jnl]);
-          }
-          setModal(m=>({...m,postData:null}));
-        }} style={{...S.btn(true),flex:1,padding:8}}>GUARDAR (+SCORE)</button>
-        <button onClick={()=>setModal(m=>({...m,postData:null}))} style={{...S.btn(false),flex:1}}>SALTAR</button>
-      </div>
-    </div></div>
-  );
-}
-
 
 // - CALENDARIO -
 function CalendarioTab({hist,fmtNum}){

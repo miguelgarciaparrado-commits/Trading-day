@@ -946,7 +946,7 @@ function App() {
         setPos(newPos2);
         setPs(newPs);
         save();
-        setModal(m => ({ ...m, close: null, postData: { asset: p.asset, type: type, result: parseFloat(result.toFixed(2)), isBE: isBE } }));
+        setModal(m => ({ ...m, close: null }));
     }
     function notifyAutoClose(asset, dir, type, price, result) {
         const isGain = result >= 0;
@@ -1717,28 +1717,23 @@ function App() {
                     React.createElement("button", { onClick: () => setModal(m => ({ ...m, psych: true })), style: { ...S.btn(false), width: "100%", marginTop: 8, fontSize: 9 } }, "Actualizar metricas")),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 } },
                     React.createElement("div", { style: S.card },
-                        React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 8 } }, "DIARIO DESGLOSE"),
-                        [
-                            { l: "Victorias +2pts", v: jnl.filter(function (j) { return j.type === "win" && !j.fromReflexion; }).length, c: "#00ff88" },
-                            { l: "Lecciones +1.5pts", v: jnl.filter(function (j) { return j.type === "lesson" && !j.fromReflexion; }).length, c: "#f0b429" },
-                            { l: "Analisis +1pt", v: jnl.filter(function (j) { return j.type === "analysis" && !j.fromReflexion; }).length, c: "#888" },
-                            { l: "Errores +-0", v: jnl.filter(function (j) { return j.type === "mistake"; }).length, c: "#ff4444" },
-                        ].map(x => React.createElement("div", { key: x.l, style: { display: "flex", justifyContent: "space-between", fontSize: 9, marginBottom: 6 } },
-                            React.createElement("span", { style: { color: "#555" } }, x.l),
-                            React.createElement("span", { style: { color: x.c, fontWeight: 700 } }, x.v))),
-                        React.createElement("div", { style: { borderTop: "1px solid #1e1e2e", marginTop: 6, paddingTop: 6 } }, (function () {
+                        React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 8 } }, "REFLEXIONES IA"),
+                        (function () {
                             var rc = jnl.filter(function (j) { return j.fromReflexion; }).length;
                             var bonR = Math.min(5, rc);
                             return (React.createElement("div", null,
-                                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 9, marginBottom: 3 } },
-                                    React.createElement("span", { style: { color: "#88aaff" } }, "\uD83E\uDDE0 Reflexiones IA"),
-                                    React.createElement("span", { style: { color: "#88aaff", fontWeight: 700 } },
-                                        rc,
-                                        " sesiones \u2192 +",
+                                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 9, marginBottom: 6 } },
+                                    React.createElement("span", { style: { color: "#88aaff" } }, "\uD83E\uDDE0 Sesiones completadas"),
+                                    React.createElement("span", { style: { color: "#88aaff", fontWeight: 700 } }, rc)),
+                                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 9, marginBottom: 6 } },
+                                    React.createElement("span", { style: { color: "#555" } }, "Puntos ganados"),
+                                    React.createElement("span", { style: { color: "#00ff88", fontWeight: 700 } },
+                                        "+",
                                         bonR,
                                         " pts")),
-                                React.createElement("div", { style: { fontSize: 7, color: "#444" } }, rc >= 5 ? "✅ Máximo alcanzado" : ("Faltan " + (5 - rc) + " para el máximo (+5 pts)"))));
-                        })())),
+                                React.createElement("div", { style: { fontSize: 7, color: "#444", marginTop: 4 } }, rc >= 5 ? "✅ Máximo alcanzado" : ("Faltan " + (5 - rc) + " sesiones para el máximo (+5 pts)")),
+                                React.createElement("div", { style: { fontSize: 7, color: "#333", marginTop: 4 } }, "Cada reflexi\u00F3n guiada en el Chat suma 1 punto (m\u00E1x 5)")));
+                        })()),
                     React.createElement("div", { style: S.card },
                         React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 8 } }, "SCORE: SUBE / BAJA"),
                         [
@@ -1746,8 +1741,6 @@ function App() {
                             { l: "TP automático / manual", c: "#00ff88", pts: "+20 max" },
                             { l: "Control emocional", c: "#88aaff", pts: "+15 base" },
                             { l: "Patrón confirmado", c: "#88aaff", pts: "+7 c/u" },
-                            { l: "Victoria diario", c: "#f0b429", pts: "+2" },
-                            { l: "Lección diario", c: "#f0b429", pts: "+1.5" },
                             { l: "🧠 Reflexión IA (máx 5)", c: "#88aaff", pts: "+1 c/u" },
                         ].map(function (x) {
                             return (React.createElement("div", { key: x.l, style: { background: "#0d0d16", borderRadius: 4, padding: "5px 8px", border: "1px solid " + x.c + "22", marginBottom: 3, display: "flex", justifyContent: "space-between" } },
@@ -1789,19 +1782,7 @@ function App() {
                         React.createElement("div", null, "Respetar el SL en TODAS las operaciones"),
                         React.createElement("div", null, "Usar CERRAR para que todo quede registrado"),
                         React.createElement("div", null, "Escribir VICTORIA o LECCION despues de cada cierre")))),
-                React.createElement(GoalTracker, { h0Total: h0Total, ethT: ethT, actPnl: actPnl, xhist: xhist, S: S }),
-                React.createElement("div", { style: S.card },
-                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-                        React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700 } }, "DIARIO PSICOLOGICO"),
-                        React.createElement("button", { onClick: () => setModal(m => ({ ...m, journal: true, journalForm: { text: "", emoji: "💪", type: "analysis" } })), style: S.btn(true) }, "+ ENTRADA")),
-                    jnl.map(e => (React.createElement("div", { key: e.id, style: { padding: "8px 10px", background: "#0d0d16", borderRadius: 6, border: "1px solid " + TC[e.type] + "1a", marginBottom: 6 } },
-                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 4 } },
-                            React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
-                                React.createElement("span", { style: { fontSize: 13 } }, e.emoji),
-                                React.createElement("span", { style: { fontSize: 8, color: TC[e.type], border: "1px solid " + TC[e.type], padding: "1px 5px", borderRadius: 3 } }, TL[e.type]),
-                                e.linkedClose && React.createElement("span", { style: { fontSize: 8, color: "#555", border: "1px solid #333", padding: "1px 4px", borderRadius: 3 } }, e.linkedClose === "tp" ? "TP" : e.linkedClose === "sl" ? "SL" : "MANUAL")),
-                            React.createElement("span", { style: { fontSize: 8, color: "#444" } }, e.date)),
-                        React.createElement("div", { style: { fontSize: 10, color: "#666", lineHeight: 1.5 } }, e.text))))))),
+                React.createElement(GoalTracker, { h0Total: h0Total, ethT: ethT, actPnl: actPnl, xhist: xhist, S: S }))),
             tab === "Recuperacion" && (React.createElement("div", null,
                 React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 6 } }, "HOJA DE RUTA - RECUPERACION"),
                 React.createElement("div", { style: { fontSize: 9, color: "#555", marginBottom: 12 } }, "Actualiza el precio ETH arriba y los escenarios cambian al instante."),
@@ -1842,7 +1823,6 @@ function App() {
                 React.createElement(AlertasTab, { S: S })),
             tab === "Chat" && (React.createElement(ChatTab, { S: S, pos: pos, PM: PM, pats: pats, ps: ps, sc: sc, jnl: jnl, hist: hist, xhist: xhist, SPs: SPs, SJ: SJ, D: D, save: save }))),
         modal.close && (React.createElement(ModalCerrar, { p: modal.close, PM: PM, getPnL: getPnL, fmtNum: fmtNum, fmtP: fmtP, closePos: closePos, setModal: setModal, S: S })),
-        modal.postData && (React.createElement(ModalPostCierre, { data: modal.postData, jnl: D.current.jnl, SJ: SJ, setModal: setModal, fmtNum: fmtNum, S: S, TC: TC })),
         modal.prices && (React.createElement("div", { style: S.modal },
             React.createElement("div", { style: S.mc },
                 React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 6 } }, "ACTUALIZAR PRECIOS"),
@@ -1894,24 +1874,6 @@ function App() {
                     React.createElement("button", { onClick: () => patSave(modal.patForm || {}, modal.editPatId), style: { ...S.btn(true), flex: 1, padding: 8 } }, modal.editPatId ? "GUARDAR CAMBIOS" : "ANADIR PATRON"),
                     React.createElement("button", { onClick: () => setModal(m => ({ ...m, pat: false, patForm: null, editPatId: null })), style: { ...S.btn(false), flex: 1 } }, "CANCELAR"))))),
         modal.closeEth && (React.createElement(ModalCloseEth, { pr: pr, closeEthLegacy: closeEthLegacy, setModal: setModal, S: S })),
-        modal.journal && (React.createElement("div", { style: S.modal },
-            React.createElement("div", { style: S.mc },
-                React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, "NUEVA ENTRADA DIARIO"),
-                React.createElement("div", { style: S.lbl }, "QUE PASO? COMO TE SENTISTE?"),
-                React.createElement("textarea", { style: { ...S.inp, height: 80, resize: "none", marginBottom: 10 }, placeholder: "Describe la operacion, tus pensamientos...", value: (modal.journalForm && modal.journalForm.text) || "" || "", onChange: e => setModal(m => ({ ...m, journalForm: { ...m.journalForm, text: e.target.value } })) }),
-                React.createElement("div", { style: S.lbl }, "EMOCION"),
-                React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 } }, ["😰", "😅", "💪", "🎯", "😤", "🧘", "😊", "😬"].map(em => (React.createElement("button", { key: em, onClick: () => setModal(m => ({ ...m, journalForm: { ...m.journalForm, emoji: em } })), style: { fontSize: 17, background: (modal.journalForm && modal.journalForm.emoji) === em ? "rgba(240,180,41,.15)" : "transparent", border: "1px solid " + ((modal.journalForm && modal.journalForm.emoji) === em ? "#f0b429" : "#2a2a3a"), borderRadius: 5, padding: "3px 6px", cursor: "pointer" } }, em)))),
-                React.createElement("div", { style: S.lbl }, "TIPO"),
-                React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 } }, [["win", "VICTORIA +2", "#00ff88"], ["lesson", "LECCION +1.5", "#f0b429"], ["analysis", "ANALISIS +1", "#888"], ["mistake", "ERROR", "#ff4444"]].map(([v, l, c]) => (React.createElement("button", { key: v, onClick: () => setModal(m => ({ ...m, journalForm: { ...m.journalForm, type: v } })), style: { padding: "4px 9px", borderRadius: 4, fontSize: 9, fontWeight: 700, border: "1px solid " + c, background: (modal.journalForm && modal.journalForm.type) === v ? c + "22" : "transparent", color: c, cursor: "pointer" } }, l)))),
-                React.createElement("div", { style: { display: "flex", gap: 7 } },
-                    React.createElement("button", { onClick: () => {
-                            const jf = modal.journalForm || {};
-                            if (!jf.text)
-                                return;
-                            SJ([{ ...jf, id: Date.now(), date: today() }, ...D.current.jnl]);
-                            setModal(m => ({ ...m, journal: false, journalForm: null }));
-                        }, style: { ...S.btn(true), flex: 1, padding: 8 } }, "GUARDAR"),
-                    React.createElement("button", { onClick: () => setModal(m => ({ ...m, journal: false, journalForm: null })), style: { ...S.btn(false), flex: 1 } }, "CANCELAR"))))),
         modal.psych && (React.createElement("div", { style: S.modal },
             React.createElement("div", { style: S.mc },
                 React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, "METRICAS PSICOLOGICAS"),
@@ -4958,35 +4920,6 @@ function ModalCerrar({ p, PM, getPnL, fmtNum, fmtP, closePos, setModal, S }) {
                     React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: curMktG >= 0 ? "#00ff88" : "#ff4444" } }, fmtNum(curMktG))),
                 React.createElement("div", { style: { fontSize: 9, color: "#f0b429", marginTop: 4 } }, "Te pedira el precio exacto de cierre")),
             React.createElement("button", { onClick: () => setModal(m => ({ ...m, close: null })), style: { ...S.btn(false), width: "100%", padding: 8 } }, "CANCELAR"))));
-}
-function ModalPostCierre({ data, jnl, SJ, setModal, fmtNum, S, TC }) {
-    const [form, setForm] = useState({ text: "", emoji: "💪", type: "analysis" });
-    const typeColor = data.type === "tp" ? "#00ff88" : data.isBE ? "#f0b429" : "#ff6600";
-    const typeLabel = data.type === "tp" ? "Take Profit" : data.isBE ? "Breakeven" : "Stop Loss / Cierre";
-    return (React.createElement("div", { style: S.modal },
-        React.createElement("div", { style: S.mc },
-            React.createElement("div", { style: { textAlign: "center", marginBottom: 14 } },
-                React.createElement("div", { style: { fontSize: 26, marginBottom: 4 } }, form.emoji),
-                React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: typeColor } }, typeLabel),
-                React.createElement("div", { style: { fontSize: 10, color: "#555", marginTop: 3 } },
-                    data.asset,
-                    " - ",
-                    data.result === 0 ? "$0.00" : fmtNum(data.result))),
-            React.createElement("div", { style: { padding: "7px 10px", background: "rgba(240,180,41,.05)", borderRadius: 5, border: "1px solid rgba(240,180,41,.2)", marginBottom: 12, fontSize: 9, color: "#888" } }, "Documenta este cierre para sumar puntos al score"),
-            React.createElement("div", { style: { fontSize: 9, color: "#555", marginBottom: 3 } }, data.type === "tp" ? "¿POR QUE CERRASTE? ¿SEGUISTE EL PLAN?" : data.type === "sl" ? "¿QUE FALLO? ¿RESPETASTE EL SL?" : "¿POR QUE CERRASTE ANTES? ¿FUE LA DECISION CORRECTA?"),
-            React.createElement("textarea", { style: { ...S.inp, height: 80, resize: "none", marginBottom: 10 }, placeholder: data.type === "tp" ? "Ej: Segui el plan hasta el TP, RSI en sobrecompra confirmaba la salida..." : data.type === "sl" ? "Ej: El SL se activo correctamente, la tesis se invalido en 4H..." : "Ej: Cerre antes porque vi debilidad en el momentum, aunque el TP estaba cerca...", value: form.text, onChange: function (e) { setForm(function (f) { return { ...f, text: e.target.value }; }); } }),
-            React.createElement("div", { style: { fontSize: 9, color: "#555", marginBottom: 5 } }, "EMOCION"),
-            React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 } }, ["😰", "😅", "💪", "🎯", "😤", "🧘", "😊", "😬"].map(em => (React.createElement("button", { key: em, onClick: () => setForm(f => ({ ...f, emoji: em })), style: { fontSize: 17, background: form.emoji === em ? "rgba(240,180,41,.15)" : "transparent", border: "1px solid " + (form.emoji === em ? "#f0b429" : "#2a2a3a"), borderRadius: 5, padding: "3px 6px", cursor: "pointer" } }, em)))),
-            React.createElement("div", { style: { fontSize: 9, color: "#555", marginBottom: 5 } }, "TIPO"),
-            React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 } }, [["win", "VICTORIA +2", "#00ff88"], ["lesson", "LECCION +1.5", "#f0b429"], ["analysis", "ANALISIS +1", "#888"], ["mistake", "ERROR", "#ff4444"]].map(([v, l, c]) => (React.createElement("button", { key: v, onClick: () => setForm(f => ({ ...f, type: v })), style: { padding: "4px 9px", borderRadius: 4, fontSize: 9, fontWeight: 700, border: "1px solid " + c, background: form.type === v ? c + "22" : "transparent", color: c, cursor: "pointer" } }, l)))),
-            React.createElement("div", { style: { display: "flex", gap: 7 } },
-                React.createElement("button", { onClick: () => {
-                        if (form.text) {
-                            SJ([{ ...form, id: Date.now(), date: new Date().toLocaleDateString("es-ES"), linkedClose: data.type }, ...jnl]);
-                        }
-                        setModal(m => ({ ...m, postData: null }));
-                    }, style: { ...S.btn(true), flex: 1, padding: 8 } }, "GUARDAR (+SCORE)"),
-                React.createElement("button", { onClick: () => setModal(m => ({ ...m, postData: null })), style: { ...S.btn(false), flex: 1 } }, "SALTAR")))));
 }
 // - CALENDARIO -
 function CalendarioTab({ hist, fmtNum }) {
