@@ -175,8 +175,11 @@ const RAW = [
 ];
 const H0 = RAW.map(r => ({ id: r[0], asset: r[1], dir: r[2] === "L" ? "Long" : "Short", cap: r[3], result: r[4], date: r[5], note: r[6] || "" }));
 // - DEFAULTS -
+// Posiciones abiertas según PDF Quantfury 26/03/2026
+// SOL/USD Short cerrada el 26/03/2026 a BE ($0.00) — eliminada de P0
 const P0 = [
-    { id: 4, asset: "SOL/USD", dir: "Short", capital: 600, entry: 85.77, sl: 94.40, tp: 34, be: false },
+    { id: 5, asset: "TLT", dir: "Long", capital: 3200, entry: 85.71, sl: 83.50, tp: 91.00, be: false, date: "24/03/2026", note: "37.3352 acciones | SL/TP estimados — actualizar" },
+    { id: 6, asset: "BTC/USDT", dir: "Long", capital: 2000, entry: 68527.60, sl: 65000, tp: 75000, be: false, date: "26/03/2026", note: "0.02918532 BTC | SL/TP estimados — actualizar" },
 ];
 const PAT0 = [
     { id: 1, name: "Cuna descendente + Canal alcista rebote", tf: "4h", asset: "BTC/USDT", obs: 1, conf: 1, fail: 0, log: [], desc: "Despues de una cuna descendente se forma canal alcista de rebote antes de continuar la caida." },
@@ -511,7 +514,7 @@ function App() {
     const [jnl, setJnl] = useState(J0);
     const [ps, setPs] = useState(PS0);
     // Closes via la app - se anaden cuando cierras una posicion con el boton CERRAR
-    // QUANTFURY_BASE ya incluye las operaciones del PDF + las 5 del 23/03
+    // QUANTFURY_BASE = P&L total de las 246 ops del PDF (23/03/2026). Ops recientes cerradas via app van a xhist.
     const XHIST_DEFAULT = [];
     const [xhist, setXhist] = useState(XHIST_DEFAULT);
     const [ethClosed, setEthClosed] = useState(false);
