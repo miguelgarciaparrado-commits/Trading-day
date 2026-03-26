@@ -2591,10 +2591,34 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       {/* Panel de predicciones guardadas */}
       {showPredictions&&(
         <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:10,marginBottom:8,maxHeight:240,overflowY:"auto"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div style={{fontSize:9,color:"#88aaff",fontWeight:700}}>PREDICCIONES GUARDADAS</div>
-            <span style={{fontSize:8,color:"#444"}}>El bot las recibe como contexto en cada mensaje</span>
-          </div>
+          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:8}}>PREDICCIONES GUARDADAS</div>
+          {predictions.length>0&&(function(){
+            var hit=predictions.filter(function(p){return p.status==="hit";}).length;
+            var missed=predictions.filter(function(p){return p.status==="missed";}).length;
+            var pending=predictions.filter(function(p){return p.status==="pending";}).length;
+            var resolved=hit+missed;
+            var rate=resolved>0?Math.round(hit/resolved*100):null;
+            return(
+              <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                <div style={{flex:1,background:"rgba(0,255,136,.06)",border:"1px solid rgba(0,255,136,.2)",borderRadius:5,padding:"5px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#00ff88"}}>{hit}</div>
+                  <div style={{fontSize:7,color:"#555"}}>Acertadas</div>
+                </div>
+                <div style={{flex:1,background:"rgba(255,68,68,.06)",border:"1px solid rgba(255,68,68,.2)",borderRadius:5,padding:"5px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#ff4444"}}>{missed}</div>
+                  <div style={{fontSize:7,color:"#555"}}>Fallidas</div>
+                </div>
+                <div style={{flex:1,background:"rgba(136,170,255,.06)",border:"1px solid rgba(136,170,255,.2)",borderRadius:5,padding:"5px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#88aaff"}}>{pending}</div>
+                  <div style={{fontSize:7,color:"#555"}}>Pendientes</div>
+                </div>
+                <div style={{flex:1,background:"rgba(240,180,41,.06)",border:"1px solid rgba(240,180,41,.2)",borderRadius:5,padding:"5px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:rate===null?"#555":rate>=60?"#00ff88":rate>=40?"#f0b429":"#ff4444"}}>{rate===null?"--":rate+"%"}</div>
+                  <div style={{fontSize:7,color:"#555"}}>Acierto</div>
+                </div>
+              </div>
+            );
+          })()}
           {predictions.length===0&&(
             <div style={{fontSize:9,color:"#333",textAlign:"center",padding:"10px 0"}}>
               Sin predicciones. Pulsa 💾 en cualquier respuesta del bot para guardarla.
@@ -2638,22 +2662,6 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
         </div>
       )}
 
-      {/* Form guardar predicción */}
-      {savingMsgIdx!==null&&(
-        <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.4)",borderRadius:6,padding:10,marginBottom:6}}>
-          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:6}}>GUARDAR COMO PREDICCION</div>
-          <input style={{...S.inp,width:"100%",fontSize:9,padding:"6px 8px",marginBottom:6,boxSizing:"border-box"}}
-            placeholder="Nota opcional: ej. 'BTC banderin bajista, objetivo 74500'"
-            value={predNote}
-            onChange={function(e){setPredNote(e.target.value);}}/>
-          <div style={{display:"flex",gap:6}}>
-            <button onClick={function(){saveMessageAsPrediction(messages[savingMsgIdx],predNote);}}
-              style={{flex:2,padding:"7px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>GUARDAR</button>
-            <button onClick={function(){setSavingMsgIdx(null);setPredNote("");}}
-              style={{flex:1,padding:"7px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
-          </div>
-        </div>
-      )}
 
       {/* Messages */}
       <div ref={listRef} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,paddingBottom:8}}>
@@ -2715,11 +2723,6 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
             )}
             <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
               <span style={{fontSize:8,color:"#333"}}>{m.role==="user"?"Tu":"Claude"} · {m.time}{m.isVoice?" · 🎙️":""}</span>
-              {m.role==="assistant"&&i>0&&(
-                <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);}}
-                  title="Guardar como prediccion"
-                  style={{background:"transparent",border:"none",color:"#444",cursor:"pointer",fontSize:10,padding:"0 2px",lineHeight:1}}>💾</button>
-              )}
               {i>0&&(function(){
                 var key=(m.role||"")+(m.content||"").slice(0,60)+(m.time||"");
                 var isPinned=pinned.some(function(p){return p._key===key;});
@@ -2730,6 +2733,33 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
                 );
               })()}
             </div>
+            {/* Botón guardar predicción — visible en mensajes del asistente */}
+            {m.role==="assistant"&&i>0&&!m.isReminder&&(
+              <div style={{marginTop:4,alignSelf:"flex-start",marginLeft:4}}>
+                {savingMsgIdx===i?(
+                  <div style={{background:"#0d0d16",border:"1px solid rgba(136,170,255,.4)",borderRadius:6,padding:"8px 10px",minWidth:220}}>
+                    <div style={{fontSize:8,color:"#88aaff",fontWeight:700,marginBottom:6}}>GUARDAR COMO PREDICCIÓN</div>
+                    <input style={{...S.inp,width:"100%",fontSize:9,padding:"5px 8px",marginBottom:6,boxSizing:"border-box"}}
+                      placeholder="Nota: ej. BTC objetivo 74500 en 4H..."
+                      value={predNote}
+                      onChange={function(e){setPredNote(e.target.value);}}
+                      onKeyDown={function(e){if(e.key==="Enter")saveMessageAsPrediction(messages[savingMsgIdx],predNote);}}
+                      autoFocus/>
+                    <div style={{display:"flex",gap:5}}>
+                      <button onClick={function(){saveMessageAsPrediction(messages[savingMsgIdx],predNote);}}
+                        style={{flex:2,padding:"5px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar</button>
+                      <button onClick={function(){setSavingMsgIdx(null);setPredNote("");}}
+                        style={{flex:1,padding:"5px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
+                    </div>
+                  </div>
+                ):(
+                  <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);setPredNote("");}}
+                    style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #222",color:"#444",cursor:"pointer"}}>
+                    💾 Guardar predicción
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );})}
         {loading&&(
