@@ -115,7 +115,8 @@ function fmtNum(v){
 }
 function fmtP(v){return v>=1000?"$"+v.toLocaleString():"$"+v;}
 function today(){return new Date().toLocaleDateString("es-ES");}
-function calcScore(ps,pats,jnl){
+function calcScore(ps,pats,jnl,xhist){
+  xhist=xhist||[];
   // S1 — Disciplina SL (0–35 pts): respetar el stop loss es la base de todo
   // slOk=1.0 pts, slBreakeven=0.5 pts (gestión activa pero no pérdida controlada), slBroken=0 pts
   const slT=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
@@ -137,8 +138,12 @@ function calcScore(ps,pats,jnl){
   const mis=jnl.filter(function(j){return j.type==="mistake";}).length;
   const a=jnl.filter(function(j){return j.type==="analysis";}).length;
   const s5=Math.min(10,(w*2)+(l*1.5)+a+Math.min(mis,l)*0.5);
-  // Bonus — entradas de diario ligadas a cierres (reflexión real)
-  const bon=Math.min(5,jnl.filter(function(j){return j.linkedClose;}).length*1.5);
+  // Bonus — entradas de diario ligadas a cierres MANUALES (reflexión real post-operación)
+  // Los auto-cierres no cuentan: el usuario no tuvo oportunidad de reflexionar
+  const manualXhistB=xhist.filter(function(h){return !h.autoClose;});
+  const manualTotal=manualXhistB.length||1;
+  const linkedDocs=jnl.filter(function(j){return j.linkedClose;}).length;
+  const bon=Math.min(5,linkedDocs*1.5);
   // Bonus reflexión IA (0–5 pts): cada sesión de coaching con el chatbot suma 1 pt
   // Premia el trabajo de introspección guiada, distinto del diario manual
   const reflexCount=jnl.filter(function(j){return j.fromReflexion;}).length;
@@ -210,7 +215,9 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
 
   // ── 4. Documentacion y reflexion ──
   var closeDocs=jnl.filter(function(j){return j.linkedClose;});
-  var docRate=totClose>0?Math.round(closeDocs.length/Math.max(totClose,1)*100):null;
+  // Solo cierres manuales como denominador (auto-cierres no muestran el modal)
+  var manualXhistPS=xhist.filter(function(h){return !h.autoClose;});
+  var docRate=manualXhistPS.length>0?Math.round(closeDocs.length/manualXhistPS.length*100):null;
   var lessons=jnl.filter(function(j){return j.type==="lesson";}).length;
   var mistakes=jnl.filter(function(j){return j.type==="mistake";}).length;
   if(docRate!==null){
@@ -535,7 +542,11 @@ export default function App(){
     const earlyPct=totClose>0?Math.round((ps.earlyClose||0)/totClose*100):0;
     // Entradas del diario vinculadas a cierres reales
     const closeDocs=jnl.filter(function(j){return j.linkedClose;});
-    const closeDocRate=totClose>0?Math.round(closeDocs.length/totClose*100):0;
+    // Solo las operaciones cerradas MANUALMENTE tienen la oportunidad de documentarse
+    // (las auto-cierres no muestran el modal de reflexión post-cierre)
+    const manualXhist=xhist.filter(function(h){return !h.autoClose;});
+    const manualClosesTotal=manualXhist.length; // solo app-closes manuales
+    const closeDocRate=manualClosesTotal>0?Math.round(closeDocs.length/manualClosesTotal*100):0;
     const tpDocs=jnl.filter(function(j){return j.linkedClose==="tp";});
     const slDocs=jnl.filter(function(j){return j.linkedClose==="sl";});
     const manualDocs=jnl.filter(function(j){return j.linkedClose==="manual";});
@@ -566,7 +577,7 @@ export default function App(){
       "=== PATRON DE CIERRES ===\n"+
       "Total cierres registrados: "+totClose+"\n"+
       "TP alcanzados: "+((ps.tpAuto||0)+(ps.tpManual||0))+" ("+tpPct+"%) | Cierres prematuros: "+(ps.earlyClose||0)+" ("+earlyPct+"%)\n"+
-      "Cierres documentados en diario: "+closeDocs.length+"/"+totClose+" ("+closeDocRate+"%)\n"+
+      "Cierres documentados en diario: "+closeDocs.length+"/"+manualClosesTotal+" cierres manuales ("+closeDocRate+"%) — los auto-cierres no se contabilizan\n"+
       "Emociones al cerrar en TP: "+closeEmoSummary(tpDocs)+"\n"+
       "Emociones al activarse SL: "+closeEmoSummary(slDocs)+"\n"+
       "Emociones en cierres manuales: "+closeEmoSummary(manualDocs)+"\n"+
@@ -635,7 +646,7 @@ export default function App(){
   const ethT=ethU-796.09;
   const actPnl=pos.reduce((a,p)=>a+getPnL(p),0)+(!ethClosed?ethU:0);
   const wins=hist.filter(h=>h.result>0).length;
-  const sc=calcScore(ps,pats,jnl);
+  const sc=calcScore(ps,pats,jnl,xhist);
   const lvColor=sc<0?"#ff2222":sc<30?"#ff5533":sc<50?"#ff8844":sc<65?"#f0b429":sc<80?"#88cc44":"#00ff88";
   const lvLabel=sc<0?"⚠️ AUTODESTRUCTIVO":sc<30?"APOSTADOR":sc<50?"PRINCIPIANTE":sc<65?"EN TRANSICION":sc<80?"AVANZADO":"PROFESIONAL";
 
@@ -808,7 +819,7 @@ export default function App(){
           var slRatio=calcPosRatio(p);
           if(slRatio!==null){psU.ratioSum=(psU.ratioSum||0)+slRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
           var slAutoNote=isBE?"⚖️ BE auto @ $"+price.toLocaleString():"🛑 SL auto @ $"+price.toLocaleString();
-          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(slResult.toFixed(2)),date:today(),note:slAutoNote,...(slRatio!==null?{ratio:slRatio}:{})});
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(slResult.toFixed(2)),date:today(),note:slAutoNote,autoClose:true,...(slRatio!==null?{ratio:slRatio}:{})});
           if(isBE){psU.slBreakeven=(psU.slBreakeven||0)+1;}else{psU.slOk=(psU.slOk||0)+1;}
           changed=true;
           notifyAutoClose(p.asset,p.dir,"SL ejecutado",price,slResult);
@@ -838,7 +849,7 @@ export default function App(){
           if(fullRatio!==null){psU.ratioSum=(psU.ratioSum||0)+fullRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
           psU.tpAuto=(psU.tpAuto||0)+1;
           var tpPrices=updLevels.map(function(l){return "$"+parseFloat(l.price).toLocaleString();}).join("/");
-          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(totalResult.toFixed(2)),date:today(),note:"🎯 TPs completados "+tpPrices,...(fullRatio!==null?{ratio:fullRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})});
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(totalResult.toFixed(2)),date:today(),note:"🎯 TPs completados "+tpPrices,autoClose:true,...(fullRatio!==null?{ratio:fullRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})});
           changed=true;continue;
         }
         var someNew=updLevels.some(function(l,i){return l.hit&&!p.tpLevels[i].hit;});
@@ -855,7 +866,7 @@ export default function App(){
           var tpResult=p.capital*Math.abs(p.tp-p.entry)/p.entry;
           var tpRatio=calcPosRatio(p);
           if(tpRatio!==null){psU.ratioSum=(psU.ratioSum||0)+tpRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
-          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(tpResult.toFixed(2)),date:today(),note:"🎯 TP auto @ $"+price.toLocaleString(),...(tpRatio!==null?{ratio:tpRatio}:{})});
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(tpResult.toFixed(2)),date:today(),note:"🎯 TP auto @ $"+price.toLocaleString(),autoClose:true,...(tpRatio!==null?{ratio:tpRatio}:{})});
           psU.tpAuto=(psU.tpAuto||0)+1;
           changed=true;
           notifyAutoClose(p.asset,p.dir,"TP alcanzado",price,tpResult);
