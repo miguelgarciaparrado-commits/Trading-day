@@ -3179,6 +3179,13 @@ function AlertasTab({S}){
     else{title="Alerta";body=type+priceStr;}
     // Body corto para la UI (sin toda la info del Telegram)
     if(!body)body=label+" "+tf+priceStr;
+    // ─── IN-APP: log + banner + vibración ───
+    var ts=new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"});
+    var logEntry={type:type,title:title,body:body,time:ts};
+    setLogs(function(prev){return [logEntry].concat(prev).slice(0,50);});
+    setLastAlert(logEntry);
+    if(navigator.vibrate)navigator.vibrate([200,100,200]);
+    setTimeout(function(){setLastAlert(function(cur){return cur&&cur===logEntry?null:cur;});},8000);
     // ─── TELEGRAM: formato estructurado ───
     var tk=localStorage.getItem("td-tg-token");
     var cid=localStorage.getItem("td-tg-chatid");
@@ -3299,6 +3306,8 @@ function AlertasTab({S}){
   function startStockAlertFinnhub(alert){
     requestWakeLock();
     var sid=alert.id.toString();
+    delete lastTrigRef.current[sid+"_rsizone"];
+    delete lastTrigRef.current[sid+"_rsicustom"];
     var fhKey2=localStorage.getItem("td-finnhub-key");
     if(!fhKey2){
       setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
@@ -3387,6 +3396,10 @@ function AlertasTab({S}){
   }
 
   function startAlert(alert){
+    // Limpiar estado de zona RSI al (re)iniciar para que el primer tick siempre dispare si ya está en zona
+    var sidReset=alert.id.toString();
+    delete lastTrigRef.current[sidReset+"_rsizone"];
+    delete lastTrigRef.current[sidReset+"_rsicustom"];
     // Acciones/ETFs (no Binance) → usar Finnhub polling
     var isBinancePair=/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
     if(!isBinancePair){startStockAlertFinnhub(alert);return;}
