@@ -4213,9 +4213,8 @@ function AlertasTab({S,predictions}){
             var cid=localStorage.getItem("td-tg-chatid")||"";
             if(!tk||!cid)return;
             var tfLabel={"1h":"1H","4h":"4H","1d":"Diario","1w":"Semanal"};
-            // Leer alertas configuradas
-            var savedAlerts=[];
-            try{var sa=localStorage.getItem("td-alerts-v2");if(sa)savedAlerts=JSON.parse(sa);}catch(e){}
+            // Leer alertas desde estado en memoria (siempre actualizado, no depende de localStorage)
+            var savedAlerts=alertsRef.current||[];
             var alertLines="";
             savedAlerts.forEach(function(a){
               var types=[];
