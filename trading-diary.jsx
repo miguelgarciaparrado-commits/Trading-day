@@ -118,8 +118,9 @@ function fmtNum(v){
 }
 function fmtP(v){return v>=1000?"$"+v.toLocaleString():"$"+v;}
 function today(){return new Date().toLocaleDateString("es-ES");}
-function calcScore(ps,pats,jnl,xhist){
+function calcScore(ps,pats,jnl,xhist,predictions){
   xhist=xhist||[];
+  predictions=predictions||[];
   // S1 — Disciplina SL (0–35 pts): respetar el stop loss es la base de todo
   // slOk=1.0 pts, slBreakeven=0.5 pts (gestión activa pero no pérdida controlada), slBroken=0 pts
   const slT=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
@@ -152,11 +153,21 @@ function calcScore(ps,pats,jnl,xhist){
   const reflexCount=jnl.filter(function(j){return j.fromReflexion;}).length;
   const bonR=Math.min(5,reflexCount);
   // Score puede ir negativo en casos extremos (señal de alarma), máx 100
-  return Math.max(-30,Math.min(100,Math.round(s1+s2+s3+s4+s5+bon+bonR)));
+  // Bonus predicciones (0–5 pts): tasa de acierto en predicciones guardadas
+  var predHit=predictions.filter(function(p){return p.status==="hit";}).length;
+  var predMissed=predictions.filter(function(p){return p.status==="missed";}).length;
+  var predResolved=predHit+predMissed;
+  var bonPred=0;
+  if(predResolved>=3){
+    var predRate=predHit/predResolved;
+    bonPred=predRate>=0.70?5:predRate>=0.55?3:predRate>=0.40?1:0;
+  }
+  return Math.max(-30,Math.min(100,Math.round(s1+s2+s3+s4+s5+bon+bonR+bonPred)));
 }
 
 // - ANALISIS PERFIL -
-function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
+function generateProfileSummary(ps,pats,jnl,hist,xhist,sc,predictions){
+  predictions=predictions||[];
   // Returns array of {text, cat} where cat = "positive"|"neutral"|"negative"
   var items=[];
   function add(text,cat){items.push({text:text,cat:cat||"neutral"});}
@@ -253,6 +264,24 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
     add("Llevas "+reflexCount+" reflexion"+(reflexCount>1?"es":"")+" con el coach IA (+"+bonR+" pts). Cada sesión adicional suma hasta completar el bonus máximo de +5 pts (te faltan "+(5-reflexCount)+").","neutral");
   }else{
     add("Sin reflexiones con el coach IA todavia. Usar el modo Reflexion en el chat puede sumar hasta +5 pts al score y mejora la conciencia de tus patrones emocionales.","neutral");
+  }
+
+  // ── 7. Predicciones ──
+  var predHit2=predictions.filter(function(p){return p.status==="hit";}).length;
+  var predMissed2=predictions.filter(function(p){return p.status==="missed";}).length;
+  var predPending2=predictions.filter(function(p){return p.status==="pending";}).length;
+  var predResolved2=predHit2+predMissed2;
+  if(predResolved2>=3){
+    var predRate2=Math.round(predHit2/predResolved2*100);
+    var bonPred2=predRate2>=70?5:predRate2>=55?3:predRate2>=40?1:0;
+    if(predRate2>=70)add("Tasa de acierto en predicciones del "+predRate2+"% ("+predHit2+"/"+predResolved2+" resueltas, "+predPending2+" pendientes). Excelente calibracion del analisis tecnico. +"+bonPred2+" pts al score.","positive");
+    else if(predRate2>=55)add("Tasa de acierto en predicciones del "+predRate2+"% ("+predHit2+"/"+predResolved2+" resueltas). Por encima de la media — sigue registrando y verificando. +"+bonPred2+" pts al score.","positive");
+    else if(predRate2>=40)add("Tasa de acierto en predicciones del "+predRate2+"% ("+predHit2+"/"+predResolved2+" resueltas). Margen de mejora en la seleccion de escenarios. +"+bonPred2+" pts al score.","neutral");
+    else add("Tasa de acierto en predicciones del "+predRate2+"% ("+predHit2+"/"+predResolved2+" resueltas). Las predicciones fallan mas de lo que aciertan — revisa los timeframes y condiciones de entrada.","negative");
+  }else if(predictions.length>0){
+    add("Tienes "+predictions.length+" prediccion"+(predictions.length>1?"es":"")+" guardada"+(predictions.length>1?"s":"")+", "+predPending2+" pendiente"+(predPending2!==1?"s":"")+" de resolver. Se necesitan al menos 3 resueltas para incluir el acierto en el score.","neutral");
+  }else{
+    add("Sin predicciones guardadas todavia. Guarda los analisis del chat como predicciones y verifica si se cumplen para obtener hasta +5 pts adicionales en el score.","neutral");
   }
 
   return items;
@@ -409,10 +438,14 @@ export default function App(){
   const[hSearch,setHSearch]=useState("");
   const[hFilter,setHFilter]=useState("all");
   const[hSort,setHSort]=useState("desc");
+  const[predictions,setPredictions]=useState(function(){
+    try{var s=localStorage.getItem("td-predictions");if(s)return JSON.parse(s);}catch(e){}
+    return[];
+  });
 
   // D ref always has latest state for storage writes
   const D=useRef({pr:{SOL:91.33,BTC:84000,ETH:2000,MSTR:300,GOOGL:170,LINK:9.20},pos:P0,pats:PAT0,jnl:J0,ps:PS0,
-    xhist:[],ethClosed:false});
+    xhist:[],ethClosed:false,predictions:[]});
   const tmr=useRef(null);
 
   // - LOAD -
@@ -444,6 +477,7 @@ export default function App(){
           if(d.ps){D.current.ps=d.ps;setPs(d.ps);}
 
           if(d.xhist){D.current.xhist=d.xhist;setXhist(d.xhist);}
+          if(d.predictions){D.current.predictions=d.predictions;setPredictions(d.predictions);}
           if(d.ethClosed)setEthClosed(true);
           // carga de fotos eliminada
         }
@@ -468,7 +502,8 @@ export default function App(){
       pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,
       jnl:D.current.jnl,ps:D.current.ps,
       xhist:D.current.xhist||[],
-      ethClosed:D.current.ethClosed||false
+      ethClosed:D.current.ethClosed||false,
+      predictions:D.current.predictions||[]
     };
     const json=JSON.stringify(payload);
     // 1. Guardar siempre en localStorage (offline backup)
@@ -508,6 +543,7 @@ export default function App(){
   const SPr=v=>{D.current.pr=v;setPr(v);save();};
 
   const SX=v=>{D.current.xhist=v;setXhist(v);save();};
+  const SPred=function(v){D.current.predictions=v;setPredictions(v);try{localStorage.setItem("td-predictions",JSON.stringify(v));}catch(e){}save();};
   async function generateAIProfile(){
     const key=localStorage.getItem("td-anthropic-key")||"";
     if(!key){alert("Configura tu clave API de Anthropic en el Chat (boton 🔑) primero.");return;}
@@ -649,7 +685,7 @@ export default function App(){
   const ethT=ethU-796.09;
   const actPnl=pos.reduce((a,p)=>a+getPnL(p),0)+(!ethClosed?ethU:0);
   const wins=hist.filter(h=>h.result>0).length;
-  const sc=calcScore(ps,pats,jnl,xhist);
+  const sc=calcScore(ps,pats,jnl,xhist,predictions);
   const lvColor=sc<0?"#ff2222":sc<30?"#ff5533":sc<50?"#ff8844":sc<65?"#f0b429":sc<80?"#88cc44":"#00ff88";
   const lvLabel=sc<0?"⚠️ AUTODESTRUCTIVO":sc<30?"APOSTADOR":sc<50?"PRINCIPIANTE":sc<65?"EN TRANSICION":sc<80?"AVANZADO":"PROFESIONAL";
 
@@ -1673,7 +1709,7 @@ export default function App(){
                 })()}
               </div>
             </div>
-            <ProfileAnalysis ps={ps} pats={pats} jnl={jnl} hist={hist} xhist={xhist} sc={sc} S={S}/>
+            <ProfileAnalysis ps={ps} pats={pats} jnl={jnl} hist={hist} xhist={xhist} sc={sc} S={S} predictions={predictions}/>
             {/* ── ANALISIS IA ── */}
             <div style={{...S.card,marginBottom:10,border:"1px solid rgba(136,170,255,.25)"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -1771,7 +1807,7 @@ export default function App(){
         </div>
 
         {tab==="Chat"&&(
-          <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save}/>
+          <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save} predictions={predictions} SPred={SPred}/>
         )}
       </div>
 
@@ -1982,7 +2018,7 @@ async function getStockData(symbol,tf){
   }catch(e){return null;}
 }
 
-function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
+function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,SPred}){
   var INIT_MSG={
     role:"assistant",
     content:"Hola Miguel. Soy tu analista personal.\n\nPuedo analizar cualquier activo de crypto (BTC, ETH, SOL, LINK...) o acciones (NVDA, GOOGL, TSLA, MSTR...) con datos en tiempo real.\n\nSimplemente describeme lo que ves, por ejemplo:\n- \"En 4H en LINK veo una ineficiencia FVG, puedo entrar?\"\n- \"En diario en BTC el RSI esta en 65, hay sobrecompra?\"\n- \"NVDA en semanal, como ve la estructura?\"\n\nNo necesitas seleccionar activo ni temporalidad, yo los detecto de tu mensaje.",
@@ -2008,10 +2044,6 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
   const fileInputRef=useRef(null);
 
   // ── Predicciones ──
-  const[predictions,setPredictions]=useState(function(){
-    try{var s=localStorage.getItem("td-predictions");if(s)return JSON.parse(s);}catch(e){}
-    return[];
-  });
   const[showPredictions,setShowPredictions]=useState(false);
   const[savingMsgIdx,setSavingMsgIdx]=useState(null); // index del mensaje que se quiere guardar
   const[predNote,setPredNote]=useState("");
@@ -2083,10 +2115,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     setVoiceSaveIdx(null);
   }
 
-  function savePredictions(arr){
-    setPredictions(arr);
-    try{localStorage.setItem("td-predictions",JSON.stringify(arr));}catch(e){}
-  }
+  function savePredictions(arr){SPred(arr);}
 
   function savePinned(arr){
     setPinned(arr);
@@ -4854,8 +4883,8 @@ function ModalCloseEth({pr,closeEthLegacy,setModal,S}){
 }
 
 
-function ProfileAnalysis({ps,pats,jnl,hist,xhist,sc,S}){
-  const summary=generateProfileSummary(ps,pats,jnl,hist,xhist,sc);
+function ProfileAnalysis({ps,pats,jnl,hist,xhist,sc,S,predictions}){
+  const summary=generateProfileSummary(ps,pats,jnl,hist,xhist,sc,predictions);
   const catColor={positive:"#00ff88",neutral:"#f0b429",negative:"#ff4444"};
   const catDot={positive:"●",neutral:"●",negative:"●"};
   return(
