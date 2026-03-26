@@ -2374,7 +2374,14 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       "- Si hizo algo bien (confió en su estrategia, respetó el plan), refuérzalo positivamente.\n"+
       "- Conecta su relato con patrones de su historial cuando sea relevante.\n"+
       "- Máximo 3-4 frases. Conciso, personal, sin listas largas.\n"+
-      "- El objetivo final es construir su perfil psicológico como trader profesional.";
+      "- El objetivo final es construir su perfil psicológico como trader profesional.\n\n"+
+      "=== ETIQUETAS OCULTAS (añadelas al final, el usuario NO las ve) ===\n"+
+      "Siempre que puedas evaluar su estado, añade en línea aparte:\n"+
+      "EVALUACION_TRADER:[positivo|negativo|neutro]:[max 15 palabras sobre su estado psicológico]\n"+
+      "Si detectas rasgos psicológicos relevantes en su relato, añade también:\n"+
+      "PERFIL_TRADER:[rasgo1,rasgo2,...]\n"+
+      "Ejemplos de rasgos: impaciente,disciplinado_sl,miedo_perdidas,sobreconfiado,autocritico_excesivo,busca_validacion,resiliente,analítico,emocional_en_perdidas,respeta_plan\n"+
+      "Solo incluye rasgos que hayas observado claramente en esta conversación.";
   }
 
   async function sendMessage(){
@@ -2471,8 +2478,26 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
         SJ(newJnl);
       }
 
-      // Clean response (remove evaluation line from display)
-      const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").trim();
+      // Extract profile traits and save
+      const perfilMatch=raw.match(/PERFIL_TRADER:([^\n]+)/);
+      if(perfilMatch){
+        var traitStr=perfilMatch[1].trim();
+        var traits=traitStr.split(",").map(function(t){return t.trim();}).filter(function(t){return t&&t.length>0;});
+        if(traits.length>0){
+          var existingTraits=JSON.parse(localStorage.getItem("td-ai-profile-traits")||"[]");
+          traits.forEach(function(t){if(existingTraits.indexOf(t)===-1)existingTraits.push(t);});
+          localStorage.setItem("td-ai-profile-traits",JSON.stringify(existingTraits.slice(-30)));
+          var pEntry={id:Date.now()+1,date:new Date().toLocaleDateString("es-ES"),
+            text:"[Perfil psicológico] "+traits.join(", "),
+            emoji:"🧠",type:"analysis",linkedClose:null};
+          var newJnlP=[pEntry].concat(D.current.jnl);
+          D.current.jnl=newJnlP;
+          SJ(newJnlP);
+        }
+      }
+
+      // Clean response (remove hidden tags from display)
+      const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").replace(/PERFIL_TRADER:[^\n]+/g,"").trim();
       const assistantMsg={role:"assistant",content:clean,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),isReflexion:isReflexion};
       if(isReflexion){
         // Modo reflexión: solo mostramos el intercambio en UI, NO se guarda en localStorage
@@ -2649,8 +2674,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
               {m.isReflexion&&m.role==="user"&&<span style={{fontSize:8,color:"#f0b429",display:"block",marginBottom:4}}>💭 Reflexión · no guardado en historial</span>}
               {m.content}
             </div>
-            {/* Diary save bar — shown for ALL user messages */}
-            {m.role==="user"&&!voiceSaved[String(i)]&&(
+            {/* Diary save bar — only for non-reflexion OR first message of reflexion chain */}
+            {m.role==="user"&&!voiceSaved[String(i)]&&(!m.isReflexion||!(messages[i-1]&&messages[i-1].role==="assistant"&&messages[i-1].isReflexion))&&(
               <div style={{marginTop:4,padding:"6px 8px",background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.12)",borderRadius:6,maxWidth:"88%",alignSelf:"flex-end"}}>
                 {voiceSaveIdx===i?(
                   <div>
