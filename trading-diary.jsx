@@ -1254,20 +1254,24 @@ export default function App(){
             </div>
             <div style={S.card}>
               <div style={{maxHeight:500,overflowY:"auto"}}>
-                {fH.map(h=>(
+                {fH.map(h=>{
+                  var isAppEntry=xhist.some(function(x){return x.id===h.id;});
+                  return(
                   <div key={h.id} style={S.row}>
-                    <div style={{display:"flex",gap:7,alignItems:"center"}}>
-                      <span style={{fontSize:9,color:"#444",width:70}}>{h.date}</span>
+                    <div style={{display:"flex",gap:7,alignItems:"center",flex:1,minWidth:0}}>
+                      <span style={{fontSize:9,color:"#444",width:70,flexShrink:0}}>{h.date}</span>
                       <span style={{fontWeight:600}}>{h.asset}</span>
                       <span style={S.bdg(h.dir==="Short"?"#ff4444":"#00ff88")}>{h.dir}</span>
-                      {h.note&&<span style={S.bdg(h.note.includes("LIQUIDACION")?"#ff6600":"#555")}>{h.note}</span>}
+                      {h.note&&<span style={{...S.bdg(h.note.includes("LIQUIDACION")?"#ff6600":"#555"),maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.note}</span>}
                     </div>
-                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                       <span style={{fontSize:9,color:"#444"}}>${h.cap>=1000?h.cap.toLocaleString():h.cap}</span>
                       <span style={{fontWeight:700,color:h.result>0?"#00ff88":h.result<0?"#ff4444":"#666",minWidth:68,textAlign:"right"}}>{h.result===0?"$0.00":fmtNum(h.result)}</span>
+                      {isAppEntry&&<button onClick={function(){SX(D.current.xhist.filter(function(x){return x.id!==h.id;}));}} style={{background:"transparent",border:"none",color:"#333",fontSize:12,cursor:"pointer",padding:"0 2px",lineHeight:1}} title="Eliminar">×</button>}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
