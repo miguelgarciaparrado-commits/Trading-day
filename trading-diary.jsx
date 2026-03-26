@@ -2579,7 +2579,7 @@ function AlertasTab({S}){
   const[alerts,setAlerts]=useState([]);
   const alertsRef=useRef([]);
   const[showForm,setShowForm]=useState(false);
-  const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiEnabled:true,rsiThreshold:30,rsiCondition:"below",emaGoldenEnabled:false,emaDeathEnabled:false,ema200GoldenEnabled:false,ema200DeathEnabled:false,channelEnabled:false,fvgEnabled:false});
+  const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below",channelEnabled:false,fvgEnabled:false});
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
   const[lastAlert,setLastAlert]=useState(null);
@@ -2588,6 +2588,7 @@ function AlertasTab({S}){
   const closesRef=useRef({});
   const ohlcRef=useRef({});
   const lastTrigRef=useRef({});
+  const rsiHistRef=useRef({}); // rolling RSI history per key for divergence detection
   const[emaData,setEmaData]=useState({});
   const[showImport,setShowImport]=useState(false);
   const[importText,setImportText]=useState("");
@@ -2713,6 +2714,10 @@ function AlertasTab({S}){
     else if(type==="ema200_golden"){title="Cruce Dorado EMA 50/200";body=label+" "+tf+" — EMA50 cruza EMA200 al alza"+priceStr;}
     else if(type==="ema200_death"){title="Cruce Muerte EMA 50/200";body=label+" "+tf+" — EMA50 cruza EMA200 a la baja"+priceStr;}
     else if(type==="price_target"){title="Precio Objetivo";body=customDesc||label+" — PRECIO ALCANZADO $"+parseFloat(price).toFixed(2);}
+    else if(type==="rsi_oversold"){title="📉 RSI Sobreventa";body=label+" "+tf+" — RSI "+rsi.toFixed(1)+" (zona ≤30)"+priceStr;}
+    else if(type==="rsi_overbought"){title="📈 RSI Sobrecompra";body=label+" "+tf+" — RSI "+rsi.toFixed(1)+" (zona ≥70)"+priceStr;}
+    else if(type==="rsi_div_bull"){title="🟢 Divergencia Alcista RSI";body=label+" "+tf+" — Precio mínimos bajando, RSI subiendo. Posible giro alcista."+priceStr;}
+    else if(type==="rsi_div_bear"){title="🔴 Divergencia Bajista RSI";body=label+" "+tf+" — Precio máximos subiendo, RSI bajando. Posible agotamiento."+priceStr;}
     else if(type==="patron_combo"){title="🔥 PATRÓN COMBINADO";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
     else if(type==="patron_canal"){title="📐 Canal Detectado";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
     else if(type==="patron_fvg"){title="⚡ FVG Cubierta";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
@@ -2789,31 +2794,57 @@ function AlertasTab({S}){
           }
 
           const ak=sid+"_";
-          // RSI custom threshold
-          if(alert.rsiEnabled&&rsi!==null){
-            const rsiKey=ak+"rsi";
-            const triggered=(alert.rsiCondition==="below"&&rsi<=alert.rsiThreshold)||(alert.rsiCondition==="above"&&rsi>=alert.rsiThreshold);
-            if(triggered&&!lastTrigRef.current[rsiKey]){
-              lastTrigRef.current[rsiKey]=true;
-              const condLabel=alert.rsiCondition==="below"?"SOBREVENTA":"SOBRECOMPRA";
-              sendAlert(alert.label,alert.interval,rsi,"rsi_custom",ema7,ema25,"RSI "+condLabel+" "+rsi+" (umbral "+alert.rsiThreshold+")",closePrice);
+          // ─── RSI AUTOMÁTICO: sobreventa ≤30 y sobrecompra ≥70 (siempre activo) ───
+          if(rsi!==null){
+            // Almacenar historial RSI por vela cerrada
+            if(k.x){
+              if(!rsiHistRef.current[key])rsiHistRef.current[key]=[];
+              rsiHistRef.current[key].push(rsi);
+              if(rsiHistRef.current[key].length>100)rsiHistRef.current[key].shift();
             }
-            if(!triggered)lastTrigRef.current[rsiKey]=false;
+            const rsiZone=rsi<=30?"oversold":rsi>=70?"overbought":"neutral";
+            const prevZone=lastTrigRef.current[ak+"rsizone"]||"neutral";
+            if(rsiZone!==prevZone){
+              lastTrigRef.current[ak+"rsizone"]=rsiZone;
+              if(rsiZone==="oversold")sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice);
+              else if(rsiZone==="overbought")sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice);
+            }
+            // RSI personalizado (nivel entre 30-70 configurado por el usuario)
+            if(alert.rsiCustomEnabled&&alert.rsiCustomTarget){
+              const rsiKey=ak+"rsicustom";
+              const triggered=(alert.rsiCustomCondition==="below"&&rsi<=alert.rsiCustomTarget)||(alert.rsiCustomCondition==="above"&&rsi>=alert.rsiCustomTarget);
+              if(triggered&&!lastTrigRef.current[rsiKey]){
+                lastTrigRef.current[rsiKey]=true;
+                const condLabel=alert.rsiCustomCondition==="below"?"por debajo de":"por encima de";
+                sendAlert(alert.label,alert.interval,rsi,"rsi_custom",ema7,ema25,"RSI "+condLabel+" "+alert.rsiCustomTarget+" (actual: "+rsi.toFixed(1)+")",closePrice);
+              }
+              if(!triggered)lastTrigRef.current[rsiKey]=false;
+            }
+            // Divergencias RSI (solo en velas cerradas)
+            if(k.x){
+              const rsiHist=rsiHistRef.current[key]||[];
+              const ohlcSnap=ohlcRef.current[key]||[];
+              const divResult=rsiHist.length>=10&&ohlcSnap.length>=10?detectRSIDivergence(ohlcSnap,rsiHist):null;
+              if(divResult){
+                const divKey=ak+"div_"+divResult.type+"_"+Math.round(closePrice/50);
+                if(!lastTrigRef.current[divKey]){
+                  lastTrigRef.current[divKey]=true;
+                  sendAlert(alert.label,alert.interval,rsi,divResult.type==="bullish"?"rsi_div_bull":"rsi_div_bear",ema7,ema25,null,closePrice);
+                }
+              }
+            }
           }
-          // EMA 7/25 golden
-          if(cross7_25==="golden"&&alert.emaGoldenEnabled){
+          // ─── EMA CRUCES AUTOMÁTICOS (siempre activos) ───
+          if(cross7_25==="golden"){
             if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice);}
           }else if(cross7_25!=="golden"){lastTrigRef.current[ak+"g725"]=false;}
-          // EMA 7/25 death
-          if(cross7_25==="death"&&alert.emaDeathEnabled){
+          if(cross7_25==="death"){
             if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice);}
           }else if(cross7_25!=="death"){lastTrigRef.current[ak+"d725"]=false;}
-          // EMA 50/200 golden
-          if(cross50_200==="golden"&&alert.ema200GoldenEnabled){
+          if(cross50_200==="golden"){
             if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice);}
           }else if(cross50_200!=="golden"){lastTrigRef.current[ak+"g200"]=false;}
-          // EMA 50/200 death
-          if(cross50_200==="death"&&alert.ema200DeathEnabled){
+          if(cross50_200==="death"){
             if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice);}
           }else if(cross50_200!=="death"){lastTrigRef.current[ak+"d200"]=false;}
           // Channel detection (only on closed candles to avoid noise)
@@ -2898,9 +2929,7 @@ function AlertasTab({S}){
       const symInfo=SYMBOLS.find(function(s){return s.symbol===sym;})||{symbol:sym,label:sym};
       return{
         id:Date.now()+i,symbol:symInfo.symbol,label:symInfo.label,interval:draft.interval,
-        rsiEnabled:draft.rsiEnabled,rsiThreshold:draft.rsiThreshold,rsiCondition:draft.rsiCondition,
-        emaGoldenEnabled:draft.emaGoldenEnabled,emaDeathEnabled:draft.emaDeathEnabled,
-        ema200GoldenEnabled:draft.ema200GoldenEnabled,ema200DeathEnabled:draft.ema200DeathEnabled,
+        rsiCustomEnabled:draft.rsiCustomEnabled,rsiCustomTarget:draft.rsiCustomTarget,rsiCustomCondition:draft.rsiCustomCondition,
         channelEnabled:draft.channelEnabled,fvgEnabled:draft.fvgEnabled,
         active:false,currentRsi:null,currentPrice:null,error:false
       };
@@ -3093,66 +3122,52 @@ function AlertasTab({S}){
               })}
             </div>
           </div>
-          {/* RSI section */}
+          {/* Automáticos siempre activos */}
+          <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.15)",borderRadius:6,padding:10,marginBottom:8}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#00ff88",marginBottom:6}}>⚡ AUTOMÁTICOS (siempre activos)</div>
+            <div style={{fontSize:8,color:"#555",lineHeight:1.8}}>
+              ✅ RSI ≤ 30 → Sobreventa<br/>
+              ✅ RSI ≥ 70 → Sobrecompra<br/>
+              ✅ EMA 7/25 Cruce Dorado / Cruce de la Muerte<br/>
+              ✅ EMA 50/200 Cruce Dorado / Cruce de la Muerte<br/>
+              ✅ Divergencias alcistas y bajistas (RSI vs precio)
+            </div>
+          </div>
+          {/* RSI personalizado */}
           <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:10,marginBottom:8}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:draft.rsiEnabled?10:0}}>
-              <div style={{fontSize:9,fontWeight:700,color:draft.rsiEnabled?"#00ff88":"#444"}}>RSI 14</div>
-              <button onClick={function(){setDraft({...draft,rsiEnabled:!draft.rsiEnabled});}}
-                style={{padding:"4px 10px",borderRadius:4,border:"1px solid "+(draft.rsiEnabled?"#00ff88":"#333"),background:"transparent",color:draft.rsiEnabled?"#00ff88":"#555",fontSize:8,fontWeight:700,cursor:"pointer"}}>
-                {draft.rsiEnabled?"🔔 ACTIVADO":"🔕 SILENCIADO"}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:draft.rsiCustomEnabled?10:0}}>
+              <div>
+                <div style={{fontSize:9,fontWeight:700,color:draft.rsiCustomEnabled?"#00ff88":"#444"}}>RSI PERSONALIZADO</div>
+                <div style={{fontSize:7,color:"#444",marginTop:2}}>Nivel específico entre 30–70</div>
+              </div>
+              <button onClick={function(){setDraft({...draft,rsiCustomEnabled:!draft.rsiCustomEnabled});}}
+                style={{padding:"4px 10px",borderRadius:4,border:"1px solid "+(draft.rsiCustomEnabled?"#00ff88":"#333"),background:"transparent",color:draft.rsiCustomEnabled?"#00ff88":"#555",fontSize:8,fontWeight:700,cursor:"pointer"}}>
+                {draft.rsiCustomEnabled?"🔔 ON":"🔕 OFF"}
               </button>
             </div>
-            {draft.rsiEnabled&&(
+            {draft.rsiCustomEnabled&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"end"}}>
                 <div>
                   <div style={{fontSize:8,color:"#555",marginBottom:4}}>NOTIFICAR CUANDO RSI</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
-                    <button onClick={function(){setDraft({...draft,rsiCondition:"below"});}}
-                      style={{padding:"7px 4px",borderRadius:5,border:"1px solid "+(draft.rsiCondition==="below"?"#00ff88":"#333"),background:draft.rsiCondition==="below"?"rgba(0,255,136,.1)":"transparent",color:draft.rsiCondition==="below"?"#00ff88":"#555",fontSize:8,fontWeight:draft.rsiCondition==="below"?700:400,cursor:"pointer"}}>
+                    <button onClick={function(){setDraft({...draft,rsiCustomCondition:"below"});}}
+                      style={{padding:"7px 4px",borderRadius:5,border:"1px solid "+(draft.rsiCustomCondition==="below"?"#00ff88":"#333"),background:draft.rsiCustomCondition==="below"?"rgba(0,255,136,.1)":"transparent",color:draft.rsiCustomCondition==="below"?"#00ff88":"#555",fontSize:8,fontWeight:draft.rsiCustomCondition==="below"?700:400,cursor:"pointer"}}>
                       RSI por debajo
                     </button>
-                    <button onClick={function(){setDraft({...draft,rsiCondition:"above"});}}
-                      style={{padding:"7px 4px",borderRadius:5,border:"1px solid "+(draft.rsiCondition==="above"?"#ff4444":"#333"),background:draft.rsiCondition==="above"?"rgba(255,68,68,.1)":"transparent",color:draft.rsiCondition==="above"?"#ff4444":"#555",fontSize:8,fontWeight:draft.rsiCondition==="above"?700:400,cursor:"pointer"}}>
+                    <button onClick={function(){setDraft({...draft,rsiCustomCondition:"above"});}}
+                      style={{padding:"7px 4px",borderRadius:5,border:"1px solid "+(draft.rsiCustomCondition==="above"?"#f0b429":"#333"),background:draft.rsiCustomCondition==="above"?"rgba(240,180,41,.1)":"transparent",color:draft.rsiCustomCondition==="above"?"#f0b429":"#555",fontSize:8,fontWeight:draft.rsiCustomCondition==="above"?700:400,cursor:"pointer"}}>
                       RSI por encima
                     </button>
                   </div>
                 </div>
                 <div style={{textAlign:"center"}}>
-                  <div style={{fontSize:8,color:draft.rsiCondition==="below"?"#00ff88":"#ff4444",marginBottom:3}}>VALOR ({draft.rsiCondition==="below"?"≤":"≥"})</div>
-                  <input type="number" min="1" max="99" value={draft.rsiThreshold}
-                    onChange={function(e){setDraft({...draft,rsiThreshold:+e.target.value});}}
-                    style={{...S.inp,width:56,padding:"5px",fontSize:22,textAlign:"center",fontWeight:700,color:draft.rsiCondition==="below"?"#00ff88":"#ff4444"}}/>
+                  <div style={{fontSize:8,color:"#888",marginBottom:3}}>VALOR ({draft.rsiCustomCondition==="below"?"≤":"≥"})</div>
+                  <input type="number" min="31" max="69" value={draft.rsiCustomTarget}
+                    onChange={function(e){setDraft({...draft,rsiCustomTarget:+e.target.value});}}
+                    style={{...S.inp,width:56,padding:"5px",fontSize:22,textAlign:"center",fontWeight:700,color:"#f0b429"}}/>
                 </div>
               </div>
             )}
-          </div>
-          {/* EMA 7/25 section */}
-          <div style={{background:"rgba(136,170,255,.04)",border:"1px solid rgba(136,170,255,.2)",borderRadius:6,padding:10,marginBottom:8}}>
-            <div style={{fontSize:9,fontWeight:700,color:"#88aaff",marginBottom:8}}>EMA 7 / 25</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
-              <button onClick={function(){setDraft({...draft,emaGoldenEnabled:!draft.emaGoldenEnabled});}}
-                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.emaGoldenEnabled?"#ffd700":"#333"),background:draft.emaGoldenEnabled?"rgba(255,215,0,.08)":"transparent",color:draft.emaGoldenEnabled?"#ffd700":"#555",fontSize:8,fontWeight:draft.emaGoldenEnabled?700:400,cursor:"pointer"}}>
-                {draft.emaGoldenEnabled?"🔔":"🔕"} Cruce Dorado
-              </button>
-              <button onClick={function(){setDraft({...draft,emaDeathEnabled:!draft.emaDeathEnabled});}}
-                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.emaDeathEnabled?"#cc44cc":"#333"),background:draft.emaDeathEnabled?"rgba(204,68,204,.08)":"transparent",color:draft.emaDeathEnabled?"#cc44cc":"#555",fontSize:8,fontWeight:draft.emaDeathEnabled?700:400,cursor:"pointer"}}>
-                {draft.emaDeathEnabled?"🔔":"🔕"} Cruce Muerte
-              </button>
-            </div>
-          </div>
-          {/* EMA 50/200 section */}
-          <div style={{background:"rgba(255,200,100,.04)",border:"1px solid rgba(255,200,100,.2)",borderRadius:6,padding:10,marginBottom:8}}>
-            <div style={{fontSize:9,fontWeight:700,color:"#ffc864",marginBottom:8}}>EMA 50 / 200</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
-              <button onClick={function(){setDraft({...draft,ema200GoldenEnabled:!draft.ema200GoldenEnabled});}}
-                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.ema200GoldenEnabled?"#ffd700":"#333"),background:draft.ema200GoldenEnabled?"rgba(255,215,0,.08)":"transparent",color:draft.ema200GoldenEnabled?"#ffd700":"#555",fontSize:8,fontWeight:draft.ema200GoldenEnabled?700:400,cursor:"pointer"}}>
-                {draft.ema200GoldenEnabled?"🔔":"🔕"} Cruce Dorado
-              </button>
-              <button onClick={function(){setDraft({...draft,ema200DeathEnabled:!draft.ema200DeathEnabled});}}
-                style={{padding:"8px 4px",borderRadius:5,border:"1px solid "+(draft.ema200DeathEnabled?"#cc44cc":"#333"),background:draft.ema200DeathEnabled?"rgba(204,68,204,.08)":"transparent",color:draft.ema200DeathEnabled?"#cc44cc":"#555",fontSize:8,fontWeight:draft.ema200DeathEnabled?700:400,cursor:"pointer"}}>
-                {draft.ema200DeathEnabled?"🔔":"🔕"} Cruce Muerte
-              </button>
-            </div>
           </div>
           {/* Patrones chartistas */}
           <div style={{background:"rgba(255,100,200,.04)",border:"1px solid rgba(255,100,200,.2)",borderRadius:6,padding:10,marginBottom:12}}>
@@ -4339,8 +4354,13 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S}){
           <input style={{...S.inp,flex:1}} placeholder="Ticker: TLT · AAPL · BTC · SOL..." value={f.asset} onChange={function(e){setF({...f,asset:e.target.value.toUpperCase()});setLiveCheck(null);}}/>
           <button onClick={checkLivePrice} disabled={!f.asset||liveCheck==="loading"}
             style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"6px 10px",borderRadius:5,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>
-            {liveCheck==="loading"?"⏳":"⚡ Check"}
-          </button>
+            {liveCheck==="loading"?"⏳":"⚡ Check"}</button>
+          {f.asset&&(
+            <a href={"https://www.tradingview.com/chart/?symbol="+f.asset.replace(/USDT$/,"")+"USDT"} target="_blank" rel="noopener noreferrer"
+              style={{background:"rgba(41,98,255,.1)",border:"1px solid rgba(41,98,255,.3)",color:"#2962ff",padding:"6px 8px",borderRadius:5,fontSize:9,cursor:"pointer",whiteSpace:"nowrap",textDecoration:"none",display:"inline-flex",alignItems:"center"}}>
+              📊 TV
+            </a>
+          )}
         </div>
         <div style={{fontSize:8,color:"#444",marginTop:3}}>Escribe el ticker del activo (TLT, AAPL, MSFT…), no el nombre completo</div>
         {liveCheck&&liveCheck!=="loading"&&liveCheck!=="error"&&(
@@ -4520,6 +4540,44 @@ function calcSRLevels(highs,lows,price){
 }
 
 // --- Channel & FVG pattern detection (for real-time alerts) ---
+
+function detectRSIDivergence(ohlcArr,rsiArr){
+  if(!ohlcArr||!rsiArr||ohlcArr.length<12||rsiArr.length<12)return null;
+  const n=Math.min(ohlcArr.length,rsiArr.length,30);
+  const closes=ohlcArr.slice(-n).map(function(c){return c.c;});
+  const highs=ohlcArr.slice(-n).map(function(c){return c.h;});
+  const lows=ohlcArr.slice(-n).map(function(c){return c.l;});
+  const rsis=rsiArr.slice(-n);
+  // Simple pivot detection (lookback 3)
+  function pivots(arr,type){
+    var out=[];
+    for(var i=3;i<arr.length-3;i++){
+      var isPiv=true;
+      for(var j=i-3;j<=i+3;j++){if(j===i)continue;if(type==="high"&&arr[j]>=arr[i]){isPiv=false;break;}if(type==="low"&&arr[j]<=arr[i]){isPiv=false;break;}}
+      if(isPiv)out.push({i:i,v:arr[i]});
+    }
+    return out;
+  }
+  // Bearish divergence: price HH, RSI LH
+  var priceHighs=pivots(highs,"high");
+  if(priceHighs.length>=2){
+    var h1=priceHighs[priceHighs.length-2],h2=priceHighs[priceHighs.length-1];
+    var r1=rsis[h1.i],r2=rsis[h2.i];
+    if(h2.v>h1.v&&r2<r1&&(r1-r2)>3&&r1<80&&r2<80&&r2>30){
+      return{type:"bearish"};
+    }
+  }
+  // Bullish divergence: price LL, RSI HL
+  var priceLows=pivots(lows,"low");
+  if(priceLows.length>=2){
+    var l1=priceLows[priceLows.length-2],l2=priceLows[priceLows.length-1];
+    var s1=rsis[l1.i],s2=rsis[l2.i];
+    if(l2.v<l1.v&&s2>s1&&(s2-s1)>3&&s1>20&&s2>20&&s2<70){
+      return{type:"bullish"};
+    }
+  }
+  return null;
+}
 
 function detectPivots(highs,lows,win){
   win=win||3;
