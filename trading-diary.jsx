@@ -1907,6 +1907,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
   const[showKeyInput,setShowKeyInput]=useState(false);
   const[tmpKey,setTmpKey]=useState("");
   const[pendingImage,setPendingImage]=useState(null);
+  const[chatMode,setChatMode]=useState("analisis"); // "analisis" | "reflexion"
   const listRef=useRef(null);
   const fileInputRef=useRef(null);
 
@@ -2083,19 +2084,18 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
 
   useEffect(function(){
     try{
-      // Save last 60 messages; preserve images but cap base64 size per image to ~150KB
-      var toSave=messages.slice(-60).map(function(m){
+      // Solo guardar mensajes de análisis — los de reflexión no se persisten
+      var analysisOnly=messages.filter(function(m){return !m.isReflexion;});
+      var toSave=analysisOnly.slice(-60).map(function(m){
         if(m.image&&m.image.base64&&m.image.base64.length>200000){
-          // Resize image via canvas before saving to fit in localStorage
           return{...m,image:{...m.image,base64:m.image.base64.slice(0,200000)}};
         }
         return m;
       });
       localStorage.setItem("td-chat-msgs",JSON.stringify(toSave));
     }catch(e){
-      // If still too large, save without images
       try{
-        var slim=messages.slice(-60).map(function(m){return m.image?{...m,image:null}:m;});
+        var slim=messages.filter(function(m){return !m.isReflexion;}).slice(-60).map(function(m){return m.image?{...m,image:null}:m;});
         localStorage.setItem("td-chat-msgs",JSON.stringify(slim));
       }catch(e2){}
     }
@@ -2244,6 +2244,37 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     try{localStorage.removeItem("td-chat-msgs");}catch(e){}
   }
 
+  function buildReflexionPrompt(){
+    // Prompt enfocado en coaching psicológico, NO en análisis técnico
+    const allHist=[...xhist,...hist];
+    const recentTrades=allHist.slice(-5).map(function(h){
+      return h.asset+" "+(h.dir||"")+" "+(h.result>0?"+":"")+h.result.toFixed(0)+"$ ("+h.note+")";
+    }).join("\n")||"Sin historial reciente";
+    const recentJournal=jnl.slice(0,6).map(function(j){
+      return j.type.toUpperCase()+": "+j.text.slice(0,120);
+    }).join("\n")||"Sin entradas de diario";
+    const slTotal=ps.slOk+ps.slBroken;
+    const slRate=slTotal>0?Math.round(ps.slOk/slTotal*100):100;
+    return "Eres el coach psicológico personal de Miguel, un trader que busca convertirse en profesional.\n"+
+      "Tu rol en este modo es EXCLUSIVAMENTE el de apoyo emocional, reflexión y coaching mental.\n"+
+      "NO hagas análisis técnico del mercado a menos que Miguel lo pida explícitamente.\n"+
+      "Responde siempre en español, de forma empática, directa y constructiva.\n\n"+
+      "PERFIL DEL TRADER:\n"+
+      "Score psicológico: "+sc+"/100\n"+
+      "SL respetados: "+ps.slOk+" / "+slTotal+" ("+slRate+"%)\n"+
+      "Cierres prematuros: "+(ps.earlyClose||0)+" — principal área de mejora\n"+
+      "Revenge trading: "+(ps.revenge||0)+" episodios\n\n"+
+      "ÚLTIMAS OPERACIONES:\n"+recentTrades+"\n\n"+
+      "DIARIO PSICOLÓGICO RECIENTE:\n"+recentJournal+"\n\n"+
+      "INSTRUCCIONES:\n"+
+      "- Reconoce los sentimientos que expresa Miguel. Valídalos.\n"+
+      "- Si cometió un error, ayúdale a extraer el aprendizaje sin juzgar.\n"+
+      "- Si hizo algo bien (confió en su estrategia, respetó el plan), refuérzalo positivamente.\n"+
+      "- Conecta su relato con patrones de su historial cuando sea relevante.\n"+
+      "- Máximo 3-4 frases. Conciso, personal, sin listas largas.\n"+
+      "- El objetivo final es construir su perfil psicológico como trader profesional.";
+  }
+
   async function sendMessage(){
     if(!input.trim()||loading)return;
     if(!apiKey){
@@ -2252,7 +2283,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     }
     const img=pendingImage;
     var isVoiceMsg=pendingVoice;
-    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),image:img||null,isVoice:isVoiceMsg};
+    var isReflexion=chatMode==="reflexion";
+    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),image:img||null,isVoice:isVoiceMsg,isReflexion:isReflexion};
     const newMessages=[...messages,userMsg];
     setMessages(newMessages);
     var currentInput=input;
@@ -2264,22 +2296,27 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
     setLoading(true);
 
     try{
-      // Auto-detect asset and timeframe from message
-      var detected=detectAssetFromText(currentInput);
       var md=null;
-      if(detected){
-        setDetectedInfo(detected);
-        if(detected.isCrypto){
-          md=await getBinanceData(detected.symbol,detected.tf,[],[]);
-        }else{
-          md=await getStockData(detected.symbol,detected.tf);
+      var systemPrompt="";
+      if(isReflexion){
+        // Modo reflexión: coaching psicológico, sin mercado, sin guardar en historial
+        systemPrompt=buildReflexionPrompt();
+      }else{
+        // Modo análisis: comportamiento normal con datos de mercado
+        var detected=detectAssetFromText(currentInput);
+        if(detected){
+          setDetectedInfo(detected);
+          if(detected.isCrypto){
+            md=await getBinanceData(detected.symbol,detected.tf,[],[]);
+          }else{
+            md=await getStockData(detected.symbol,detected.tf);
+          }
+          if(md)setMarketData(md);
+        }else if(marketData){
+          md=marketData;
         }
-        if(md)setMarketData(md);
-      }else if(marketData){
-        md=marketData;
+        systemPrompt=buildSystemPrompt(md);
       }
-
-      const systemPrompt=buildSystemPrompt(md);
       const hasImage=newMessages.some(function(m){return m.image;});
       const apiMessages=newMessages.map(function(m){
         if(m.role==="user"&&m.image){
@@ -2334,8 +2371,13 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
 
       // Clean response (remove evaluation line from display)
       const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").trim();
-      const assistantMsg={role:"assistant",content:clean,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
-      setMessages(prev=>[...prev,assistantMsg]);
+      const assistantMsg={role:"assistant",content:clean,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),isReflexion:isReflexion};
+      if(isReflexion){
+        // Modo reflexión: solo mostramos el intercambio en UI, NO se guarda en localStorage
+        setMessages(prev=>[...prev,assistantMsg]);
+      }else{
+        setMessages(prev=>[...prev,assistantMsg]);
+      }
 
     }catch(e){
       const errMsg={role:"assistant",content:"Error: "+e.message,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
@@ -2502,6 +2544,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
             }}>
               {m.image&&<img src={"data:"+m.image.mediaType+";base64,"+m.image.base64} style={{display:"block",maxWidth:"100%",maxHeight:220,borderRadius:6,marginBottom:8,objectFit:"contain"}}/>}
               {m.isVoice&&<span style={{fontSize:8,color:"#00cc66",display:"block",marginBottom:4}}>🎙️ Mensaje de voz</span>}
+              {m.isReflexion&&m.role==="user"&&<span style={{fontSize:8,color:"#f0b429",display:"block",marginBottom:4}}>💭 Reflexión · no guardado en historial</span>}
               {m.content}
             </div>
             {/* Diary save bar — shown for ALL user messages */}
@@ -2587,6 +2630,17 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
           <button onClick={function(){setPendingVoice(false);}} style={{background:"transparent",border:"none",color:"#444",cursor:"pointer",fontSize:10}}>✕</button>
         </div>
       )}
+      {/* Mode toggle */}
+      <div style={{display:"flex",gap:4,marginBottom:6}}>
+        <button onClick={function(){setChatMode("analisis");}}
+          style={{flex:1,padding:"6px 4px",borderRadius:5,border:"1px solid "+(chatMode==="analisis"?"#88aaff":"#222"),background:chatMode==="analisis"?"rgba(136,170,255,.12)":"transparent",color:chatMode==="analisis"?"#88aaff":"#444",fontSize:9,fontWeight:chatMode==="analisis"?700:400,cursor:"pointer"}}>
+          📊 Análisis <span style={{fontSize:7,opacity:.7}}>(se guarda)</span>
+        </button>
+        <button onClick={function(){setChatMode("reflexion");}}
+          style={{flex:1,padding:"6px 4px",borderRadius:5,border:"1px solid "+(chatMode==="reflexion"?"#f0b429":"#222"),background:chatMode==="reflexion"?"rgba(240,180,41,.12)":"transparent",color:chatMode==="reflexion"?"#f0b429":"#444",fontSize:9,fontWeight:chatMode==="reflexion"?700:400,cursor:"pointer"}}>
+          💭 Reflexión <span style={{fontSize:7,opacity:.7}}>(no se guarda)</span>
+        </button>
+      </div>
       <div style={{display:"flex",gap:6,paddingTop:8,borderTop:"1px solid #1a1a2a"}}>
         <button
           onClick={function(){fileInputRef.current&&fileInputRef.current.click();}}
@@ -2602,7 +2656,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
         )}
         <input
           style={{...S.inp,flex:1,fontSize:12,padding:"10px 12px",borderColor:pendingVoice?"rgba(0,255,136,.4)":""}}
-          placeholder={speechSupported?"Escribe o usa 🎙️ para hablar · Nombra activo y temporalidad":"Ej: en 4H en LINK veo una ineficiencia FVG, puedo entrar?"}
+          placeholder={chatMode==="reflexion"?"Cuéntame cómo te has sentido en este trade...":speechSupported?"Escribe o usa 🎙️ para hablar · Nombra activo y temporalidad":"Ej: en 4H en LINK veo una ineficiencia FVG, puedo entrar?"}
           value={input}
           onChange={function(e){setInput(e.target.value);if(isRecording)setPendingVoice(false);}}
           onKeyDown={function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
