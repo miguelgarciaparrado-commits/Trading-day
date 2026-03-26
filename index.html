@@ -4037,7 +4037,7 @@ function PositionAdvisor({ pos, PM, getPnL, fmtNum, S }) {
             tips.push({
                 type: "danger",
                 icon: "🔴",
-                text: "Ratio " + ratio.toFixed(1) + ":1 es insuficiente. El riesgo no justifica el beneficio potencial. Considera ajustar el TP o cerrar."
+                text: "Ratio 1:" + ratio.toFixed(1) + " es insuficiente. El riesgo no justifica el beneficio potencial. Considera ajustar el TP o cerrar."
             });
         }
         // Ratio extremadamente alto (poco realista)
@@ -4045,7 +4045,7 @@ function PositionAdvisor({ pos, PM, getPnL, fmtNum, S }) {
             tips.push({
                 type: "warn",
                 icon: "⚠",
-                text: "Ratio " + ratio.toFixed(0) + ":1 es muy alto. Revisa si el TP es realista. Considera tomar beneficio parcial en niveles intermedios."
+                text: "Ratio 1:" + ratio.toFixed(0) + " es muy alto. Revisa si el TP es realista. Considera tomar beneficio parcial en niveles intermedios."
             });
         }
         // SL muy alejado
