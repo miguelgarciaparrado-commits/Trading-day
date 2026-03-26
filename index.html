@@ -2719,6 +2719,8 @@ function AlertasTab({ S }) {
     const alertsRef = useRef([]);
     const [showForm, setShowForm] = useState(false);
     const [draft, setDraft] = useState({ selectedSymbols: ["BTCUSDT"], interval: "4h", rsiCustomEnabled: false, rsiCustomTarget: 50, rsiCustomCondition: "below" });
+    const [customInput, setCustomInput] = useState("");
+    const [customCheckStatus, setCustomCheckStatus] = useState(null);
     const [logs, setLogs] = useState([]);
     const [notifPerm, setNotifPerm] = useState("default");
     const [lastAlert, setLastAlert] = useState(null);
@@ -3645,23 +3647,39 @@ function AlertasTab({ S }) {
                         }, style: { padding: "6px 2px", borderRadius: 5, border: "1px solid " + (sel ? "#f0b429" : "#2a2a3a"), background: sel ? "rgba(240,180,41,.12)" : "transparent", color: sel ? "#f0b429" : "#444", fontSize: 8, fontWeight: sel ? 700 : 400, cursor: "pointer", textAlign: "center" } }, s.label.replace("/USD", "")));
                 }))),
             React.createElement("div", { style: { marginBottom: 10 } },
+                React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 4 } },
+                    "OTRO ACTIVO ",
+                    React.createElement("span", { style: { color: "#888" } }, "(cualquier par Binance)")),
+                React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+                    React.createElement("input", { value: customInput, onChange: function (e) { setCustomInput(e.target.value.toUpperCase().trim()); setCustomCheckStatus(null); }, placeholder: "Ej: DOGEUSDT, PEPEUSDT...", style: { ...S.inp, flex: 1, padding: "6px 8px", fontSize: 9 } }),
+                    React.createElement("button", { onClick: function () {
+                            var sym = customInput.trim().toUpperCase();
+                            if (!sym) {
+                                return;
+                            }
+                            setCustomCheckStatus("checking");
+                            fetch("https://api.binance.com/api/v3/ticker/price?symbol=" + sym)
+                                .then(function (r) { return r.json(); })
+                                .then(function (d) {
+                                if (d.price) {
+                                    setCustomCheckStatus("ok");
+                                    if (draft.selectedSymbols.indexOf(sym) < 0) {
+                                        setDraft({ ...draft, selectedSymbols: [...draft.selectedSymbols, sym] });
+                                    }
+                                    setCustomInput("");
+                                    setTimeout(function () { setCustomCheckStatus(null); }, 2000);
+                                }
+                                else {
+                                    setCustomCheckStatus("error");
+                                }
+                            }).catch(function () { setCustomCheckStatus("error"); });
+                        }, style: { padding: "6px 10px", borderRadius: 5, border: "1px solid " + (customCheckStatus === "ok" ? "#00ff88" : customCheckStatus === "error" ? "#ff4444" : "#f0b429"), background: "transparent", color: customCheckStatus === "ok" ? "#00ff88" : customCheckStatus === "error" ? "#ff4444" : "#f0b429", fontSize: 8, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" } }, customCheckStatus === "checking" ? "…" : customCheckStatus === "ok" ? "✓ Añadido" : customCheckStatus === "error" ? "✗ No existe" : "Verificar"))),
+            React.createElement("div", { style: { marginBottom: 10 } },
                 React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 4 } }, "TEMPORALIDAD"),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4 } }, INTERVALS.map(function (iv) {
                     const act = draft.interval === iv.value;
                     return React.createElement("button", { key: iv.value, onClick: function () { setDraft({ ...draft, interval: iv.value }); }, style: { padding: "8px 2px", borderRadius: 5, border: "1px solid " + (act ? "#f0b429" : "#333"), background: act ? "rgba(240,180,41,.15)" : "transparent", color: act ? "#f0b429" : "#555", fontSize: 9, fontWeight: act ? 700 : 400, cursor: "pointer" } }, iv.label);
                 }))),
-            React.createElement("div", { style: { background: "rgba(0,255,136,.04)", border: "1px solid rgba(0,255,136,.15)", borderRadius: 6, padding: 10, marginBottom: 8 } },
-                React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#00ff88", marginBottom: 6 } }, "\u26A1 AUTOM\u00C1TICOS (siempre activos)"),
-                React.createElement("div", { style: { fontSize: 8, color: "#555", lineHeight: 1.8 } },
-                    "\u2705 RSI \u2264 30 \u2192 Sobreventa",
-                    React.createElement("br", null),
-                    "\u2705 RSI \u2265 70 \u2192 Sobrecompra",
-                    React.createElement("br", null),
-                    "\u2705 EMA 7/25 Cruce Dorado / Cruce de la Muerte",
-                    React.createElement("br", null),
-                    "\u2705 EMA 50/200 Cruce Dorado / Cruce de la Muerte",
-                    React.createElement("br", null),
-                    "\u2705 Divergencias alcistas y bajistas (RSI vs precio)")),
             React.createElement("div", { style: { background: "rgba(0,255,136,.04)", border: "1px solid rgba(0,255,136,.2)", borderRadius: 6, padding: 10, marginBottom: 8 } },
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: draft.rsiCustomEnabled ? 10 : 0 } },
                     React.createElement("div", null,
@@ -3680,17 +3698,28 @@ function AlertasTab({ S }) {
                             draft.rsiCustomCondition === "below" ? "≤" : "≥",
                             ")"),
                         React.createElement("input", { type: "number", min: "31", max: "69", value: draft.rsiCustomTarget, onChange: function (e) { setDraft({ ...draft, rsiCustomTarget: +e.target.value }); }, style: { ...S.inp, width: 56, padding: "5px", fontSize: 22, textAlign: "center", fontWeight: 700, color: "#f0b429" } }))))),
-            React.createElement("div", { style: { background: "rgba(255,100,200,.04)", border: "1px solid rgba(255,100,200,.15)", borderRadius: 6, padding: "8px 10px", marginBottom: 12 } },
-                React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#ff88dd", marginBottom: 3 } }, "\u26A1 PATRONES CHARTISTAS (siempre activos)"),
-                React.createElement("div", { style: { fontSize: 8, color: "#555", lineHeight: 1.8 } },
-                    "\u2705 Canales alcistas y bajistas (soporte / resistencia / rupturas)",
-                    React.createElement("br", null),
-                    "\u2705 FVG cubiertas (ineficiencias de mercado)",
-                    React.createElement("br", null),
-                    "\u2705 Bander\u00EDn alcista \u2014 ruptura confirmada o falsa")),
             React.createElement("div", { style: { display: "flex", gap: 6 } },
                 React.createElement("button", { onClick: addAlert, disabled: draft.selectedSymbols.length === 0, style: { flex: 2, padding: "10px", background: draft.selectedSymbols.length === 0 ? "#2a2a3a" : "#f0b429", color: draft.selectedSymbols.length === 0 ? "#444" : "#0a0a0f", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: draft.selectedSymbols.length === 0 ? "not-allowed" : "pointer" } }, draft.selectedSymbols.length <= 1 ? "CREAR Y MONITORIZAR" : "CREAR " + draft.selectedSymbols.length + " ALERTAS"),
                 React.createElement("button", { onClick: function () { setShowForm(false); }, style: { flex: 1, padding: "10px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
+        React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 12 } },
+            React.createElement("div", { style: { flex: 1, background: "rgba(0,255,136,.04)", border: "1px solid rgba(0,255,136,.12)", borderRadius: 6, padding: "8px 10px" } },
+                React.createElement("div", { style: { fontSize: 8, fontWeight: 700, color: "#00ff88", marginBottom: 4 } }, "\u26A1 AUTOM\u00C1TICOS"),
+                React.createElement("div", { style: { fontSize: 7, color: "#555", lineHeight: 1.7 } },
+                    "RSI \u226430 / \u226570",
+                    React.createElement("br", null),
+                    "EMA 7/25 cruces",
+                    React.createElement("br", null),
+                    "EMA 50/200 cruces",
+                    React.createElement("br", null),
+                    "Divergencias RSI")),
+            React.createElement("div", { style: { flex: 1, background: "rgba(255,100,200,.04)", border: "1px solid rgba(255,100,200,.12)", borderRadius: 6, padding: "8px 10px" } },
+                React.createElement("div", { style: { fontSize: 8, fontWeight: 700, color: "#ff88dd", marginBottom: 4 } }, "\u26A1 PATRONES"),
+                React.createElement("div", { style: { fontSize: 7, color: "#555", lineHeight: 1.7 } },
+                    "Canales alcistas/bajistas",
+                    React.createElement("br", null),
+                    "FVG cubiertas",
+                    React.createElement("br", null),
+                    "Bander\u00EDn alcista/falso"))),
         alerts.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "30px 20px", color: "#333", fontSize: 10, lineHeight: 2 } }, "Sin alertas. Pulsa + Nueva alerta para empezar.")),
         alerts.map(function (alert) {
             const rsi = alert.currentRsi;

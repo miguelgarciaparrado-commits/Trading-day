@@ -2857,6 +2857,8 @@ function AlertasTab({S}){
   const alertsRef=useRef([]);
   const[showForm,setShowForm]=useState(false);
   const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below"});
+  const[customInput,setCustomInput]=useState("");
+  const[customCheckStatus,setCustomCheckStatus]=useState(null);
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
   const[lastAlert,setLastAlert]=useState(null);
@@ -3610,6 +3612,36 @@ function AlertasTab({S}){
               })}
             </div>
           </div>
+          {/* Custom symbol */}
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:8,color:"#555",marginBottom:4}}>OTRO ACTIVO <span style={{color:"#888"}}>(cualquier par Binance)</span></div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <input value={customInput} onChange={function(e){setCustomInput(e.target.value.toUpperCase().trim());setCustomCheckStatus(null);}}
+                placeholder="Ej: DOGEUSDT, PEPEUSDT..."
+                style={{...S.inp,flex:1,padding:"6px 8px",fontSize:9}}/>
+              <button onClick={function(){
+                var sym=customInput.trim().toUpperCase();
+                if(!sym){return;}
+                setCustomCheckStatus("checking");
+                fetch("https://api.binance.com/api/v3/ticker/price?symbol="+sym)
+                  .then(function(r){return r.json();})
+                  .then(function(d){
+                    if(d.price){
+                      setCustomCheckStatus("ok");
+                      if(draft.selectedSymbols.indexOf(sym)<0){
+                        setDraft({...draft,selectedSymbols:[...draft.selectedSymbols,sym]});
+                      }
+                      setCustomInput("");
+                      setTimeout(function(){setCustomCheckStatus(null);},2000);
+                    }else{
+                      setCustomCheckStatus("error");
+                    }
+                  }).catch(function(){setCustomCheckStatus("error");});
+              }} style={{padding:"6px 10px",borderRadius:5,border:"1px solid "+(customCheckStatus==="ok"?"#00ff88":customCheckStatus==="error"?"#ff4444":"#f0b429"),background:"transparent",color:customCheckStatus==="ok"?"#00ff88":customCheckStatus==="error"?"#ff4444":"#f0b429",fontSize:8,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {customCheckStatus==="checking"?"…":customCheckStatus==="ok"?"✓ Añadido":customCheckStatus==="error"?"✗ No existe":"Verificar"}
+              </button>
+            </div>
+          </div>
           {/* Temporalidad */}
           <div style={{marginBottom:10}}>
             <div style={{fontSize:8,color:"#555",marginBottom:4}}>TEMPORALIDAD</div>
@@ -3621,17 +3653,7 @@ function AlertasTab({S}){
               })}
             </div>
           </div>
-          {/* Automáticos siempre activos */}
-          <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.15)",borderRadius:6,padding:10,marginBottom:8}}>
-            <div style={{fontSize:9,fontWeight:700,color:"#00ff88",marginBottom:6}}>⚡ AUTOMÁTICOS (siempre activos)</div>
-            <div style={{fontSize:8,color:"#555",lineHeight:1.8}}>
-              ✅ RSI ≤ 30 → Sobreventa<br/>
-              ✅ RSI ≥ 70 → Sobrecompra<br/>
-              ✅ EMA 7/25 Cruce Dorado / Cruce de la Muerte<br/>
-              ✅ EMA 50/200 Cruce Dorado / Cruce de la Muerte<br/>
-              ✅ Divergencias alcistas y bajistas (RSI vs precio)
-            </div>
-          </div>
+
           {/* RSI personalizado */}
           <div style={{background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.2)",borderRadius:6,padding:10,marginBottom:8}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:draft.rsiCustomEnabled?10:0}}>
@@ -3668,15 +3690,7 @@ function AlertasTab({S}){
               </div>
             )}
           </div>
-          {/* Patrones chartistas — siempre activos, sin toggle */}
-          <div style={{background:"rgba(255,100,200,.04)",border:"1px solid rgba(255,100,200,.15)",borderRadius:6,padding:"8px 10px",marginBottom:12}}>
-            <div style={{fontSize:9,fontWeight:700,color:"#ff88dd",marginBottom:3}}>⚡ PATRONES CHARTISTAS (siempre activos)</div>
-            <div style={{fontSize:8,color:"#555",lineHeight:1.8}}>
-              ✅ Canales alcistas y bajistas (soporte / resistencia / rupturas)<br/>
-              ✅ FVG cubiertas (ineficiencias de mercado)<br/>
-              ✅ Banderín alcista — ruptura confirmada o falsa
-            </div>
-          </div>
+
           <div style={{display:"flex",gap:6}}>
             <button onClick={addAlert} disabled={draft.selectedSymbols.length===0} style={{flex:2,padding:"10px",background:draft.selectedSymbols.length===0?"#2a2a3a":"#f0b429",color:draft.selectedSymbols.length===0?"#444":"#0a0a0f",border:"none",borderRadius:5,fontSize:10,fontWeight:700,cursor:draft.selectedSymbols.length===0?"not-allowed":"pointer"}}>
               {draft.selectedSymbols.length<=1?"CREAR Y MONITORIZAR":"CREAR "+draft.selectedSymbols.length+" ALERTAS"}
@@ -3686,6 +3700,26 @@ function AlertasTab({S}){
         </div>
       )}
 
+      {/* Alertas disponibles info — siempre visible */}
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        <div style={{flex:1,background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.12)",borderRadius:6,padding:"8px 10px"}}>
+          <div style={{fontSize:8,fontWeight:700,color:"#00ff88",marginBottom:4}}>⚡ AUTOMÁTICOS</div>
+          <div style={{fontSize:7,color:"#555",lineHeight:1.7}}>
+            RSI ≤30 / ≥70<br/>
+            EMA 7/25 cruces<br/>
+            EMA 50/200 cruces<br/>
+            Divergencias RSI
+          </div>
+        </div>
+        <div style={{flex:1,background:"rgba(255,100,200,.04)",border:"1px solid rgba(255,100,200,.12)",borderRadius:6,padding:"8px 10px"}}>
+          <div style={{fontSize:8,fontWeight:700,color:"#ff88dd",marginBottom:4}}>⚡ PATRONES</div>
+          <div style={{fontSize:7,color:"#555",lineHeight:1.7}}>
+            Canales alcistas/bajistas<br/>
+            FVG cubiertas<br/>
+            Banderín alcista/falso
+          </div>
+        </div>
+      </div>
       {/* Alertas configuradas */}
       {alerts.length===0&&(
         <div style={{textAlign:"center",padding:"30px 20px",color:"#333",fontSize:10,lineHeight:2}}>
