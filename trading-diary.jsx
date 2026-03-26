@@ -231,7 +231,7 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
   return lines;
 }
 
-const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Horarios","Alertas","Chat"];
+const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat"];
 const TC={win:"#00ff88",mistake:"#ff4444",lesson:"#f0b429",analysis:"#888"};
 const TL={win:"VICTORIA",mistake:"ERROR",lesson:"LECCION",analysis:"ANALISIS"};
 
@@ -351,8 +351,7 @@ export default function App(){
   const XHIST_DEFAULT=[];
   const[xhist,setXhist]=useState(XHIST_DEFAULT);
   const[ethClosed,setEthClosed]=useState(false);
-  const[horarios,setHorarios]=useState([]);
-  const[aiProfile,setAiProfile]=useState(function(){
+    const[aiProfile,setAiProfile]=useState(function(){
     try{const s=localStorage.getItem("td-ai-profile");return s?JSON.parse(s):null;}catch(e){return null;}
   });
   const[aiProfileLoading,setAiProfileLoading]=useState(false);
@@ -365,7 +364,7 @@ export default function App(){
 
   // D ref always has latest state for storage writes
   const D=useRef({pr:{SOL:91.33,BTC:84000,ETH:2000,MSTR:300,GOOGL:170,LINK:9.20},pos:P0,pats:PAT0,jnl:J0,ps:PS0,
-    xhist:[],horarios:[],ethClosed:false});
+    xhist:[],ethClosed:false});
   const tmr=useRef(null);
 
   // - LOAD -
@@ -397,7 +396,6 @@ export default function App(){
           if(d.ps){D.current.ps=d.ps;setPs(d.ps);}
 
           if(d.xhist){D.current.xhist=d.xhist;setXhist(d.xhist);}
-          if(d.horarios){D.current.horarios=d.horarios;setHorarios(d.horarios);}
           if(d.ethClosed)setEthClosed(true);
           // carga de fotos eliminada
         }
@@ -421,7 +419,7 @@ export default function App(){
     const payload={
       pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,
       jnl:D.current.jnl,ps:D.current.ps,
-      xhist:D.current.xhist||[],horarios:D.current.horarios||[],
+      xhist:D.current.xhist||[],
       ethClosed:D.current.ethClosed||false
     };
     const json=JSON.stringify(payload);
@@ -456,14 +454,12 @@ export default function App(){
 
   // - SETTERS (sync D ref then React state) -
   const SP=v=>{D.current.pats=v;setPats(v);save();};
-  const SPos=v=>{D.current.pos=v;setPos(v);try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:v,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:D.current.xhist||[],horarios:D.current.horarios||[],ethClosed:D.current.ethClosed||false}));}catch(e){}save();};
+  const SPos=v=>{D.current.pos=v;setPos(v);try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:v,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:D.current.xhist||[],ethClosed:D.current.ethClosed||false}));}catch(e){}save();};
   const SJ=v=>{D.current.jnl=v;setJnl(v);save();};
   const SPs=v=>{D.current.ps=v;setPs(v);save();};
   const SPr=v=>{D.current.pr=v;setPr(v);save();};
 
   const SX=v=>{D.current.xhist=v;setXhist(v);save();};
-  const SH=v=>{D.current.horarios=v;setHorarios(v);save();};
-
   async function generateAIProfile(){
     const key=localStorage.getItem("td-anthropic-key")||"";
     if(!key){alert("Configura tu clave API de Anthropic en el Chat (boton 🔑) primero.");return;}
@@ -1612,11 +1608,6 @@ export default function App(){
         {/* ═══ CALENDARIO ═══ */}
         {tab==="Calendario"&&(
           <CalendarioTab hist={hist} fmtNum={fmtNum}/>
-        )}
-
-        {/* ═══ HORARIOS ═══ */}
-        {tab==="Horarios"&&(
-          <HorariosTab horarios={horarios} SH={SH} S={S} fmtNum={fmtNum}/>
         )}
 
         <div style={{display:tab==="Alertas"?"block":"none"}}>
@@ -4490,8 +4481,7 @@ function CalendarioTab({hist,fmtNum}){
     </div>
   );
 }
-
-function HorariosTab({horarios,SH,S,fmtNum}){
+){
   const DOW_FULL=["Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"];
   const DOW_SHORT=["Dom","Lun","Mar","Mie","Jue","Vie","Sab"];
   const DOW_COL={"Lunes":"#f0b429","Martes":"#88aaff","Miercoles":"#ff88cc","Jueves":"#00ff88","Viernes":"#ff8844","Sabado":"#aa88ff","Domingo":"#888"};
