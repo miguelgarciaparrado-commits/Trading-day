@@ -315,7 +315,7 @@ export default function App(){
             if(!isNaN(close)&&close>0){newPr[sym]=close;found=true;}
           }catch(e){}
         }
-        // Fallback Yahoo si Stooq no dio resultado
+        // Fallback 1: Yahoo directo
         if(!found){
           var yahooUrls=[
             "https://query1.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d",
@@ -330,6 +330,19 @@ export default function App(){
               if(meta&&meta.regularMarketPrice){newPr[sym]=parseFloat(meta.regularMarketPrice.toFixed(2));found=true;}
             }catch(e){}
           }
+        }
+        // Fallback 2: allorigins proxy (evita CORS cuando Yahoo bloquea)
+        if(!found){
+          try{
+            var proxyUrl="https://api.allorigins.win/get?url="+encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/"+sym+"?interval=1d&range=1d");
+            var rp=await fetch(proxyUrl);
+            if(rp.ok){
+              var dp=await rp.json();
+              var inner=typeof dp.contents==="string"?JSON.parse(dp.contents):dp.contents;
+              var pmeta=inner&&inner.chart&&inner.chart.result&&inner.chart.result[0]&&inner.chart.result[0].meta;
+              if(pmeta&&pmeta.regularMarketPrice){newPr[sym]=parseFloat(pmeta.regularMarketPrice.toFixed(2));found=true;}
+            }
+          }catch(e){}
         }
       })
     ]);
@@ -4645,23 +4658,22 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
 
   // Obtener precio de una accion/ETF via Stooq (sin CORS), fallback Yahoo
   async function fetchStockPrice(base){
-    // Stooq — CSV con sufijo .us para bolsa americana
+    // 1. Stooq — CSV con sufijo .us para bolsa americana
     const stooqSuffixes=[".us",""];
     for(var s=0;s<stooqSuffixes.length;s++){
       try{
         var url="https://stooq.com/q/l/?s="+base.toLowerCase()+stooqSuffixes[s]+"&f=sd2t2ohlcvn&e=csv";
-        var r=await fetch(url);
+        var r=await fetch(url,{signal:AbortSignal.timeout?AbortSignal.timeout(5000):undefined});
         if(!r.ok)continue;
         var text=await r.text();
         var lines=text.trim().split("\n");
         if(lines.length<2)continue;
         var fields=lines[1].split(",");
-        // CSV format: Symbol,Date,Time,Open,High,Low,Close,Volume,OpenInt
         var close=parseFloat(fields[6]);
         if(!isNaN(close)&&close>0)return{price:close.toFixed(2),name:base+" (Stooq)",source:"stooq"};
       }catch(e){}
     }
-    // Fallback Yahoo Finance
+    // 2. Yahoo Finance directo
     var yahooUrls=[
       "https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
       "https://query2.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d",
@@ -4676,6 +4688,18 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
           return{price:meta.regularMarketPrice.toFixed(2),name:(meta.shortName||base)+" (Yahoo)",source:"yahoo"};
       }catch(e){}
     }
+    // 3. allorigins proxy — evita bloqueos CORS de Yahoo
+    try{
+      var proxyUrl="https://api.allorigins.win/get?url="+encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d");
+      var rp=await fetch(proxyUrl);
+      if(rp.ok){
+        var dp=await rp.json();
+        var inner=typeof dp.contents==="string"?JSON.parse(dp.contents):dp.contents;
+        var pmeta=inner&&inner.chart&&inner.chart.result&&inner.chart.result[0]&&inner.chart.result[0].meta;
+        if(pmeta&&pmeta.regularMarketPrice)
+          return{price:pmeta.regularMarketPrice.toFixed(2),name:(pmeta.shortName||base)+" (proxy)",source:"proxy"};
+      }
+    }catch(e){}
     return null;
   }
 
