@@ -4116,28 +4116,35 @@ function AlertasTab({S}){
             var tk=localStorage.getItem("td-tg-token")||"";
             var cid=localStorage.getItem("td-tg-chatid")||"";
             if(!tk||!cid)return;
-            var msg="📋 NOTIFICACIONES AUTOMÁTICAS — Trading Diary\n\n"+
-              "📡 ALERTAS DE MERCADO (tiempo real WebSocket)\n"+
-              "• RSI sobreventa (≤30 por defecto, configurable)\n"+
-              "• RSI sobrecompra (≥70 por defecto, configurable)\n"+
-              "• RSI nivel personalizado\n"+
-              "• Cruce dorado EMA 7/25\n"+
-              "• Cruce de muerte EMA 7/25\n"+
-              "• Cruce dorado EMA 50/200\n"+
-              "• Cruce de muerte EMA 50/200\n"+
-              "• Divergencia alcista RSI\n"+
-              "• Divergencia bajista RSI\n"+
-              "• Toque de canal\n"+
-              "• FVG cubierta\n\n"+
-              "🛡 POSICIONES (cada 60 segundos)\n"+
-              "• SL ejecutado\n"+
-              "• TP ejecutado\n"+
-              "• TP parcial ejecutado\n"+
-              "• Breakeven ejecutado\n\n"+
-              "🧠 PREDICCIONES (cada 1-24h según timeframe)\n"+
-              "• Claude evalúa si se cumple la predicción\n"+
-              "• Solo avisa si hay cambio relevante\n"+
-              "• Con imagen del gráfico si la adjuntaste\n\n"+
+            var tfLabel={"1h":"1H","4h":"4H","1d":"Diario","1w":"Semanal"};
+            // Leer alertas configuradas
+            var savedAlerts=[];
+            try{var sa=localStorage.getItem("td-alerts-v2");if(sa)savedAlerts=JSON.parse(sa);}catch(e){}
+            var alertLines="";
+            savedAlerts.forEach(function(a){
+              var types=[];
+              if(a.rsiOversoldEnabled!==false)types.push("RSI\u2264"+(a.rsiOversoldTarget!=null?a.rsiOversoldTarget:30));
+              if(a.rsiOverboughtEnabled!==false)types.push("RSI\u2265"+(a.rsiOverboughtTarget!=null?a.rsiOverboughtTarget:70));
+              if(a.rsiCustomEnabled&&a.rsiCustomTarget)types.push("RSI"+(a.rsiCustomCondition==="below"?"\u2264":"\u2265")+a.rsiCustomTarget);
+              if(a.emaCross725Enabled!==false)types.push("Cruce EMA 7/25");
+              if(a.emaCross50200Enabled!==false)types.push("Cruce EMA 50/200");
+              if(a.rsiDivEnabled!==false)types.push("Div RSI");
+              if(a.channelEnabled)types.push("Canal");
+              if(a.fvgEnabled)types.push("FVG");
+              alertLines+="\n"+(a.label||a.symbol)+" — "+(tfLabel[a.interval]||a.interval)+(a.error?" ⚠️ error":a.active?" ✅":" ⏸")+"\n  "+types.join(" | ")+"\n";
+            });
+            // Leer predicciones pendientes con activo
+            var savedPreds=[];
+            try{var sp=localStorage.getItem("td-predictions");if(sp)savedPreds=JSON.parse(sp);}catch(e){}
+            var pendingPreds=savedPreds.filter(function(p){return p.status==="pending"&&p.asset;});
+            var predLines=pendingPreds.length?pendingPreds.map(function(p){return "  • "+p.asset.toUpperCase()+(p.tf?" "+tfLabel[p.tf]||p.tf:"")+(p.note?" — "+p.note:"");}).join("\n"):"  (ninguna activa)";
+            var msg="📋 NOTIFICACIONES ACTIVAS — Trading Diary\n\n"+
+              "📡 ALERTAS DE MERCADO\n"+alertLines+
+              "\n🛡 POSICIONES (cada 60s)\n"+
+              "  • SL ejecutado\n"+
+              "  • TP ejecutado / parcial\n"+
+              "  • Breakeven ejecutado\n\n"+
+              "🧠 SEGUIMIENTO PREDICCIONES\n"+predLines+"\n\n"+
               "✅ Telegram funcionando correctamente.";
             fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+encodeURIComponent(cid)+"&text="+encodeURIComponent(msg)).catch(function(){});
           }} style={{background:"rgba(0,136,204,.1)",border:"1px solid #0088cc",color:"#0088cc",padding:"7px 8px",borderRadius:6,fontSize:9,cursor:"pointer",fontWeight:700}}>📋</button>}
