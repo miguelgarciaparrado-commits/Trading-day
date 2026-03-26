@@ -2994,6 +2994,15 @@ function AlertasTab({S}){
   const[addInput,setAddInput]=useState("");
   const[addInterval,setAddInterval]=useState("1h");
   const[addStatus,setAddStatus]=useState(null);
+  const[addFound,setAddFound]=useState(null); // {sym, label} when verified
+  const[addConfig,setAddConfig]=useState({
+    rsiOversoldEnabled:true,rsiOversoldTarget:30,
+    rsiOverboughtEnabled:true,rsiOverboughtTarget:70,
+    emaCross725Enabled:true,
+    emaCross50200Enabled:true,
+    rsiDivEnabled:true,
+    rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below"
+  });
   const reconnectCountRef=useRef({});
   const wsRefs=useRef({});
   const closesRef=useRef({});
@@ -3182,34 +3191,72 @@ function AlertasTab({S}){
   }
 
   function addQuickAsset(){
-    var sym=addInput.trim().toUpperCase();
-    if(!sym)return;
+    var raw=addInput.trim().toUpperCase();
+    if(!raw)return;
+    // Auto-append USDT for bare crypto tickers (no pair suffix, no dot)
+    var sym=raw;
+    if(!/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(raw)&&raw.indexOf(".")===-1&&raw.length<=6){
+      sym=raw+"USDT";
+    }
     if(alertsRef.current.some(function(a){return a.symbol===sym&&a.interval===addInterval;})){setAddStatus("dup");setTimeout(function(){setAddStatus(null);},2000);return;}
     setAddStatus("checking");
-    function doAdd(lbl){
-      var na={id:Date.now(),symbol:sym,label:lbl,interval:addInterval,
-        rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below",
-        active:true,currentRsi:null,currentPrice:null,error:false};
-      var upd=[...alertsRef.current,na];
-      saveAlerts(upd);
-      startAlert(na);
-      setAddInput("");
-      setAddStatus("ok");
-      setTimeout(function(){setAddStatus(null);},2000);
+    setAddFound(null);
+    function onFound(resolvedSym,lbl){
+      // Update input to show resolved symbol
+      setAddInput(resolvedSym);
+      setAddFound({sym:resolvedSym,label:lbl});
+      setAddStatus("found");
     }
+    // Try Binance first
     fetch("https://api.binance.com/api/v3/ticker/price?symbol="+sym)
       .then(function(r){return r.json();})
       .then(function(d){
-        if(d.price){doAdd(sym.replace("USDT","/USD"));}
-        else{
-          var fhKeyQ=localStorage.getItem("td-finnhub-key");
-          if(!fhKeyQ){setAddStatus("error");return;}
-          fetch("https://finnhub.io/api/v1/quote?symbol="+sym+"&token="+fhKeyQ)
-            .then(function(r2){return r2.json();})
-            .then(function(d2){if(d2.c&&d2.c>0){doAdd(sym);}else{setAddStatus("error");}})
-            .catch(function(){setAddStatus("error");});
+        if(d.price){
+          onFound(sym,sym.replace("USDT","/USD"));
+        }else{
+          // Try original (user may have typed full pair or stock)
+          if(sym!==raw){
+            fetch("https://api.binance.com/api/v3/ticker/price?symbol="+raw)
+              .then(function(r2){return r2.json();})
+              .then(function(d2){
+                if(d2.price){onFound(raw,raw.replace("USDT","/USD"));}
+                else{tryFinnhub(raw);}
+              }).catch(function(){tryFinnhub(raw);});
+          }else{tryFinnhub(raw);}
         }
-      }).catch(function(){setAddStatus("error");});
+      }).catch(function(){tryFinnhub(raw);});
+    function tryFinnhub(s){
+      var fhKeyQ=localStorage.getItem("td-finnhub-key");
+      if(!fhKeyQ){setAddStatus("error");return;}
+      fetch("https://finnhub.io/api/v1/quote?symbol="+s+"&token="+fhKeyQ)
+        .then(function(r2){return r2.json();})
+        .then(function(d2){if(d2.c&&d2.c>0){onFound(s,s);}else{setAddStatus("error");}})
+        .catch(function(){setAddStatus("error");});
+    }
+  }
+
+  function confirmAddAsset(){
+    if(!addFound)return;
+    var sym=addFound.sym;
+    var lbl=addFound.label;
+    var na={id:Date.now(),symbol:sym,label:lbl,interval:addInterval,
+      rsiOversoldEnabled:addConfig.rsiOversoldEnabled,rsiOversoldTarget:addConfig.rsiOversoldTarget||30,
+      rsiOverboughtEnabled:addConfig.rsiOverboughtEnabled,rsiOverboughtTarget:addConfig.rsiOverboughtTarget||70,
+      emaCross725Enabled:addConfig.emaCross725Enabled,
+      emaCross50200Enabled:addConfig.emaCross50200Enabled,
+      rsiDivEnabled:addConfig.rsiDivEnabled,
+      rsiCustomEnabled:addConfig.rsiCustomEnabled,
+      rsiCustomTarget:addConfig.rsiCustomTarget||50,
+      rsiCustomCondition:addConfig.rsiCustomCondition||"below",
+      channelEnabled:false,fvgEnabled:false,
+      active:true,currentRsi:null,currentPrice:null,error:false};
+    var upd=[...alertsRef.current,na];
+    saveAlerts(upd);
+    startAlert(na);
+    setAddInput("");
+    setAddFound(null);
+    setAddStatus("ok");
+    setTimeout(function(){setAddStatus(null);},2000);
   }
 
   function sendAlert(label,interval,rsi,type,e1,e2,customDesc,price,extra){
@@ -3415,12 +3462,14 @@ function AlertasTab({S}){
       if(!isLive)return;
       var ak=sid+"_";
       if(rsi!==null){
-        var rsiZone2=rsi<=30?"oversold":rsi>=70?"overbought":"neutral";
+        var ovThr2=alert.rsiOversoldTarget!=null?alert.rsiOversoldTarget:30;
+        var obThr2=alert.rsiOverboughtTarget!=null?alert.rsiOverboughtTarget:70;
+        var rsiZone2=rsi<=ovThr2?"oversold":rsi>=obThr2?"overbought":"neutral";
         var prevZone2=lastTrigRef.current[ak+"rsizone"]||"neutral";
         if(rsiZone2!==prevZone2){
           lastTrigRef.current[ak+"rsizone"]=rsiZone2;
-          if(rsiZone2==="oversold")sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc});
-          else if(rsiZone2==="overbought")sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc});
+          if(rsiZone2==="oversold"&&(alert.rsiOversoldEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc});
+          else if(rsiZone2==="overbought"&&(alert.rsiOverboughtEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc});
         }
         if(alert.rsiCustomEnabled&&alert.rsiCustomTarget){
           var rsiKey2=ak+"rsicustom";
@@ -3430,11 +3479,13 @@ function AlertasTab({S}){
         }
       }
       if(alert.interval!=="1w"){
-        if(cross7_25==="golden"){if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
-        else{lastTrigRef.current[ak+"g725"]=false;}
-        if(cross7_25==="death"){if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
-        else{lastTrigRef.current[ak+"d725"]=false;}
-        if(alert.interval!=="1h"){
+        if(alert.emaCross725Enabled!==false){
+          if(cross7_25==="golden"){if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
+          else{lastTrigRef.current[ak+"g725"]=false;}
+          if(cross7_25==="death"){if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
+          else{lastTrigRef.current[ak+"d725"]=false;}
+        }
+        if(alert.emaCross50200Enabled!==false&&alert.interval!=="1h"){
           if(cross50_200==="golden"){if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice,{ohlc:ohlc});}}
           else{lastTrigRef.current[ak+"g200"]=false;}
           if(cross50_200==="death"){if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice,{ohlc:ohlc});}}
@@ -3442,6 +3493,7 @@ function AlertasTab({S}){
         }
       }
       // Divergencias/Convergencias RSI — todas las temporalidades
+      if(alert.rsiDivEnabled===false){return;}
       var rsiSeriesFH=calcRSISeries(closes,14);
       var divResultFH=rsiSeriesFH.length>=12&&ohlc.length>=12?detectRSIDivergence(ohlc,rsiSeriesFH):null;
       if(divResultFH){
@@ -3558,7 +3610,7 @@ function AlertasTab({S}){
           if(rsiHistSnap.length>=10&&ohlc.length>=10){
             divResult=detectRSIDivergence(ohlc,rsiHistSnap);
           }
-          // ─── RSI AUTOMÁTICO: sobreventa ≤30 y sobrecompra ≥70 (siempre activo) ───
+          // ─── RSI AUTOMÁTICO: sobreventa y sobrecompra (umbrales configurables) ───
           if(rsi!==null){
             // Almacenar historial RSI por vela cerrada
             if(k.x){
@@ -3566,14 +3618,16 @@ function AlertasTab({S}){
               rsiHistRef.current[key].push(rsi);
               if(rsiHistRef.current[key].length>100)rsiHistRef.current[key].shift();
             }
-            const rsiZone=rsi<=30?"oversold":rsi>=70?"overbought":"neutral";
+            var ovThr=alert.rsiOversoldTarget!=null?alert.rsiOversoldTarget:30;
+            var obThr=alert.rsiOverboughtTarget!=null?alert.rsiOverboughtTarget:70;
+            var rsiZone=rsi<=ovThr?"oversold":rsi>=obThr?"overbought":"neutral";
             const prevZone=lastTrigRef.current[ak+"rsizone"]||"neutral";
             if(rsiZone!==prevZone){
               lastTrigRef.current[ak+"rsizone"]=rsiZone;
-              if(rsiZone==="oversold")sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult});
-              else if(rsiZone==="overbought")sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult});
+              if(rsiZone==="oversold"&&(alert.rsiOversoldEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult});
+              else if(rsiZone==="overbought"&&(alert.rsiOverboughtEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult});
             }
-            // RSI personalizado (nivel entre 30-70 configurado por el usuario)
+            // RSI personalizado (nivel configurado por el usuario)
             if(alert.rsiCustomEnabled&&alert.rsiCustomTarget){
               const rsiKey=ak+"rsicustom";
               const triggered=(alert.rsiCustomCondition==="below"&&rsi<=alert.rsiCustomTarget)||(alert.rsiCustomCondition==="above"&&rsi>=alert.rsiCustomTarget);
@@ -3585,7 +3639,7 @@ function AlertasTab({S}){
               if(!triggered)lastTrigRef.current[rsiKey]=false;
             }
             // Divergencias/Convergencias RSI — todas las temporalidades, solo vela cerrada
-            if(k.x){
+            if(k.x&&(alert.rsiDivEnabled!==false)){
               if(divResult){
                 var divKind=divResult.kind||"divergence";
                 var divAlertType=divKind==="convergence"
@@ -3635,14 +3689,16 @@ function AlertasTab({S}){
           // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
           // Semanal no tiene cruces (muy raros, generarían ruido)
           if(k.x&&alert.interval!=="1w"){
-            if(cross7_25==="golden"){
-              if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult});}
-            }else{lastTrigRef.current[ak+"g725"]=false;}
-            if(cross7_25==="death"){
-              if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult});}
-            }else{lastTrigRef.current[ak+"d725"]=false;}
+            if(alert.emaCross725Enabled!==false){
+              if(cross7_25==="golden"){
+                if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult});}
+              }else{lastTrigRef.current[ak+"g725"]=false;}
+              if(cross7_25==="death"){
+                if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult});}
+              }else{lastTrigRef.current[ak+"d725"]=false;}
+            }
             // EMA 50/200 solo en 4H y superiores (no 1H — cruces muy frecuentes)
-            if(alert.interval!=="1h"){
+            if(alert.emaCross50200Enabled!==false&&alert.interval!=="1h"){
               if(cross50_200==="golden"){
                 if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice,{ohlc:ohlc,divResult:divResult});}
               }else{lastTrigRef.current[ak+"g200"]=false;}
@@ -4146,23 +4202,100 @@ function AlertasTab({S}){
       <div style={{background:"#0d0d16",border:"1px solid #1e1e2e",borderRadius:7,padding:10,marginBottom:12}}>
         <div style={{fontSize:8,color:"#555",marginBottom:6,fontWeight:700}}>AÑADIR ACTIVO</div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <input value={addInput} onChange={function(e){setAddInput(e.target.value.toUpperCase().trim());setAddStatus(null);}}
+          <input value={addInput} onChange={function(e){setAddInput(e.target.value.toUpperCase().trim());setAddStatus(null);setAddFound(null);}}
             onKeyDown={function(e){if(e.key==="Enter")addQuickAsset();}}
-            placeholder="Ej: SOLUSDT, AAPL, TLT..."
+            placeholder="Ej: BTC, SOL, AAPL, TLT..."
             style={{...S.inp,flex:1,padding:"7px 10px",fontSize:10}}/>
           <select value={addInterval} onChange={function(e){setAddInterval(e.target.value);}}
             style={{...S.inp,padding:"7px 8px",fontSize:9,width:52,cursor:"pointer"}}>
             {INTERVALS.map(function(iv){return <option key={iv.value} value={iv.value}>{iv.label}</option>;})}
           </select>
-          <button onClick={addQuickAsset}
-            style={{padding:"7px 12px",background:addStatus==="ok"?"rgba(0,255,136,.15)":addStatus==="error"?"rgba(255,68,68,.15)":"rgba(240,180,41,.15)",
-              border:"1px solid "+(addStatus==="ok"?"#00ff88":addStatus==="error"?"#ff4444":"#f0b429"),
-              color:addStatus==="ok"?"#00ff88":addStatus==="error"?"#ff4444":"#f0b429",
+          <button onClick={addFound?confirmAddAsset:addQuickAsset}
+            style={{padding:"7px 12px",
+              background:addStatus==="ok"?"rgba(0,255,136,.15)":addStatus==="error"?"rgba(255,68,68,.15)":addStatus==="found"?"rgba(0,255,136,.1)":"rgba(240,180,41,.15)",
+              border:"1px solid "+(addStatus==="ok"?"#00ff88":addStatus==="error"?"#ff4444":addStatus==="found"?"#00ff88":"#f0b429"),
+              color:addStatus==="ok"?"#00ff88":addStatus==="error"?"#ff4444":addStatus==="found"?"#00ff88":"#f0b429",
               borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-            {addStatus==="checking"?"…":addStatus==="ok"?"✓ Añadido":addStatus==="error"?"✗ No encontrado":addStatus==="dup"?"Ya existe":"+ Añadir"}
+            {addStatus==="checking"?"Buscando…":addStatus==="ok"?"✓ Añadido":addStatus==="error"?"✗ No encontrado":addStatus==="dup"?"Ya existe":addStatus==="found"?"✓ Confirmar":"Buscar"}
           </button>
         </div>
-        <div style={{fontSize:7,color:"#333",marginTop:5}}>Crypto: escribe el par Binance (SOLUSDT). Acciones: ticker (AAPL, TLT) — requiere Finnhub configurado (📈)</div>
+        <div style={{fontSize:7,color:"#333",marginTop:5}}>Crypto: BTC, SOL, ETH… o par completo BTCUSDT. Acciones: AAPL, TLT — requiere Finnhub (📈)</div>
+
+        {/* Config panel shown after asset is found */}
+        {addFound&&(
+          <div style={{marginTop:10,padding:10,background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.15)",borderRadius:6}}>
+            <div style={{fontSize:8,color:"#00ff88",fontWeight:700,marginBottom:8}}>⚙️ ALERTAS PARA {addFound.label} · {addInterval.toUpperCase()}</div>
+            {/* RSI Sobreventa */}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",flex:1}}>
+                <input type="checkbox" checked={addConfig.rsiOversoldEnabled} onChange={function(e){setAddConfig(function(c){return{...c,rsiOversoldEnabled:e.target.checked};});}} style={{accentColor:"#00ff88"}}/>
+                <span style={{fontSize:9,color:"#ccc"}}>📉 RSI Sobreventa ≤</span>
+              </label>
+              <input type="number" min="10" max="45" value={addConfig.rsiOversoldTarget}
+                onChange={function(e){setAddConfig(function(c){return{...c,rsiOversoldTarget:parseInt(e.target.value)||30};});}}
+                disabled={!addConfig.rsiOversoldEnabled}
+                style={{width:44,padding:"3px 5px",background:"#111",border:"1px solid #333",color:addConfig.rsiOversoldEnabled?"#e0e0e0":"#444",borderRadius:4,fontSize:9,textAlign:"center"}}/>
+            </div>
+            {/* RSI Sobrecompra */}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",flex:1}}>
+                <input type="checkbox" checked={addConfig.rsiOverboughtEnabled} onChange={function(e){setAddConfig(function(c){return{...c,rsiOverboughtEnabled:e.target.checked};});}} style={{accentColor:"#f0b429"}}/>
+                <span style={{fontSize:9,color:"#ccc"}}>📈 RSI Sobrecompra ≥</span>
+              </label>
+              <input type="number" min="55" max="90" value={addConfig.rsiOverboughtTarget}
+                onChange={function(e){setAddConfig(function(c){return{...c,rsiOverboughtTarget:parseInt(e.target.value)||70};});}}
+                disabled={!addConfig.rsiOverboughtEnabled}
+                style={{width:44,padding:"3px 5px",background:"#111",border:"1px solid #333",color:addConfig.rsiOverboughtEnabled?"#e0e0e0":"#444",borderRadius:4,fontSize:9,textAlign:"center"}}/>
+            </div>
+            {/* RSI Personalizado */}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",flex:1}}>
+                <input type="checkbox" checked={addConfig.rsiCustomEnabled} onChange={function(e){setAddConfig(function(c){return{...c,rsiCustomEnabled:e.target.checked};});}} style={{accentColor:"#88aaff"}}/>
+                <span style={{fontSize:9,color:"#ccc"}}>🎯 RSI personalizado</span>
+              </label>
+              <select value={addConfig.rsiCustomCondition} onChange={function(e){setAddConfig(function(c){return{...c,rsiCustomCondition:e.target.value};});}}
+                disabled={!addConfig.rsiCustomEnabled}
+                style={{padding:"3px 4px",background:"#111",border:"1px solid #333",color:addConfig.rsiCustomEnabled?"#e0e0e0":"#444",borderRadius:4,fontSize:9}}>
+                <option value="below">≤</option>
+                <option value="above">≥</option>
+              </select>
+              <input type="number" min="1" max="99" value={addConfig.rsiCustomTarget}
+                onChange={function(e){setAddConfig(function(c){return{...c,rsiCustomTarget:parseInt(e.target.value)||50};});}}
+                disabled={!addConfig.rsiCustomEnabled}
+                style={{width:44,padding:"3px 5px",background:"#111",border:"1px solid #333",color:addConfig.rsiCustomEnabled?"#e0e0e0":"#444",borderRadius:4,fontSize:9,textAlign:"center"}}/>
+            </div>
+            {/* Divergencias RSI */}
+            <div style={{marginBottom:6}}>
+              <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+                <input type="checkbox" checked={addConfig.rsiDivEnabled} onChange={function(e){setAddConfig(function(c){return{...c,rsiDivEnabled:e.target.checked};});}} style={{accentColor:"#88aaff"}}/>
+                <span style={{fontSize:9,color:"#ccc"}}>🔀 Divergencias RSI</span>
+              </label>
+            </div>
+            {/* EMA Cruces */}
+            <div style={{marginBottom:6}}>
+              <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+                <input type="checkbox" checked={addConfig.emaCross725Enabled} onChange={function(e){setAddConfig(function(c){return{...c,emaCross725Enabled:e.target.checked};});}} style={{accentColor:"#f0b429"}}/>
+                <span style={{fontSize:9,color:"#ccc"}}>✂️ Cruces EMA 7/25</span>
+              </label>
+            </div>
+            <div style={{marginBottom:8}}>
+              <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+                <input type="checkbox" checked={addConfig.emaCross50200Enabled} onChange={function(e){setAddConfig(function(c){return{...c,emaCross50200Enabled:e.target.checked};});}} style={{accentColor:"#f0b429"}}/>
+                <span style={{fontSize:9,color:"#ccc"}}>✂️ Cruces EMA 50/200</span>
+              </label>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={confirmAddAsset}
+                style={{flex:1,padding:"7px",background:"rgba(0,255,136,.15)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>
+                ✓ Añadir con esta configuración
+              </button>
+              <button onClick={function(){setAddFound(null);setAddStatus(null);setAddInput("");}}
+                style={{padding:"7px 10px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:5,fontSize:9,cursor:"pointer"}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Operaciones Bot */}
