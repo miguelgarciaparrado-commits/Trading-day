@@ -728,7 +728,14 @@ function App() {
                     var aiText = (aiData.content && aiData.content[0]) ? aiData.content[0].text.trim() : "";
                     if (aiText.startsWith("ALERTA:")) {
                         var alertBody = aiText.slice(7).trim();
-                        var tgText = "📊 Seguimiento " + pred.asset.toUpperCase() + " " + tf.toUpperCase() + "\n\n" + alertBody + (pred.note ? "\n\n📌 Predicción: " + pred.note : "");
+                        var tgText = "📊 Seguimiento " + pred.asset.toUpperCase() + " " + tf.toUpperCase() + "\n\n";
+                        if (pred.userQuery) {
+                            tgText += "💬 Tu análisis:\n\"" + pred.userQuery.slice(0, 200) + (pred.userQuery.length > 200 ? "…" : "") + "\"\n\n";
+                        }
+                        tgText += "🤖 Update:\n" + alertBody;
+                        if (pred.note) {
+                            tgText += "\n\n📌 " + pred.note;
+                        }
                         var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
                         fetch(tgUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: tgChatId, text: tgText }) }).catch(function () { });
                     }
@@ -2286,7 +2293,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
             alert("Error al importar: JSON invalido");
         }
     }
-    function saveMessageAsPrediction(msg, note) {
+    function saveMessageAsPrediction(msg, note, userMsg) {
         const asset = detectedInfo ? detectedInfo.display : marketData ? marketData.asset : "";
         const tf = detectedInfo ? detectedInfo.tf : marketData ? marketData.tf : "";
         const now = new Date();
@@ -2297,6 +2304,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
             timestamp: now.getTime(),
             asset, tf,
             content: msg.content,
+            userQuery: (userMsg && userMsg.role === "user") ? userMsg.content.slice(0, 400) : "",
             note: note || "",
             status: "pending"
         };
@@ -2829,9 +2837,9 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                     m.role === "assistant" && i > 0 && !m.isReminder && (React.createElement("div", { style: { marginTop: 4, alignSelf: "flex-start", marginLeft: 4 } }, savingMsgIdx === i ? (React.createElement("div", { style: { background: "#0d0d16", border: "1px solid rgba(136,170,255,.4)", borderRadius: 6, padding: "8px 10px", minWidth: 220 } },
                         React.createElement("div", { style: { fontSize: 8, color: "#88aaff", fontWeight: 700, marginBottom: 6 } }, "GUARDAR COMO PREDICCI\u00D3N"),
                         React.createElement("input", { style: { ...S.inp, width: "100%", fontSize: 9, padding: "5px 8px", marginBottom: 6, boxSizing: "border-box" }, placeholder: "Nota: ej. BTC objetivo 74500 en 4H...", value: predNote, onChange: function (e) { setPredNote(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter")
-                                saveMessageAsPrediction(messages[savingMsgIdx], predNote); }, autoFocus: true }),
+                                saveMessageAsPrediction(messages[savingMsgIdx], predNote, messages[savingMsgIdx - 1]); }, autoFocus: true }),
                         React.createElement("div", { style: { display: "flex", gap: 5 } },
-                            React.createElement("button", { onClick: function () { saveMessageAsPrediction(messages[savingMsgIdx], predNote); }, style: { flex: 2, padding: "5px", background: "#88aaff", color: "#0a0a0f", border: "none", borderRadius: 4, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "Guardar"),
+                            React.createElement("button", { onClick: function () { saveMessageAsPrediction(messages[savingMsgIdx], predNote, messages[savingMsgIdx - 1]); }, style: { flex: 2, padding: "5px", background: "#88aaff", color: "#0a0a0f", border: "none", borderRadius: 4, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "Guardar"),
                             React.createElement("button", { onClick: function () { setSavingMsgIdx(null); setPredNote(""); }, style: { flex: 1, padding: "5px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "Cancelar")))) : (React.createElement("button", { onClick: function () { setSavingMsgIdx(i); setShowPredictions(false); setPredNote(""); }, style: { fontSize: 8, padding: "3px 8px", borderRadius: 4, background: "transparent", border: "1px solid #222", color: "#444", cursor: "pointer" } }, "\uD83D\uDCBE Guardar predicci\u00F3n"))))));
             }),
             loading && (React.createElement("div", { style: { alignSelf: "flex-start" } },

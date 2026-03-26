@@ -560,7 +560,10 @@ export default function App(){
           var aiText=(aiData.content&&aiData.content[0])?aiData.content[0].text.trim():"";
           if(aiText.startsWith("ALERTA:")){
             var alertBody=aiText.slice(7).trim();
-            var tgText="📊 Seguimiento "+pred.asset.toUpperCase()+" "+tf.toUpperCase()+"\n\n"+alertBody+(pred.note?"\n\n📌 Predicción: "+pred.note:"");
+            var tgText="📊 Seguimiento "+pred.asset.toUpperCase()+" "+tf.toUpperCase()+"\n\n";
+            if(pred.userQuery){tgText+="💬 Tu análisis:\n\""+pred.userQuery.slice(0,200)+(pred.userQuery.length>200?"…":"")+"\"\n\n";}
+            tgText+="🤖 Update:\n"+alertBody;
+            if(pred.note){tgText+="\n\n📌 "+pred.note;}
             var tgUrl="https://api.telegram.org/bot"+tgToken+"/sendMessage";
             fetch(tgUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:tgChatId,text:tgText})}).catch(function(){});
           }
@@ -2235,7 +2238,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
     }catch(e){alert("Error al importar: JSON invalido");}
   }
 
-  function saveMessageAsPrediction(msg,note){
+  function saveMessageAsPrediction(msg,note,userMsg){
     const asset=detectedInfo?detectedInfo.display:marketData?marketData.asset:"";
     const tf=detectedInfo?detectedInfo.tf:marketData?marketData.tf:"";
     const now=new Date();
@@ -2246,6 +2249,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       timestamp:now.getTime(),
       asset,tf,
       content:msg.content,
+      userQuery:(userMsg&&userMsg.role==="user")?userMsg.content.slice(0,400):"",
       note:note||"",
       status:"pending"
     };
@@ -2851,10 +2855,10 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
                       placeholder="Nota: ej. BTC objetivo 74500 en 4H..."
                       value={predNote}
                       onChange={function(e){setPredNote(e.target.value);}}
-                      onKeyDown={function(e){if(e.key==="Enter")saveMessageAsPrediction(messages[savingMsgIdx],predNote);}}
+                      onKeyDown={function(e){if(e.key==="Enter")saveMessageAsPrediction(messages[savingMsgIdx],predNote,messages[savingMsgIdx-1]);}}
                       autoFocus/>
                     <div style={{display:"flex",gap:5}}>
-                      <button onClick={function(){saveMessageAsPrediction(messages[savingMsgIdx],predNote);}}
+                      <button onClick={function(){saveMessageAsPrediction(messages[savingMsgIdx],predNote,messages[savingMsgIdx-1]);}}
                         style={{flex:2,padding:"5px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar</button>
                       <button onClick={function(){setSavingMsgIdx(null);setPredNote("");}}
                         style={{flex:1,padding:"5px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
