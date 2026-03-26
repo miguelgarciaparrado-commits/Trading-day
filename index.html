@@ -3648,17 +3648,8 @@ function AlertasTab({ S }) {
                         }
                     }
                 }
-                // Mantener estado del cruce para reseteo cuando ya no hay cruce
-                if (!k.x) {
-                    if (cross7_25 !== "golden")
-                        lastTrigRef.current[ak + "g725"] = false;
-                    if (cross7_25 !== "death")
-                        lastTrigRef.current[ak + "d725"] = false;
-                    if (cross50_200 !== "golden")
-                        lastTrigRef.current[ak + "g200"] = false;
-                    if (cross50_200 !== "death")
-                        lastTrigRef.current[ak + "d200"] = false;
-                }
+                // Nota: el reseteo del cruce EMA se hace solo en vela CERRADA (dentro del if k.x de arriba)
+                // No se resetea en ticks intermedios para evitar re-disparar cuando el precio fluctúa
                 // Canal + FVG: siempre activos en vela confirmada (ya no requieren toggle manual)
                 if (k.x) {
                     var channelResult = detectChannelAlert(ohlc);
