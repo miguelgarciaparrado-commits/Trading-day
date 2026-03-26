@@ -1902,7 +1902,7 @@ export default function App(){
         )}
 
         <div style={{display:tab==="Alertas"?"block":"none"}}>
-          <AlertasTab S={S}/>
+          <AlertasTab S={S} predictions={predictions}/>
         </div>
 
         <div style={{display:tab==="Chat"?"block":"none"}}>
@@ -2148,7 +2148,13 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   // monitoredMsgs: derivado de predictions — un mensaje está monitorizado si existe prediction con mismo content y status pending
   var monitoredMsgs={};
   messages.forEach(function(m,i){
-    if(m.role==="assistant"&&predictions&&predictions.some(function(p){return p.content===m.content&&p.status==="pending";})){
+    if(m.role!=="assistant")return;
+    var mc=typeof m.content==="string"?m.content.trim():"";
+    if(!mc)return;
+    if(predictions&&predictions.some(function(p){
+      var pc=typeof p.content==="string"?p.content.trim():"";
+      return pc&&pc===mc&&p.status==="pending";
+    })){
       monitoredMsgs[String(i)]=true;
     }
   });
@@ -3166,7 +3172,7 @@ function detectCross50_200(closes){
   return null;
 }
 
-function AlertasTab({S}){
+function AlertasTab({S,predictions}){
   const SYMBOLS=[
     {symbol:"BTCUSDT",label:"BTC/USD"},
     {symbol:"ETHUSDT",label:"ETH/USD"},
@@ -4223,10 +4229,9 @@ function AlertasTab({S}){
               if(a.fvgEnabled)types.push("FVG");
               alertLines+="\n"+(a.label||a.symbol)+" — "+(tfLabel[a.interval]||a.interval)+(a.error?" ⚠️ error":a.active?" ✅":" ⏸")+"\n  "+types.join(" | ")+"\n";
             });
-            // Leer predicciones pendientes con activo
-            var savedPreds=[];
-            try{var sp=localStorage.getItem("td-predictions");if(sp)savedPreds=JSON.parse(sp);}catch(e){}
-            var pendingPreds=savedPreds.filter(function(p){return p.status==="pending";});
+            // Leer predicciones pendientes desde memoria (no localStorage — más fiable en móvil)
+            var memPreds=predictions||[];
+            var pendingPreds=memPreds.filter(function(p){return p.status==="pending";});
             var predLines=pendingPreds.length?pendingPreds.map(function(p){
               var label=p.asset?p.asset.toUpperCase():"(sin activo)";
               return "  • "+label+(p.tf?" "+(tfLabel[p.tf]||p.tf):"")+(p.note?" — "+p.note:"")+(p.asset?"":" ⚠️ no monitoreada");
