@@ -2144,6 +2144,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   const[showPredictions,setShowPredictions]=useState(false);
   const[savingMsgIdx,setSavingMsgIdx]=useState(null); // index del mensaje que se quiere guardar
   const[predNote,setPredNote]=useState("");
+  const[monitoredMsgs,setMonitoredMsgs]=useState({}); // {i: true} mensajes ya enviados a monitoreo
 
   // ── Chat export/import ──
   const[showChatImport,setShowChatImport]=useState(false);
@@ -2890,10 +2891,23 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
                     </div>
                   </div>
                 ):(
-                  <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);setPredNote("");}}
-                    style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #222",color:"#444",cursor:"pointer"}}>
-                    💾 Guardar predicción
-                  </button>
+                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                    <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);setPredNote("");}}
+                      style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #222",color:"#444",cursor:"pointer"}}>
+                      💾 Guardar predicción
+                    </button>
+                    {monitoredMsgs[i]?(
+                      <span style={{fontSize:8,color:"#0088cc",padding:"3px 8px",borderRadius:4,border:"1px solid rgba(0,136,204,.4)",background:"rgba(0,136,204,.08)"}}>✈️ Monitoreando</span>
+                    ):(
+                      <button title="Guardar y monitorizar — recibirás updates en Telegram" onClick={function(){
+                        var userMsg=messages[i-1]&&messages[i-1].role==="user"?messages[i-1]:null;
+                        saveMessageAsPrediction(m,"",userMsg);
+                        setMonitoredMsgs(function(prev){var n={};Object.keys(prev).forEach(function(k){n[k]=prev[k];});n[String(i)]=true;return n;});
+                      }} style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #1a2a3a",color:"#0088cc",cursor:"pointer"}}>
+                        ✈️ Monitorizar
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             )}

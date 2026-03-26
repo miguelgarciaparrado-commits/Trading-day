@@ -2187,6 +2187,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
     const [showPredictions, setShowPredictions] = useState(false);
     const [savingMsgIdx, setSavingMsgIdx] = useState(null); // index del mensaje que se quiere guardar
     const [predNote, setPredNote] = useState("");
+    const [monitoredMsgs, setMonitoredMsgs] = useState({}); // {i: true} mensajes ya enviados a monitoreo
     // ── Chat export/import ──
     const [showChatImport, setShowChatImport] = useState(false);
     const [chatImportText, setChatImportText] = useState("");
@@ -2869,7 +2870,13 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                                 saveMessageAsPrediction(messages[savingMsgIdx], predNote, messages[savingMsgIdx - 1]); }, autoFocus: true }),
                         React.createElement("div", { style: { display: "flex", gap: 5 } },
                             React.createElement("button", { onClick: function () { saveMessageAsPrediction(messages[savingMsgIdx], predNote, messages[savingMsgIdx - 1]); }, style: { flex: 2, padding: "5px", background: "#88aaff", color: "#0a0a0f", border: "none", borderRadius: 4, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "Guardar"),
-                            React.createElement("button", { onClick: function () { setSavingMsgIdx(null); setPredNote(""); }, style: { flex: 1, padding: "5px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "Cancelar")))) : (React.createElement("button", { onClick: function () { setSavingMsgIdx(i); setShowPredictions(false); setPredNote(""); }, style: { fontSize: 8, padding: "3px 8px", borderRadius: 4, background: "transparent", border: "1px solid #222", color: "#444", cursor: "pointer" } }, "\uD83D\uDCBE Guardar predicci\u00F3n"))))));
+                            React.createElement("button", { onClick: function () { setSavingMsgIdx(null); setPredNote(""); }, style: { flex: 1, padding: "5px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "Cancelar")))) : (React.createElement("div", { style: { display: "flex", gap: 5, alignItems: "center" } },
+                        React.createElement("button", { onClick: function () { setSavingMsgIdx(i); setShowPredictions(false); setPredNote(""); }, style: { fontSize: 8, padding: "3px 8px", borderRadius: 4, background: "transparent", border: "1px solid #222", color: "#444", cursor: "pointer" } }, "\uD83D\uDCBE Guardar predicci\u00F3n"),
+                        monitoredMsgs[i] ? (React.createElement("span", { style: { fontSize: 8, color: "#0088cc", padding: "3px 8px", borderRadius: 4, border: "1px solid rgba(0,136,204,.4)", background: "rgba(0,136,204,.08)" } }, "\u2708\uFE0F Monitoreando")) : (React.createElement("button", { title: "Guardar y monitorizar \u2014 recibir\u00E1s updates en Telegram", onClick: function () {
+                                var userMsg = messages[i - 1] && messages[i - 1].role === "user" ? messages[i - 1] : null;
+                                saveMessageAsPrediction(m, "", userMsg);
+                                setMonitoredMsgs(function (prev) { var n = {}; Object.keys(prev).forEach(function (k) { n[k] = prev[k]; }); n[String(i)] = true; return n; });
+                            }, style: { fontSize: 8, padding: "3px 8px", borderRadius: 4, background: "transparent", border: "1px solid #1a2a3a", color: "#0088cc", cursor: "pointer" } }, "\u2708\uFE0F Monitorizar"))))))));
             }),
             loading && (React.createElement("div", { style: { alignSelf: "flex-start" } },
                 React.createElement("div", { style: { padding: "10px 14px", background: "#111118", border: "1px solid #1e1e2e", borderRadius: "12px 12px 12px 2px", fontSize: 11, color: "#555" } }, "Analizando...")))),
