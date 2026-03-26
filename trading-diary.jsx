@@ -2742,39 +2742,95 @@ function AlertasTab({S}){
     }else{doNotif();}
   }
 
-  function sendAlert(label,interval,rsi,type,e1,e2,customDesc,price){
+  function sendAlert(label,interval,rsi,type,e1,e2,customDesc,price,extra){
+    var extra=extra||{};
     const isPriceAlert=type==="price_target";
     const tf=isPriceAlert?"Precio":interval==="1h"?"1H":interval==="4h"?"4H":interval==="1d"?"Diario":"Semanal";
     const priceStr=price!=null?" | $"+parseFloat(price).toLocaleString("es-ES",{maximumFractionDigits:2}):"";
     var title="Alerta Trading";
     var body="";
-    if(type==="rsi_custom"){title="Alerta RSI";body=label+" "+tf+" — "+(customDesc||"RSI "+rsi)+priceStr;}
-    else if(type==="golden"){title="Cruce Dorado EMA 7/25";body=label+" "+tf+" — EMA7 cruza EMA25 al alza"+priceStr;}
-    else if(type==="death"){title="Cruce Muerte EMA 7/25";body=label+" "+tf+" — EMA7 cruza EMA25 a la baja"+priceStr;}
-    else if(type==="ema200_golden"){title="Cruce Dorado EMA 50/200";body=label+" "+tf+" — EMA50 cruza EMA200 al alza"+priceStr;}
-    else if(type==="ema200_death"){title="Cruce Muerte EMA 50/200";body=label+" "+tf+" — EMA50 cruza EMA200 a la baja"+priceStr;}
-    else if(type==="price_target"){title="Precio Objetivo";body=customDesc||label+" — PRECIO ALCANZADO $"+parseFloat(price).toFixed(2);}
-    else if(type==="rsi_oversold"){title="📉 RSI Sobreventa";body=label+" "+tf+" — RSI "+rsi.toFixed(1)+" (zona ≤30)"+priceStr;}
-    else if(type==="rsi_overbought"){title="📈 RSI Sobrecompra";body=label+" "+tf+" — RSI "+rsi.toFixed(1)+" (zona ≥70)"+priceStr;}
-    else if(type==="rsi_div_bull"){title="🟢 Divergencia Alcista RSI";body=label+" "+tf+" — Precio LL, RSI HL. Momentum se recupera. Posible giro al alza."+priceStr;}
-    else if(type==="rsi_div_bear"){title="🔴 Divergencia Bajista RSI";body=label+" "+tf+" — Precio HH, RSI LH. Momentum se agota. Posible giro a la baja."+priceStr;}
-    else if(type==="rsi_conv_bull"){title="📈 Convergencia Alcista RSI";body=label+" "+tf+" — Precio HL + RSI HL. Tendencia alcista confirmada por momentum."+priceStr;}
-    else if(type==="rsi_conv_bear"){title="📉 Convergencia Bajista RSI";body=label+" "+tf+" — Precio LH + RSI LH. Tendencia bajista confirmada por momentum."+priceStr;}
-    else if(type==="patron_combo"){title="🔥 PATRÓN COMBINADO";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
-    else if(type==="patron_canal"){title="📐 Canal Detectado";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
-    else if(type==="patron_fvg"){title="⚡ FVG Cubierta";body=label+" "+tf+" — "+(customDesc||"")+priceStr;}
-    else if(customDesc){title="Alerta";body=label+" "+tf+" — "+customDesc+priceStr;}
-    else{title="Alerta";body=label+" "+tf+" — "+type+priceStr;}
-    const log={id:Date.now(),label,interval:tf,rsi,type,e1:e1?e1.toFixed(0):null,e2:e2?e2.toFixed(0):null,price:price!=null?parseFloat(price).toFixed(2):null,body,time:new Date().toLocaleTimeString("es-ES")};
-    setLogs(function(prev){return[log,...prev.slice(0,49)];});
-    setLastAlert({title,body,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})});
-    setTimeout(function(){setLastAlert(null);},8000);
-    if(navigator.vibrate){try{navigator.vibrate([300,150,300,150,300]);}catch(e){}}
-    // Telegram
+    var isEMACross=false;var emaCrossLabel="";
+    if(type==="rsi_custom"){title="🎯 RSI Personalizado";body=(customDesc||"RSI "+rsi)+priceStr;}
+    else if(type==="golden"){title="🌟 Cruce Dorado EMA 7/25";isEMACross=true;emaCrossLabel="Dorado — EMA7 cruza EMA25 al alza";}
+    else if(type==="death"){title="💀 Cruce de la Muerte EMA 7/25";isEMACross=true;emaCrossLabel="Muerte — EMA7 cruza EMA25 a la baja";}
+    else if(type==="ema200_golden"){title="🌟 Cruce Dorado EMA 50/200";isEMACross=true;emaCrossLabel="Dorado — EMA50 cruza EMA200 al alza";}
+    else if(type==="ema200_death"){title="💀 Cruce de la Muerte EMA 50/200";isEMACross=true;emaCrossLabel="Muerte — EMA50 cruza EMA200 a la baja";}
+    else if(type==="price_target"){title="💰 Precio Objetivo";body=customDesc||label+" — PRECIO ALCANZADO $"+parseFloat(price).toFixed(2);}
+    else if(type==="rsi_oversold"){title="📉 RSI Sobreventa";}
+    else if(type==="rsi_overbought"){title="📈 RSI Sobrecompra";}
+    else if(type==="rsi_div_bull"){title="🟢 Divergencia Alcista RSI";}
+    else if(type==="rsi_div_bear"){title="🔴 Divergencia Bajista RSI";}
+    else if(type==="rsi_conv_bull"){title="📈 Convergencia Alcista RSI";}
+    else if(type==="rsi_conv_bear"){title="📉 Convergencia Bajista RSI";}
+    else if(type==="patron_combo"){title="🔥 Patrón Combinado";body=(customDesc||"")+priceStr;}
+    else if(type==="patron_canal"){title="📐 Canal Detectado";body=(customDesc||"")+priceStr;}
+    else if(type==="patron_fvg"){title="⚡ FVG Cubierta";body=(customDesc||"")+priceStr;}
+    else if(customDesc){title="Alerta";body=customDesc+priceStr;}
+    else{title="Alerta";body=type+priceStr;}
+    // Body corto para la UI (sin toda la info del Telegram)
+    if(!body)body=label+" "+tf+priceStr;
+    // ─── TELEGRAM: formato estructurado ───
     var tk=localStorage.getItem("td-tg-token");
     var cid=localStorage.getItem("td-tg-chatid");
     if(tk&&cid){
-      var tgText=encodeURIComponent("📊 "+title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES"));
+      // Contexto div/conv
+      var dr=extra.divResult;
+      var divConvLine="Sin div/conv";
+      if(dr){
+        if(dr.kind==="divergence"&&dr.type==="bullish")divConvLine="🟢 Divergencia alcista";
+        else if(dr.kind==="divergence"&&dr.type==="bearish")divConvLine="🔴 Divergencia bajista";
+        else if(dr.kind==="convergence"&&dr.type==="bullish")divConvLine="📈 Convergencia alcista";
+        else if(dr.kind==="convergence"&&dr.type==="bearish")divConvLine="📉 Convergencia bajista";
+      }
+      // Precio de entrada y operación sugerida
+      var ohlcData=extra.ohlc||[];
+      var isLong=["rsi_oversold","golden","ema200_golden","rsi_div_bull","rsi_conv_bull","patron_fvg"].indexOf(type)>=0;
+      var sugDir=isLong?"Long":"Short";
+      var entryPrice=price||0;
+      var slPct=0.02;
+      var slPrice=isLong?entryPrice*(1-slPct):entryPrice*(1+slPct);
+      // Buscar FVG para TP
+      var tpPrice=null;var tpNote="2:1";
+      if(ohlcData.length>4){
+        for(var fi=2;fi<ohlcData.length;fi++){
+          var fc0=ohlcData[fi-2],fc2=ohlcData[fi];
+          if(isLong&&fc2.l>fc0.h){
+            var mid=(fc2.l+fc0.h)/2;
+            if(mid>entryPrice&&(mid-entryPrice)/entryPrice<0.06&&(mid-entryPrice)/entryPrice>0.005){tpPrice=mid;tpNote="FVG alcista";break;}
+          }
+          if(!isLong&&fc2.h<fc0.l){
+            var mid2=(fc2.h+fc0.l)/2;
+            if(mid2<entryPrice&&(entryPrice-mid2)/entryPrice<0.06&&(entryPrice-mid2)/entryPrice>0.005){tpPrice=mid2;tpNote="FVG bajista";break;}
+          }
+        }
+      }
+      if(!tpPrice)tpPrice=isLong?entryPrice*(1+slPct*2):entryPrice*(1-slPct*2);
+      var riskAmt=Math.abs(entryPrice-slPrice);
+      var rewardAmt=Math.abs(tpPrice-entryPrice);
+      var ratioBot=riskAmt>0?(rewardAmt/riskAmt).toFixed(2):"--";
+      var slPctShow=((Math.abs(entryPrice-slPrice)/entryPrice)*100).toFixed(1);
+      var tpPctShow=((Math.abs(tpPrice-entryPrice)/entryPrice)*100).toFixed(1);
+      // Guardar operación bot
+      var botOp={id:Date.now(),date:new Date().toLocaleDateString("es-ES"),time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),asset:label,interval:tf,signal:type,dir:sugDir,entry:parseFloat(entryPrice.toFixed(4)),sl:parseFloat(slPrice.toFixed(4)),tp:parseFloat(tpPrice.toFixed(4)),ratio:parseFloat(ratioBot),tpNote:tpNote,result:null,hit:null};
+      try{var prevBotOps=JSON.parse(localStorage.getItem("td-bot-ops")||"[]");prevBotOps.unshift(botOp);localStorage.setItem("td-bot-ops",JSON.stringify(prevBotOps.slice(0,100)));}catch(e){}
+      // Construir mensaje Telegram
+      var tgLines=[];
+      tgLines.push("📊 "+title);
+      tgLines.push("");
+      tgLines.push("📅 Temporalidad: "+tf+"  |  "+label);
+      if(isEMACross)tgLines.push("🔀 Cruce EMAs: "+emaCrossLabel);
+      tgLines.push("📊 RSI: "+(rsi!=null?rsi.toFixed(1):"--")+" | "+divConvLine);
+      tgLines.push("💰 Precio: $"+parseFloat(entryPrice).toLocaleString("es-ES",{maximumFractionDigits:4}));
+      tgLines.push("📈 Volumen: "+(extra.volDir||"Desconocido"));
+      tgLines.push("");
+      tgLines.push("💡 Operación Bot ("+sugDir+"):");
+      tgLines.push("   📍 Entrada: $"+parseFloat(entryPrice).toLocaleString("es-ES",{maximumFractionDigits:4}));
+      tgLines.push("   🎯 TP: $"+parseFloat(tpPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (+"+tpPctShow+"%) ["+tpNote+"]");
+      tgLines.push("   🛑 SL: $"+parseFloat(slPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (-"+slPctShow+"%)");
+      tgLines.push("   ⚖️ Ratio: 1:"+ratioBot);
+      tgLines.push("");
+      tgLines.push("⏰ "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
+      var tgText=encodeURIComponent(tgLines.join("\n"));
       fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+tgText).catch(function(){});
     }
     if(Notification.permission==="granted"){
@@ -2803,7 +2859,7 @@ function AlertasTab({S}){
       .then(function(r){return r.json();})
       .then(function(data){
         closesRef.current[key]=data.map(function(k){return parseFloat(k[4]);});
-        ohlcRef.current[key]=data.map(function(k){return{o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4])};});
+        ohlcRef.current[key]=data.map(function(k){return{o:parseFloat(k[1]),h:parseFloat(k[2]),l:parseFloat(k[3]),c:parseFloat(k[4]),v:parseFloat(k[5]||0)};});
         // Pre-compute RSI history from historical closes (enables divergence on startup)
         var histRsiSeries=calcRSISeries(closesRef.current[key],14);
         rsiHistRef.current[key]=histRsiSeries.slice(-80);
@@ -2823,7 +2879,7 @@ function AlertasTab({S}){
           else{if(closes.length>0)closes[closes.length-1]=closePrice;}
           closesRef.current[key]=closes;
           const ohlc=[...(ohlcRef.current[key]||[])];
-          const newCandle={o:parseFloat(k.o),h:parseFloat(k.h),l:parseFloat(k.l),c:closePrice};
+          const newCandle={o:parseFloat(k.o),h:parseFloat(k.h),l:parseFloat(k.l),c:closePrice,v:parseFloat(k.v||0)};
           if(k.x){ohlc.push(newCandle);if(ohlc.length>300)ohlc.shift();}
           else{if(ohlc.length>0)ohlc[ohlc.length-1]=newCandle;}
           ohlcRef.current[key]=ohlc;
@@ -2845,6 +2901,20 @@ function AlertasTab({S}){
           }
 
           const ak=sid+"_";
+          // Calcular dirección de volumen (última vela vs media de las 5 anteriores)
+          var volDir=null;
+          if(ohlc.length>=6){
+            var vols=ohlc.slice(-6).map(function(c){return c.v||0;});
+            var lastVol=vols[vols.length-1];
+            var avgVol5=vols.slice(0,-1).reduce(function(a,v){return a+v;},0)/5;
+            if(avgVol5>0)volDir=lastVol>avgVol5*1.15?"↗ Ascendente":lastVol<avgVol5*0.85?"↘ Descendente":"→ Estable";
+          }
+          // Calcular div/conv actual para contexto en notificaciones
+          var divResult=null;
+          var rsiHistSnap=rsiHistRef.current[key]||[];
+          if(rsiHistSnap.length>=10&&ohlc.length>=10){
+            divResult=detectRSIDivergence(ohlc,rsiHistSnap);
+          }
           // ─── RSI AUTOMÁTICO: sobreventa ≤30 y sobrecompra ≥70 (siempre activo) ───
           if(rsi!==null){
             // Almacenar historial RSI por vela cerrada
@@ -2857,8 +2927,8 @@ function AlertasTab({S}){
             const prevZone=lastTrigRef.current[ak+"rsizone"]||"neutral";
             if(rsiZone!==prevZone){
               lastTrigRef.current[ak+"rsizone"]=rsiZone;
-              if(rsiZone==="oversold")sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice);
-              else if(rsiZone==="overbought")sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice);
+              if(rsiZone==="oversold")sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult});
+              else if(rsiZone==="overbought")sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult});
             }
             // RSI personalizado (nivel entre 30-70 configurado por el usuario)
             if(alert.rsiCustomEnabled&&alert.rsiCustomTarget){
@@ -2871,37 +2941,45 @@ function AlertasTab({S}){
               }
               if(!triggered)lastTrigRef.current[rsiKey]=false;
             }
-            // Divergencias RSI (solo en velas cerradas)
-            if(k.x){
-              const rsiHist=rsiHistRef.current[key]||[];
-              const ohlcSnap=ohlcRef.current[key]||[];
-              const divResult=rsiHist.length>=10&&ohlcSnap.length>=10?detectRSIDivergence(ohlcSnap,rsiHist):null;
-              if(divResult){
-                var divKind=divResult.kind||"divergence";
-                var divAlertType=divKind==="convergence"
-                  ?(divResult.type==="bullish"?"rsi_conv_bull":"rsi_conv_bear")
-                  :(divResult.type==="bullish"?"rsi_div_bull":"rsi_div_bear");
-                var divKey=ak+divKind+"_"+divResult.type+"_"+Math.round(closePrice/50);
-                if(!lastTrigRef.current[divKey]){
-                  lastTrigRef.current[divKey]=true;
-                  sendAlert(alert.label,alert.interval,rsi,divAlertType,ema7,ema25,null,closePrice);
-                }
+            // Divergencias/Convergencias RSI (solo en velas cerradas)
+            if(k.x&&divResult){
+              var divKind=divResult.kind||"divergence";
+              var divAlertType=divKind==="convergence"
+                ?(divResult.type==="bullish"?"rsi_conv_bull":"rsi_conv_bear")
+                :(divResult.type==="bullish"?"rsi_div_bull":"rsi_div_bear");
+              var divKey=ak+divKind+"_"+divResult.type+"_"+Math.round(closePrice/50);
+              if(!lastTrigRef.current[divKey]){
+                lastTrigRef.current[divKey]=true;
+                sendAlert(alert.label,alert.interval,rsi,divAlertType,ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult});
               }
             }
           }
-          // ─── EMA CRUCES AUTOMÁTICOS (siempre activos) ───
-          if(cross7_25==="golden"){
-            if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice);}
-          }else if(cross7_25!=="golden"){lastTrigRef.current[ak+"g725"]=false;}
-          if(cross7_25==="death"){
-            if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice);}
-          }else if(cross7_25!=="death"){lastTrigRef.current[ak+"d725"]=false;}
-          if(cross50_200==="golden"){
-            if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice);}
-          }else if(cross50_200!=="golden"){lastTrigRef.current[ak+"g200"]=false;}
-          if(cross50_200==="death"){
-            if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice);}
-          }else if(cross50_200!=="death"){lastTrigRef.current[ak+"d200"]=false;}
+          // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
+          // Semanal no tiene cruces (muy raros, generarían ruido)
+          if(k.x&&alert.interval!=="1w"){
+            if(cross7_25==="golden"){
+              if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult});}
+            }else{lastTrigRef.current[ak+"g725"]=false;}
+            if(cross7_25==="death"){
+              if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult});}
+            }else{lastTrigRef.current[ak+"d725"]=false;}
+            // EMA 50/200 solo en 4H y superiores (no 1H — cruces muy frecuentes)
+            if(alert.interval!=="1h"){
+              if(cross50_200==="golden"){
+                if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice,{ohlc:ohlc,divResult:divResult});}
+              }else{lastTrigRef.current[ak+"g200"]=false;}
+              if(cross50_200==="death"){
+                if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice,{ohlc:ohlc,divResult:divResult});}
+              }else{lastTrigRef.current[ak+"d200"]=false;}
+            }
+          }
+          // Mantener estado del cruce para reseteo cuando ya no hay cruce
+          if(!k.x){
+            if(cross7_25!=="golden")lastTrigRef.current[ak+"g725"]=false;
+            if(cross7_25!=="death")lastTrigRef.current[ak+"d725"]=false;
+            if(cross50_200!=="golden")lastTrigRef.current[ak+"g200"]=false;
+            if(cross50_200!=="death")lastTrigRef.current[ak+"d200"]=false;
+          }
           // Channel detection (only on closed candles to avoid noise)
           if(k.x&&(alert.channelEnabled||alert.fvgEnabled)){
             var channelResult=alert.channelEnabled?detectChannelAlert(ohlc):null;
@@ -3337,6 +3415,54 @@ function AlertasTab({S}){
           </div>
         );
       })}
+
+      {/* Operaciones Bot */}
+      {(function(){
+        var bops=[];
+        try{bops=JSON.parse(localStorage.getItem("td-bot-ops")||"[]");}catch(e){}
+        if(bops.length===0)return null;
+        var wins=bops.filter(function(b){return b.hit==="tp";});
+        var losses=bops.filter(function(b){return b.hit==="sl";});
+        var closed=bops.filter(function(b){return b.hit;});
+        var winRate=closed.length>0?Math.round(wins.length/closed.length*100):null;
+        var ratios=bops.filter(function(b){return b.ratio>0;}).map(function(b){return b.ratio;});
+        var avgRatio=ratios.length>0?(ratios.reduce(function(a,v){return a+v;},0)/ratios.length).toFixed(2):null;
+        var maxRatio=ratios.length>0?Math.max.apply(null,ratios).toFixed(2):null;
+        var minRatio=ratios.length>0?Math.min.apply(null,ratios).toFixed(2):null;
+        return(
+          React.createElement("div",{style:{background:"#111118",border:"1px solid rgba(136,170,255,.25)",borderRadius:8,padding:12,marginTop:8}},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+              React.createElement("div",{style:{fontSize:9,color:"#88aaff",fontWeight:700,letterSpacing:1}},"🤖 OPERACIONES BOT"),
+              React.createElement("button",{onClick:function(){try{localStorage.removeItem("td-bot-ops");}catch(e){}},
+                style:{background:"transparent",border:"none",color:"#444",fontSize:8,cursor:"pointer"}},"Limpiar")
+            ),
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}},
+              [{l:"TOTAL",v:bops.length,c:"#e0e0e0"},{l:"TASA ACIERTO",v:winRate!==null?winRate+"%":"--",c:winRate>=50?"#00ff88":"#ff4444"},
+               {l:"RATIO MEDIO",v:avgRatio?"1:"+avgRatio:"--",c:"#88aaff"},
+               {l:"MEJOR/PEOR",v:maxRatio?maxRatio+"/"+minRatio:"--",c:"#f0b429"}].map(function(s){
+                return React.createElement("div",{key:s.l,style:{background:"#0d0d16",borderRadius:6,padding:"7px 8px",textAlign:"center"}},
+                  React.createElement("div",{style:{fontSize:7,color:"#555",marginBottom:3}},[s.l]),
+                  React.createElement("div",{style:{fontSize:11,fontWeight:700,color:s.c}},[s.v])
+                );
+              })
+            ),
+            bops.slice(0,8).map(function(b){
+              return React.createElement("div",{key:b.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid #1a1a2a",fontSize:8}},
+                React.createElement("div",null,
+                  React.createElement("span",{style:{color:"#88aaff",fontWeight:700}},[b.asset]),
+                  React.createElement("span",{style:{color:"#555",margin:"0 5px"}},[b.interval]),
+                  React.createElement("span",{style:{color:b.dir==="Long"?"#00ff88":"#ff4444",fontSize:7,border:"1px solid "+(b.dir==="Long"?"#00ff88":"#ff4444"),padding:"1px 4px",borderRadius:3}},[b.dir]),
+                  React.createElement("span",{style:{color:"#666",marginLeft:5}},[b.signal.replace("rsi_","RSI ").replace("_"," ")])
+                ),
+                React.createElement("div",{style:{textAlign:"right"}},
+                  React.createElement("div",{style:{color:"#888",fontSize:7}},["$"+parseFloat(b.entry).toLocaleString("es-ES",{maximumFractionDigits:2})+" → $"+parseFloat(b.tp).toLocaleString("es-ES",{maximumFractionDigits:2})]),
+                  React.createElement("div",{style:{color:"#f0b429",fontSize:7}},["R:"+b.ratio+" | "+b.date+" "+b.time])
+                )
+              );
+            })
+          )
+        );
+      })()}
 
       {/* Log de alertas disparadas */}
       {logs.length>0&&(
