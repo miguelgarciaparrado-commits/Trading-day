@@ -139,8 +139,12 @@ function calcScore(ps,pats,jnl){
   const s5=Math.min(10,(w*2)+(l*1.5)+a+Math.min(mis,l)*0.5);
   // Bonus — entradas de diario ligadas a cierres (reflexión real)
   const bon=Math.min(5,jnl.filter(function(j){return j.linkedClose;}).length*1.5);
+  // Bonus reflexión IA (0–5 pts): cada sesión de coaching con el chatbot suma 1 pt
+  // Premia el trabajo de introspección guiada, distinto del diario manual
+  const reflexCount=jnl.filter(function(j){return j.fromReflexion;}).length;
+  const bonR=Math.min(5,reflexCount);
   // Score puede ir negativo en casos extremos (señal de alarma), máx 100
-  return Math.max(-30,Math.min(100,Math.round(s1+s2+s3+s4+s5+bon)));
+  return Math.max(-30,Math.min(100,Math.round(s1+s2+s3+s4+s5+bon+bonR)));
 }
 
 // - ANALISIS PERFIL -
@@ -227,6 +231,18 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
     var best=confPats[0];
     var bestRate=Math.round(best.conf/best.obs*100);
     if(bestRate>=65)add("Patron mas fiable: '"+best.name+"' con "+bestRate+"% de confirmacion en "+best.obs+" observaciones.","positive");
+  }
+
+  // ── 6. Reflexiones IA ──
+  var reflexEntries=jnl.filter(function(j){return j.fromReflexion;});
+  var reflexCount=reflexEntries.length;
+  var bonR=Math.min(5,reflexCount);
+  if(reflexCount>=5){
+    add("Has completado "+reflexCount+" sesiones de reflexion con el coach IA (+"+bonR+" pts en score). El trabajo de introspección guiada refleja madurez psicologica y compromiso con la mejora continua.","positive");
+  }else if(reflexCount>0){
+    add("Llevas "+reflexCount+" reflexion"+(reflexCount>1?"es":"")+" con el coach IA (+"+bonR+" pts). Cada sesión adicional suma hasta completar el bonus máximo de +5 pts (te faltan "+(5-reflexCount)+").","neutral");
+  }else{
+    add("Sin reflexiones con el coach IA todavia. Usar el modo Reflexion en el chat puede sumar hasta +5 pts al score y mejora la conciencia de tus patrones emocionales.","neutral");
   }
 
   return items;
@@ -1594,11 +1610,22 @@ export default function App(){
               <div style={S.card}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>DIARIO DESGLOSE</div>
                 {[
-                  {l:"Victorias +2pts",v:jnl.filter(j=>j.type==="win").length,c:"#00ff88"},
-                  {l:"Lecciones +1.5pts",v:jnl.filter(j=>j.type==="lesson").length,c:"#f0b429"},
-                  {l:"Analisis +1pt",v:jnl.filter(j=>j.type==="analysis").length,c:"#888"},
-                  {l:"Errores +-0",v:jnl.filter(j=>j.type==="mistake").length,c:"#ff4444"},
+                  {l:"Victorias +2pts",v:jnl.filter(function(j){return j.type==="win"&&!j.fromReflexion;}).length,c:"#00ff88"},
+                  {l:"Lecciones +1.5pts",v:jnl.filter(function(j){return j.type==="lesson"&&!j.fromReflexion;}).length,c:"#f0b429"},
+                  {l:"Analisis +1pt",v:jnl.filter(function(j){return j.type==="analysis"&&!j.fromReflexion;}).length,c:"#888"},
+                  {l:"Errores +-0",v:jnl.filter(function(j){return j.type==="mistake";}).length,c:"#ff4444"},
                 ].map(x=><div key={x.l} style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:6}}><span style={{color:"#555"}}>{x.l}</span><span style={{color:x.c,fontWeight:700}}>{x.v}</span></div>)}
+                <div style={{borderTop:"1px solid #1e1e2e",marginTop:6,paddingTop:6}}>
+                  {(function(){var rc=jnl.filter(function(j){return j.fromReflexion;}).length;var bonR=Math.min(5,rc);return(
+                    <div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:3}}>
+                        <span style={{color:"#88aaff"}}>🧠 Reflexiones IA</span>
+                        <span style={{color:"#88aaff",fontWeight:700}}>{rc} sesiones → +{bonR} pts</span>
+                      </div>
+                      <div style={{fontSize:7,color:"#444"}}>{rc>=5?"✅ Máximo alcanzado":("Faltan "+(5-rc)+" para el máximo (+5 pts)")}</div>
+                    </div>
+                  );})()}
+                </div>
               </div>
               <div style={S.card}>
                 <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>SCORE: SUBE / BAJA</div>
@@ -1609,6 +1636,7 @@ export default function App(){
                   {l:"Patrón confirmado",c:"#88aaff",pts:"+7 c/u"},
                   {l:"Victoria diario",c:"#f0b429",pts:"+2"},
                   {l:"Lección diario",c:"#f0b429",pts:"+1.5"},
+                  {l:"🧠 Reflexión IA (máx 5)",c:"#88aaff",pts:"+1 c/u"},
                 ].map(function(x){return(
                   <div key={x.l} style={{background:"#0d0d16",borderRadius:4,padding:"5px 8px",border:"1px solid "+x.c+"22",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
                     <span style={{fontSize:8,color:x.c,fontWeight:700}}>{x.l}</span>
@@ -2099,7 +2127,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
       type:type,
       text:prefix+msgContent.slice(0,600),
       date:new Date().toLocaleDateString("es-ES"),
-      fromChat:true
+      fromChat:true,
+      fromReflexion:chatMode==="reflexion"
     };
     var newJnl=[entry,...(jnl||[])];
     SJ(newJnl);
@@ -2490,7 +2519,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save}){
           text:"[IA] "+evalDesc,
           emoji:evalType==="positivo"?"💪":evalType==="negativo"?"😤":"🧘",
           type:evalType==="positivo"?"win":evalType==="negativo"?"lesson":"analysis",
-          linkedClose:null
+          linkedClose:null,
+          fromReflexion:true
         };
         const newJnl=[jEntry,...D.current.jnl];
         D.current.jnl=newJnl;
