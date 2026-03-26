@@ -3422,6 +3422,26 @@ function AlertasTab({ S }) {
                     }
                 }
             }
+            // Divergencias/Convergencias RSI — todas las temporalidades
+            var rsiSeriesFH = calcRSISeries(closes, 14);
+            var divResultFH = rsiSeriesFH.length >= 12 && ohlc.length >= 12 ? detectRSIDivergence(ohlc, rsiSeriesFH) : null;
+            if (divResultFH) {
+                var divKindFH = divResultFH.kind || "divergence";
+                var divAlertFH = divKindFH === "convergence"
+                    ? (divResultFH.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
+                    : (divResultFH.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
+                var divKeyFH = ak + divKindFH + "_" + divResultFH.type + "_" + Math.round(closePrice / 50);
+                if (!lastTrigRef.current[divKeyFH]) {
+                    lastTrigRef.current[divKeyFH] = true;
+                    sendAlert(alert.label, alert.interval, rsi, divAlertFH, ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResultFH });
+                }
+            }
+            else {
+                var pzFH = Math.round(closePrice / 50);
+                ["divergence_bullish", "divergence_bearish", "convergence_bullish", "convergence_bearish"].forEach(function (dt) {
+                    delete lastTrigRef.current[ak + dt + "_" + pzFH];
+                });
+            }
         }
         var toTs0 = Math.floor(Date.now() / 1000);
         fetch("https://finnhub.io/api/v1/stock/candle?symbol=" + alert.symbol + "&resolution=" + res + "&from=" + fromTs + "&to=" + toTs0 + "&token=" + fhKey2)
@@ -3566,16 +3586,25 @@ function AlertasTab({ S }) {
                         if (!triggered)
                             lastTrigRef.current[rsiKey] = false;
                     }
-                    // Divergencias/Convergencias RSI (solo en velas cerradas)
-                    if (k.x && divResult) {
-                        var divKind = divResult.kind || "divergence";
-                        var divAlertType = divKind === "convergence"
-                            ? (divResult.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
-                            : (divResult.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
-                        var divKey = ak + divKind + "_" + divResult.type + "_" + Math.round(closePrice / 50);
-                        if (!lastTrigRef.current[divKey]) {
-                            lastTrigRef.current[divKey] = true;
-                            sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                    // Divergencias/Convergencias RSI — todas las temporalidades, solo vela cerrada
+                    if (k.x) {
+                        if (divResult) {
+                            var divKind = divResult.kind || "divergence";
+                            var divAlertType = divKind === "convergence"
+                                ? (divResult.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
+                                : (divResult.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
+                            var divKey = ak + divKind + "_" + divResult.type + "_" + Math.round(closePrice / 50);
+                            if (!lastTrigRef.current[divKey]) {
+                                lastTrigRef.current[divKey] = true;
+                                sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                            }
+                        }
+                        else {
+                            // Sin divergencia → liberar locks de la zona actual para poder re-detectar
+                            var pzD = Math.round(closePrice / 50);
+                            ["divergence_bullish", "divergence_bearish", "convergence_bullish", "convergence_bearish"].forEach(function (dt) {
+                                delete lastTrigRef.current[ak + dt + "_" + pzD];
+                            });
                         }
                     }
                 }
