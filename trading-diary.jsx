@@ -2954,6 +2954,11 @@ function AlertasTab({S}){
   const[logs,setLogs]=useState([]);
   const[notifPerm,setNotifPerm]=useState("default");
   const[lastAlert,setLastAlert]=useState(null);
+  const[globalPaused,setGlobalPaused]=useState(false);
+  const globalPausedRef=useRef(false);
+  const[addInput,setAddInput]=useState("");
+  const[addInterval,setAddInterval]=useState("1h");
+  const[addStatus,setAddStatus]=useState(null);
   const reconnectCountRef=useRef({});
   const wsRefs=useRef({});
   const closesRef=useRef({});
@@ -3061,7 +3066,15 @@ function AlertasTab({S}){
       if(saved){
         const parsed=JSON.parse(saved);
         if(parsed.length>0){
-          const loaded=parsed.map(function(a){return{...a,currentRsi:null,currentPrice:null,error:false};});
+          var loaded=parsed.map(function(a){return{...a,currentRsi:null,currentPrice:null,error:false};});
+          // Ensure BTC is always present
+          var hasBtc=loaded.some(function(a){return a.symbol==="BTCUSDT";});
+          if(!hasBtc){
+            var btcA={id:Date.now(),symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",
+              rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below",
+              active:true,currentRsi:null,currentPrice:null,error:false};
+            loaded=[btcA,...loaded];
+          }
           alertsRef.current=loaded;
           setAlerts(loaded);
           // Auto-restart monitors that were active before page close
@@ -3089,6 +3102,14 @@ function AlertasTab({S}){
         }
       }
     }catch(e){}
+    // Primera vez: crear BTC automáticamente
+    var btcInit={id:Date.now(),symbol:"BTCUSDT",label:"BTC/USD",interval:"1h",
+      rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below",
+      active:true,currentRsi:null,currentPrice:null,error:false};
+    alertsRef.current=[btcInit];
+    setAlerts([btcInit]);
+    saveAlerts([btcInit]);
+    setTimeout(function(){startAlert(btcInit);},700);
   },[]);
 
   function requestNotif(){
@@ -3125,7 +3146,39 @@ function AlertasTab({S}){
     }else{doNotif();}
   }
 
+  function addQuickAsset(){
+    var sym=addInput.trim().toUpperCase();
+    if(!sym)return;
+    if(alertsRef.current.some(function(a){return a.symbol===sym&&a.interval===addInterval;})){setAddStatus("dup");setTimeout(function(){setAddStatus(null);},2000);return;}
+    setAddStatus("checking");
+    function doAdd(lbl){
+      var na={id:Date.now(),symbol:sym,label:lbl,interval:addInterval,
+        rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below",
+        active:true,currentRsi:null,currentPrice:null,error:false};
+      var upd=[...alertsRef.current,na];
+      saveAlerts(upd);
+      startAlert(na);
+      setAddInput("");
+      setAddStatus("ok");
+      setTimeout(function(){setAddStatus(null);},2000);
+    }
+    fetch("https://api.binance.com/api/v3/ticker/price?symbol="+sym)
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d.price){doAdd(sym.replace("USDT","/USD"));}
+        else{
+          var fhKeyQ=localStorage.getItem("td-finnhub-key");
+          if(!fhKeyQ){setAddStatus("error");return;}
+          fetch("https://finnhub.io/api/v1/quote?symbol="+sym+"&token="+fhKeyQ)
+            .then(function(r2){return r2.json();})
+            .then(function(d2){if(d2.c&&d2.c>0){doAdd(sym);}else{setAddStatus("error");}})
+            .catch(function(){setAddStatus("error");});
+        }
+      }).catch(function(){setAddStatus("error");});
+  }
+
   function sendAlert(label,interval,rsi,type,e1,e2,customDesc,price,extra){
+    if(globalPausedRef.current)return;
     var extra=extra||{};
     const isPriceAlert=type==="price_target";
     const tf=isPriceAlert?"Precio":interval==="1h"?"1H":interval==="4h"?"4H":interval==="1d"?"Diario":"Semanal";
@@ -3703,17 +3756,22 @@ function AlertasTab({S}){
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div>
-          <div style={{fontSize:11,color:"#f0b429",fontWeight:700,letterSpacing:1}}>ALERTAS RSI / EMA</div>
-          <div style={{fontSize:9,color:"#555",marginTop:2}}>Tiempo real via Binance WebSocket</div>
+          <div style={{fontSize:11,color:"#f0b429",fontWeight:700,letterSpacing:1}}>MONITOREO AUTOMÁTICO</div>
+          <div style={{fontSize:9,color:"#555",marginTop:2}}>RSI · EMA cruces · Divergencias · Canales · FVG</div>
         </div>
         <div style={{display:"flex",gap:5}}>
+          <button onClick={function(){
+            var next=!globalPaused;
+            setGlobalPaused(next);
+            globalPausedRef.current=next;
+          }} title={globalPaused?"Reanudar notificaciones":"Pausar todas las notificaciones"}
+            style={{background:globalPaused?"rgba(240,180,41,.2)":"transparent",border:"1px solid "+(globalPaused?"#f0b429":"#2a2a3a"),color:globalPaused?"#f0b429":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>
+            {globalPaused?"▶":"⏸"}
+          </button>
           <button onClick={function(){setShowFinnhubConfig(!showFinnhubConfig);setShowTgConfig(false);}} title="Finnhub — acciones y ETFs"
             style={{background:finnhubKey?"rgba(0,180,80,.15)":"transparent",border:"1px solid "+(finnhubKey?"#00b450":"#2a2a3a"),color:finnhubKey?"#00cc66":"#555",padding:"7px 10px",borderRadius:6,fontSize:10,cursor:"pointer"}}>📈</button>
           <button onClick={function(){setShowTgConfig(!showTgConfig);setShowFinnhubConfig(false);}} title="Notificaciones Telegram"
             style={{background:tgToken&&tgChatId?"rgba(0,136,204,.15)":"transparent",border:"1px solid "+(tgToken&&tgChatId?"#0088cc":"#2a2a3a"),color:tgToken&&tgChatId?"#0088cc":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>✈️</button>
-          {alerts.length>0&&<button onClick={exportAlerts} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Exportar</button>}
-          <button onClick={function(){setShowImport(!showImport);setImportText("");}} style={{background:"transparent",border:"1px solid #2a2a3a",color:"#555",padding:"7px 10px",borderRadius:6,fontSize:8,cursor:"pointer"}}>Importar</button>
-          <button onClick={function(){setShowForm(!showForm);}} style={{background:"#f0b429",color:"#0a0a0f",border:"none",padding:"8px 14px",borderRadius:6,fontSize:9,fontWeight:700,cursor:"pointer"}}>+ Nueva</button>
         </div>
       </div>
 
@@ -3851,7 +3909,16 @@ function AlertasTab({S}){
         </div>
       )}
 
-      {/* Formulario nueva alerta */}
+      {/* Pausa global banner */}
+      {globalPaused&&(
+        <div style={{background:"rgba(240,180,41,.1)",border:"1px solid rgba(240,180,41,.35)",borderRadius:6,padding:"8px 12px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:9,color:"#f0b429"}}>⏸ Notificaciones pausadas — el monitoreo sigue activo pero no se envían alertas</span>
+          <button onClick={function(){setGlobalPaused(false);globalPausedRef.current=false;}}
+            style={{background:"#f0b429",border:"none",color:"#0a0a0f",fontSize:8,fontWeight:700,padding:"4px 10px",borderRadius:4,cursor:"pointer"}}>Reanudar</button>
+        </div>
+      )}
+
+      {/* Formulario nueva alerta — OBSOLETO, reemplazado por addQuickAsset */}
       {showForm&&(
         <div style={{background:"#111118",border:"1px solid rgba(240,180,41,.35)",borderRadius:8,padding:14,marginBottom:12}}>
           <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:12}}>NUEVA ALERTA</div>
@@ -3998,91 +4065,70 @@ function AlertasTab({S}){
           </div>
         </div>
       </div>
-      {/* Alertas configuradas */}
-      {alerts.length===0&&(
-        <div style={{textAlign:"center",padding:"30px 20px",color:"#333",fontSize:10,lineHeight:2}}>
-          Sin alertas. Pulsa + Nueva alerta para empezar.
+      {/* Lista de activos monitoreados */}
+      <div style={{marginBottom:10}}>
+        {alerts.map(function(alert){
+          var rsi=alert.currentRsi;
+          var isBtc=alert.symbol==="BTCUSDT";
+          var intv=INTERVALS.find(function(i){return i.value===alert.interval;})||{label:alert.interval};
+          var rsiColor=rsi===null?"#555":rsi<=30?"#00ff88":rsi>=70?"#ff4444":"#888";
+          var dotColor=globalPaused?"#f0b429":alert.active?"#00ff88":alert.error?"#ff4444":"#444";
+          return(
+            <div key={alert.id} style={{display:"flex",alignItems:"center",gap:8,background:"#111118",border:"1px solid "+(alert.active&&!globalPaused?"rgba(0,255,136,.18)":alert.error?"rgba(255,68,68,.18)":globalPaused&&alert.active?"rgba(240,180,41,.18)":"#1a1a2a"),borderRadius:7,padding:"10px 12px",marginBottom:6}}>
+              <div style={{width:8,height:8,borderRadius:"50%",flexShrink:0,background:dotColor,boxShadow:alert.active&&!globalPaused?"0 0 6px "+dotColor:"none"}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <span style={{fontWeight:700,fontSize:11,color:"#e0e0e0"}}>{alert.label}</span>
+                  <span style={{fontSize:8,padding:"2px 5px",borderRadius:3,background:"rgba(240,180,41,.1)",color:"#f0b429"}}>{intv.label}</span>
+                  {isBtc&&<span style={{fontSize:7,color:"#444"}}>siempre activo</span>}
+                  {alert.error&&<span style={{fontSize:7,color:"#ff4444"}}>error de conexion</span>}
+                </div>
+                {rsi!==null&&(
+                  <div style={{marginTop:5}}>
+                    <div style={{height:4,borderRadius:2,background:"#1e1e2e",position:"relative",overflow:"hidden",width:"100%"}}>
+                      <div style={{position:"absolute",left:0,width:"30%",height:"100%",background:"rgba(0,255,136,.08)"}}/>
+                      <div style={{position:"absolute",right:0,width:"30%",height:"100%",background:"rgba(255,68,68,.08)"}}/>
+                      <div style={{position:"absolute",left:"calc("+Math.min(99,Math.max(1,rsi))+"% - 3px)",top:0,width:6,height:"100%",background:rsiColor,borderRadius:2,transition:"left .5s"}}/>
+                    </div>
+                  </div>
+                )}
+                <EmaDisplay data={emaData[alert.id]}/>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                {rsi!==null&&<span style={{fontSize:11,fontWeight:700,color:rsiColor,minWidth:34,textAlign:"right"}}>RSI {rsi.toFixed(0)}</span>}
+                {alert.currentPrice!=null&&<span style={{fontSize:9,color:"#555"}}>${parseFloat(alert.currentPrice).toLocaleString("es-ES",{maximumFractionDigits:2})}</span>}
+                {alert.error&&<button onClick={function(){startAlert(alert);}} style={{fontSize:8,padding:"3px 8px",background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:4,cursor:"pointer"}}>▶</button>}
+                {!isBtc&&<button onClick={function(){removeAlert(alert);}}
+                  style={{width:22,height:22,borderRadius:"50%",background:"rgba(255,68,68,.12)",border:"1px solid rgba(255,68,68,.3)",color:"#ff6666",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0}}
+                  title="Dejar de monitorear">×</button>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Añadir activo */}
+      <div style={{background:"#0d0d16",border:"1px solid #1e1e2e",borderRadius:7,padding:10,marginBottom:12}}>
+        <div style={{fontSize:8,color:"#555",marginBottom:6,fontWeight:700}}>AÑADIR ACTIVO</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <input value={addInput} onChange={function(e){setAddInput(e.target.value.toUpperCase().trim());setAddStatus(null);}}
+            onKeyDown={function(e){if(e.key==="Enter")addQuickAsset();}}
+            placeholder="Ej: SOLUSDT, AAPL, TLT..."
+            style={{...S.inp,flex:1,padding:"7px 10px",fontSize:10}}/>
+          <select value={addInterval} onChange={function(e){setAddInterval(e.target.value);}}
+            style={{...S.inp,padding:"7px 8px",fontSize:9,width:52,cursor:"pointer"}}>
+            {INTERVALS.map(function(iv){return <option key={iv.value} value={iv.value}>{iv.label}</option>;})}
+          </select>
+          <button onClick={addQuickAsset}
+            style={{padding:"7px 12px",background:addStatus==="ok"?"rgba(0,255,136,.15)":addStatus==="error"?"rgba(255,68,68,.15)":"rgba(240,180,41,.15)",
+              border:"1px solid "+(addStatus==="ok"?"#00ff88":addStatus==="error"?"#ff4444":"#f0b429"),
+              color:addStatus==="ok"?"#00ff88":addStatus==="error"?"#ff4444":"#f0b429",
+              borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {addStatus==="checking"?"…":addStatus==="ok"?"✓ Añadido":addStatus==="error"?"✗ No encontrado":addStatus==="dup"?"Ya existe":"+ Añadir"}
+          </button>
         </div>
-      )}
-      {alerts.map(function(alert){
-        const rsi=alert.currentRsi;
-        const rsiActive=alert.rsiEnabled&&rsi!==null&&((alert.rsiCondition==="below"&&rsi<=alert.rsiThreshold)||(alert.rsiCondition==="above"&&rsi>=alert.rsiThreshold));
-        const rsiColor=rsi===null?"#555":rsiActive?(alert.rsiCondition==="below"?"#00ff88":"#ff4444"):"#e0e0e0";
-        const intv=INTERVALS.find(function(i){return i.value===alert.interval;})||{label:alert.interval};
-        return(
-          <div key={alert.id} style={{background:"#111118",border:"1px solid "+(alert.active?"rgba(0,255,136,.25)":alert.error?"rgba(255,68,68,.25)":"#1e1e2e"),borderRadius:8,padding:12,marginBottom:8}}>
-            {/* Card header */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:alert.active?"#00ff88":alert.error?"#ff4444":"#555"}}/>
-                <span style={{fontSize:12,fontWeight:700,color:"#e0e0e0"}}>{alert.label}</span>
-                <span style={{fontSize:10,color:"#f0b429",background:"rgba(240,180,41,.1)",padding:"2px 8px",borderRadius:4}}>{intv.label}</span>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:22,fontWeight:700,color:rsiColor,lineHeight:1}}>{rsi!==null?rsi:"--"}</div>
-                <div style={{fontSize:7,color:"#444"}}>RSI 14</div>
-                {alert.currentPrice!=null&&<div style={{fontSize:9,color:"#888",marginTop:1}}>${parseFloat(alert.currentPrice).toLocaleString("es-ES",{maximumFractionDigits:2})}</div>}
-              </div>
-            </div>
-
-            {/* Notification tags */}
-            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
-              {alert.rsiEnabled&&(
-                <span style={{fontSize:8,background:rsiActive?"rgba(0,255,136,.15)":"rgba(0,255,136,.06)",color:rsiActive?"#00ff88":"#3a6644",padding:"3px 8px",borderRadius:10,border:"1px solid "+(rsiActive?"rgba(0,255,136,.5)":"rgba(0,255,136,.15)")}}>
-                  RSI {alert.rsiCondition==="below"?"≤":"≥"} {alert.rsiThreshold}
-                </span>
-              )}
-              {alert.emaGoldenEnabled&&<span style={{fontSize:8,background:"rgba(255,215,0,.08)",color:"#ffd700",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,215,0,.25)"}}>Dorado 7/25</span>}
-              {alert.emaDeathEnabled&&<span style={{fontSize:8,background:"rgba(204,68,204,.08)",color:"#cc44cc",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(204,68,204,.25)"}}>Muerte 7/25</span>}
-              {alert.ema200GoldenEnabled&&<span style={{fontSize:8,background:"rgba(255,215,0,.08)",color:"#ffd700",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,215,0,.25)"}}>Dorado 50/200</span>}
-              {alert.ema200DeathEnabled&&<span style={{fontSize:8,background:"rgba(204,68,204,.08)",color:"#cc44cc",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(204,68,204,.25)"}}>Muerte 50/200</span>}
-              <span style={{fontSize:8,background:"rgba(255,136,221,.08)",color:"#ff88dd",padding:"3px 8px",borderRadius:10,border:"1px solid rgba(255,136,221,.15)"}}>📐 Canal + FVG + 🚩 Banderín</span>
-              {!alert.rsiCustomEnabled&&!alert.rsiEnabled&&!alert.emaGoldenEnabled&&!alert.emaDeathEnabled&&!alert.ema200GoldenEnabled&&!alert.ema200DeathEnabled&&(
-                <span style={{fontSize:8,color:"#333"}}>Solo patrones automáticos</span>
-              )}
-            </div>
-
-            {/* RSI bar */}
-            {rsi!==null&&(
-              <div style={{marginBottom:8}}>
-                <div style={{height:6,borderRadius:3,background:"#1e1e2e",position:"relative",overflow:"hidden"}}>
-                  <div style={{position:"absolute",left:0,width:"30%",height:"100%",background:"rgba(0,255,136,.08)"}}/>
-                  <div style={{position:"absolute",right:0,width:"30%",height:"100%",background:"rgba(255,68,68,.08)"}}/>
-                  {alert.rsiEnabled&&<div style={{position:"absolute",left:alert.rsiThreshold+"%",top:0,width:1,height:"100%",background:alert.rsiCondition==="below"?"rgba(0,255,136,.6)":"rgba(255,68,68,.6)"}}/>}
-                  <div style={{position:"absolute",left:"calc("+Math.min(99,Math.max(1,rsi))+"% - 3px)",top:0,width:6,height:"100%",background:rsiColor,borderRadius:2,transition:"left .5s"}}/>
-                </div>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:7,marginTop:2}}>
-                  <span style={{color:"#444"}}>0</span>
-                  <span style={{color:rsiColor,fontWeight:700}}>RSI {rsi}</span>
-                  <span style={{color:"#444"}}>100</span>
-                </div>
-              </div>
-            )}
-
-            <EmaDisplay data={emaData[alert.id]}/>
-
-            {/* Actions */}
-            <div style={{display:"flex",gap:6,marginTop:8}}>
-              {!alert.active?(
-                <button onClick={function(){startAlert(alert);}}
-                  style={{flex:2,padding:"8px",background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>
-                  ▶ INICIAR
-                </button>
-              ):(
-                <button onClick={function(){stopAlert(alert);}}
-                  style={{flex:2,padding:"8px",background:"rgba(255,68,68,.1)",border:"1px solid #ff4444",color:"#ff4444",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}}>
-                  ■ DETENER
-                </button>
-              )}
-              <button onClick={function(){removeAlert(alert);}}
-                style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #333",color:"#444",borderRadius:5,fontSize:9,cursor:"pointer"}}>
-                Eliminar
-              </button>
-            </div>
-            {alert.error&&<div style={{fontSize:8,color:"#ff4444",marginTop:5}}>Error de conexion. Verifica tu internet.</div>}
-          </div>
-        );
-      })}
+        <div style={{fontSize:7,color:"#333",marginTop:5}}>Crypto: escribe el par Binance (SOLUSDT). Acciones: ticker (AAPL, TLT) — requiere Finnhub configurado (📈)</div>
+      </div>
 
       {/* Operaciones Bot */}
       {(function(){

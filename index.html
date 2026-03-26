@@ -2817,6 +2817,11 @@ function AlertasTab({ S }) {
     const [logs, setLogs] = useState([]);
     const [notifPerm, setNotifPerm] = useState("default");
     const [lastAlert, setLastAlert] = useState(null);
+    const [globalPaused, setGlobalPaused] = useState(false);
+    const globalPausedRef = useRef(false);
+    const [addInput, setAddInput] = useState("");
+    const [addInterval, setAddInterval] = useState("1h");
+    const [addStatus, setAddStatus] = useState(null);
     const reconnectCountRef = useRef({});
     const wsRefs = useRef({});
     const closesRef = useRef({});
@@ -2946,7 +2951,15 @@ function AlertasTab({ S }) {
             if (saved) {
                 const parsed = JSON.parse(saved);
                 if (parsed.length > 0) {
-                    const loaded = parsed.map(function (a) { return { ...a, currentRsi: null, currentPrice: null, error: false }; });
+                    var loaded = parsed.map(function (a) { return { ...a, currentRsi: null, currentPrice: null, error: false }; });
+                    // Ensure BTC is always present
+                    var hasBtc = loaded.some(function (a) { return a.symbol === "BTCUSDT"; });
+                    if (!hasBtc) {
+                        var btcA = { id: Date.now(), symbol: "BTCUSDT", label: "BTC/USD", interval: "1h",
+                            rsiCustomEnabled: false, rsiCustomTarget: 50, rsiCustomCondition: "below",
+                            active: true, currentRsi: null, currentPrice: null, error: false };
+                        loaded = [btcA, ...loaded];
+                    }
                     alertsRef.current = loaded;
                     setAlerts(loaded);
                     // Auto-restart monitors that were active before page close
@@ -2979,6 +2992,14 @@ function AlertasTab({ S }) {
             }
         }
         catch (e) { }
+        // Primera vez: crear BTC automáticamente
+        var btcInit = { id: Date.now(), symbol: "BTCUSDT", label: "BTC/USD", interval: "1h",
+            rsiCustomEnabled: false, rsiCustomTarget: 50, rsiCustomCondition: "below",
+            active: true, currentRsi: null, currentPrice: null, error: false };
+        alertsRef.current = [btcInit];
+        setAlerts([btcInit]);
+        saveAlerts([btcInit]);
+        setTimeout(function () { startAlert(btcInit); }, 700);
     }, []);
     function requestNotif() {
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
@@ -3032,7 +3053,54 @@ function AlertasTab({ S }) {
             doNotif();
         }
     }
+    function addQuickAsset() {
+        var sym = addInput.trim().toUpperCase();
+        if (!sym)
+            return;
+        if (alertsRef.current.some(function (a) { return a.symbol === sym && a.interval === addInterval; })) {
+            setAddStatus("dup");
+            setTimeout(function () { setAddStatus(null); }, 2000);
+            return;
+        }
+        setAddStatus("checking");
+        function doAdd(lbl) {
+            var na = { id: Date.now(), symbol: sym, label: lbl, interval: addInterval,
+                rsiCustomEnabled: false, rsiCustomTarget: 50, rsiCustomCondition: "below",
+                active: true, currentRsi: null, currentPrice: null, error: false };
+            var upd = [...alertsRef.current, na];
+            saveAlerts(upd);
+            startAlert(na);
+            setAddInput("");
+            setAddStatus("ok");
+            setTimeout(function () { setAddStatus(null); }, 2000);
+        }
+        fetch("https://api.binance.com/api/v3/ticker/price?symbol=" + sym)
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+            if (d.price) {
+                doAdd(sym.replace("USDT", "/USD"));
+            }
+            else {
+                var fhKeyQ = localStorage.getItem("td-finnhub-key");
+                if (!fhKeyQ) {
+                    setAddStatus("error");
+                    return;
+                }
+                fetch("https://finnhub.io/api/v1/quote?symbol=" + sym + "&token=" + fhKeyQ)
+                    .then(function (r2) { return r2.json(); })
+                    .then(function (d2) { if (d2.c && d2.c > 0) {
+                    doAdd(sym);
+                }
+                else {
+                    setAddStatus("error");
+                } })
+                    .catch(function () { setAddStatus("error"); });
+            }
+        }).catch(function () { setAddStatus("error"); });
+    }
     function sendAlert(label, interval, rsi, type, e1, e2, customDesc, price, extra) {
+        if (globalPausedRef.current)
+            return;
         var extra = extra || {};
         const isPriceAlert = type === "price_target";
         const tf = isPriceAlert ? "Precio" : interval === "1h" ? "1H" : interval === "4h" ? "4H" : interval === "1d" ? "Diario" : "Semanal";
@@ -3812,14 +3880,16 @@ function AlertasTab({ S }) {
                 React.createElement("button", { onClick: function () { setLastAlert(null); }, style: { background: "transparent", border: "none", color: "#555", cursor: "pointer", fontSize: 12 } }, "\u2715")))),
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
             React.createElement("div", null,
-                React.createElement("div", { style: { fontSize: 11, color: "#f0b429", fontWeight: 700, letterSpacing: 1 } }, "ALERTAS RSI / EMA"),
-                React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 2 } }, "Tiempo real via Binance WebSocket")),
+                React.createElement("div", { style: { fontSize: 11, color: "#f0b429", fontWeight: 700, letterSpacing: 1 } }, "MONITOREO AUTOM\u00C1TICO"),
+                React.createElement("div", { style: { fontSize: 9, color: "#555", marginTop: 2 } }, "RSI \u00B7 EMA cruces \u00B7 Divergencias \u00B7 Canales \u00B7 FVG")),
             React.createElement("div", { style: { display: "flex", gap: 5 } },
+                React.createElement("button", { onClick: function () {
+                        var next = !globalPaused;
+                        setGlobalPaused(next);
+                        globalPausedRef.current = next;
+                    }, title: globalPaused ? "Reanudar notificaciones" : "Pausar todas las notificaciones", style: { background: globalPaused ? "rgba(240,180,41,.2)" : "transparent", border: "1px solid " + (globalPaused ? "#f0b429" : "#2a2a3a"), color: globalPaused ? "#f0b429" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, globalPaused ? "▶" : "⏸"),
                 React.createElement("button", { onClick: function () { setShowFinnhubConfig(!showFinnhubConfig); setShowTgConfig(false); }, title: "Finnhub \u2014 acciones y ETFs", style: { background: finnhubKey ? "rgba(0,180,80,.15)" : "transparent", border: "1px solid " + (finnhubKey ? "#00b450" : "#2a2a3a"), color: finnhubKey ? "#00cc66" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 10, cursor: "pointer" } }, "\uD83D\uDCC8"),
-                React.createElement("button", { onClick: function () { setShowTgConfig(!showTgConfig); setShowFinnhubConfig(false); }, title: "Notificaciones Telegram", style: { background: tgToken && tgChatId ? "rgba(0,136,204,.15)" : "transparent", border: "1px solid " + (tgToken && tgChatId ? "#0088cc" : "#2a2a3a"), color: tgToken && tgChatId ? "#0088cc" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, "\u2708\uFE0F"),
-                alerts.length > 0 && React.createElement("button", { onClick: exportAlerts, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "7px 10px", borderRadius: 6, fontSize: 8, cursor: "pointer" } }, "Exportar"),
-                React.createElement("button", { onClick: function () { setShowImport(!showImport); setImportText(""); }, style: { background: "transparent", border: "1px solid #2a2a3a", color: "#555", padding: "7px 10px", borderRadius: 6, fontSize: 8, cursor: "pointer" } }, "Importar"),
-                React.createElement("button", { onClick: function () { setShowForm(!showForm); }, style: { background: "#f0b429", color: "#0a0a0f", border: "none", padding: "8px 14px", borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "+ Nueva"))),
+                React.createElement("button", { onClick: function () { setShowTgConfig(!showTgConfig); setShowFinnhubConfig(false); }, title: "Notificaciones Telegram", style: { background: tgToken && tgChatId ? "rgba(0,136,204,.15)" : "transparent", border: "1px solid " + (tgToken && tgChatId ? "#0088cc" : "#2a2a3a"), color: tgToken && tgChatId ? "#0088cc" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, "\u2708\uFE0F"))),
         tgToken && tgChatId && !showTgConfig ? (React.createElement("div", { style: { background: "rgba(0,136,204,.06)", border: "1px solid rgba(0,136,204,.25)", borderRadius: 8, padding: "8px 12px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" } },
             React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
                 React.createElement("span", { style: { fontSize: 13 } }, "\u2708\uFE0F"),
@@ -3929,6 +3999,9 @@ function AlertasTab({ S }) {
             React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8 } },
                 React.createElement("button", { onClick: importAlerts, style: { flex: 2, padding: "8px", background: "#88aaff", color: "#0a0a0f", border: "none", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "IMPORTAR"),
                 React.createElement("button", { onClick: function () { setShowImport(false); setImportText(""); }, style: { flex: 1, padding: "8px", background: "transparent", border: "1px solid #333", color: "#555", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Cancelar")))),
+        globalPaused && (React.createElement("div", { style: { background: "rgba(240,180,41,.1)", border: "1px solid rgba(240,180,41,.35)", borderRadius: 6, padding: "8px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+            React.createElement("span", { style: { fontSize: 9, color: "#f0b429" } }, "\u23F8 Notificaciones pausadas \u2014 el monitoreo sigue activo pero no se env\u00EDan alertas"),
+            React.createElement("button", { onClick: function () { setGlobalPaused(false); globalPausedRef.current = false; }, style: { background: "#f0b429", border: "none", color: "#0a0a0f", fontSize: 8, fontWeight: 700, padding: "4px 10px", borderRadius: 4, cursor: "pointer" } }, "Reanudar"))),
         showForm && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.35)", borderRadius: 8, padding: 14, marginBottom: 12 } },
             React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 12 } }, "NUEVA ALERTA"),
             React.createElement("div", { style: { marginBottom: 10 } },
@@ -4042,54 +4115,47 @@ function AlertasTab({ S }) {
                     "FVG cubiertas",
                     React.createElement("br", null),
                     "Bander\u00EDn alcista/falso"))),
-        alerts.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "30px 20px", color: "#333", fontSize: 10, lineHeight: 2 } }, "Sin alertas. Pulsa + Nueva alerta para empezar.")),
-        alerts.map(function (alert) {
-            const rsi = alert.currentRsi;
-            const rsiActive = alert.rsiEnabled && rsi !== null && ((alert.rsiCondition === "below" && rsi <= alert.rsiThreshold) || (alert.rsiCondition === "above" && rsi >= alert.rsiThreshold));
-            const rsiColor = rsi === null ? "#555" : rsiActive ? (alert.rsiCondition === "below" ? "#00ff88" : "#ff4444") : "#e0e0e0";
-            const intv = INTERVALS.find(function (i) { return i.value === alert.interval; }) || { label: alert.interval };
-            return (React.createElement("div", { key: alert.id, style: { background: "#111118", border: "1px solid " + (alert.active ? "rgba(0,255,136,.25)" : alert.error ? "rgba(255,68,68,.25)" : "#1e1e2e"), borderRadius: 8, padding: 12, marginBottom: 8 } },
-                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
-                    React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
-                        React.createElement("div", { style: { width: 8, height: 8, borderRadius: "50%", background: alert.active ? "#00ff88" : alert.error ? "#ff4444" : "#555" } }),
-                        React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: "#e0e0e0" } }, alert.label),
-                        React.createElement("span", { style: { fontSize: 10, color: "#f0b429", background: "rgba(240,180,41,.1)", padding: "2px 8px", borderRadius: 4 } }, intv.label)),
-                    React.createElement("div", { style: { textAlign: "right" } },
-                        React.createElement("div", { style: { fontSize: 22, fontWeight: 700, color: rsiColor, lineHeight: 1 } }, rsi !== null ? rsi : "--"),
-                        React.createElement("div", { style: { fontSize: 7, color: "#444" } }, "RSI 14"),
-                        alert.currentPrice != null && React.createElement("div", { style: { fontSize: 9, color: "#888", marginTop: 1 } },
-                            "$",
-                            parseFloat(alert.currentPrice).toLocaleString("es-ES", { maximumFractionDigits: 2 })))),
-                React.createElement("div", { style: { display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 } },
-                    alert.rsiEnabled && (React.createElement("span", { style: { fontSize: 8, background: rsiActive ? "rgba(0,255,136,.15)" : "rgba(0,255,136,.06)", color: rsiActive ? "#00ff88" : "#3a6644", padding: "3px 8px", borderRadius: 10, border: "1px solid " + (rsiActive ? "rgba(0,255,136,.5)" : "rgba(0,255,136,.15)") } },
+        React.createElement("div", { style: { marginBottom: 10 } }, alerts.map(function (alert) {
+            var rsi = alert.currentRsi;
+            var isBtc = alert.symbol === "BTCUSDT";
+            var intv = INTERVALS.find(function (i) { return i.value === alert.interval; }) || { label: alert.interval };
+            var rsiColor = rsi === null ? "#555" : rsi <= 30 ? "#00ff88" : rsi >= 70 ? "#ff4444" : "#888";
+            var dotColor = globalPaused ? "#f0b429" : alert.active ? "#00ff88" : alert.error ? "#ff4444" : "#444";
+            return (React.createElement("div", { key: alert.id, style: { display: "flex", alignItems: "center", gap: 8, background: "#111118", border: "1px solid " + (alert.active && !globalPaused ? "rgba(0,255,136,.18)" : alert.error ? "rgba(255,68,68,.18)" : globalPaused && alert.active ? "rgba(240,180,41,.18)" : "#1a1a2a"), borderRadius: 7, padding: "10px 12px", marginBottom: 6 } },
+                React.createElement("div", { style: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: dotColor, boxShadow: alert.active && !globalPaused ? "0 0 6px " + dotColor : "none" } }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                    React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+                        React.createElement("span", { style: { fontWeight: 700, fontSize: 11, color: "#e0e0e0" } }, alert.label),
+                        React.createElement("span", { style: { fontSize: 8, padding: "2px 5px", borderRadius: 3, background: "rgba(240,180,41,.1)", color: "#f0b429" } }, intv.label),
+                        isBtc && React.createElement("span", { style: { fontSize: 7, color: "#444" } }, "siempre activo"),
+                        alert.error && React.createElement("span", { style: { fontSize: 7, color: "#ff4444" } }, "error de conexion")),
+                    rsi !== null && (React.createElement("div", { style: { marginTop: 5 } },
+                        React.createElement("div", { style: { height: 4, borderRadius: 2, background: "#1e1e2e", position: "relative", overflow: "hidden", width: "100%" } },
+                            React.createElement("div", { style: { position: "absolute", left: 0, width: "30%", height: "100%", background: "rgba(0,255,136,.08)" } }),
+                            React.createElement("div", { style: { position: "absolute", right: 0, width: "30%", height: "100%", background: "rgba(255,68,68,.08)" } }),
+                            React.createElement("div", { style: { position: "absolute", left: "calc(" + Math.min(99, Math.max(1, rsi)) + "% - 3px)", top: 0, width: 6, height: "100%", background: rsiColor, borderRadius: 2, transition: "left .5s" } })))),
+                    React.createElement(EmaDisplay, { data: emaData[alert.id] })),
+                React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexShrink: 0 } },
+                    rsi !== null && React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: rsiColor, minWidth: 34, textAlign: "right" } },
                         "RSI ",
-                        alert.rsiCondition === "below" ? "≤" : "≥",
-                        " ",
-                        alert.rsiThreshold)),
-                    alert.emaGoldenEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,215,0,.08)", color: "#ffd700", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,215,0,.25)" } }, "Dorado 7/25"),
-                    alert.emaDeathEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(204,68,204,.08)", color: "#cc44cc", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(204,68,204,.25)" } }, "Muerte 7/25"),
-                    alert.ema200GoldenEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(255,215,0,.08)", color: "#ffd700", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,215,0,.25)" } }, "Dorado 50/200"),
-                    alert.ema200DeathEnabled && React.createElement("span", { style: { fontSize: 8, background: "rgba(204,68,204,.08)", color: "#cc44cc", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(204,68,204,.25)" } }, "Muerte 50/200"),
-                    React.createElement("span", { style: { fontSize: 8, background: "rgba(255,136,221,.08)", color: "#ff88dd", padding: "3px 8px", borderRadius: 10, border: "1px solid rgba(255,136,221,.15)" } }, "\uD83D\uDCD0 Canal + FVG + \uD83D\uDEA9 Bander\u00EDn"),
-                    !alert.rsiCustomEnabled && !alert.rsiEnabled && !alert.emaGoldenEnabled && !alert.emaDeathEnabled && !alert.ema200GoldenEnabled && !alert.ema200DeathEnabled && (React.createElement("span", { style: { fontSize: 8, color: "#333" } }, "Solo patrones autom\u00E1ticos"))),
-                rsi !== null && (React.createElement("div", { style: { marginBottom: 8 } },
-                    React.createElement("div", { style: { height: 6, borderRadius: 3, background: "#1e1e2e", position: "relative", overflow: "hidden" } },
-                        React.createElement("div", { style: { position: "absolute", left: 0, width: "30%", height: "100%", background: "rgba(0,255,136,.08)" } }),
-                        React.createElement("div", { style: { position: "absolute", right: 0, width: "30%", height: "100%", background: "rgba(255,68,68,.08)" } }),
-                        alert.rsiEnabled && React.createElement("div", { style: { position: "absolute", left: alert.rsiThreshold + "%", top: 0, width: 1, height: "100%", background: alert.rsiCondition === "below" ? "rgba(0,255,136,.6)" : "rgba(255,68,68,.6)" } }),
-                        React.createElement("div", { style: { position: "absolute", left: "calc(" + Math.min(99, Math.max(1, rsi)) + "% - 3px)", top: 0, width: 6, height: "100%", background: rsiColor, borderRadius: 2, transition: "left .5s" } })),
-                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 7, marginTop: 2 } },
-                        React.createElement("span", { style: { color: "#444" } }, "0"),
-                        React.createElement("span", { style: { color: rsiColor, fontWeight: 700 } },
-                            "RSI ",
-                            rsi),
-                        React.createElement("span", { style: { color: "#444" } }, "100")))),
-                React.createElement(EmaDisplay, { data: emaData[alert.id] }),
-                React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8 } },
-                    !alert.active ? (React.createElement("button", { onClick: function () { startAlert(alert); }, style: { flex: 2, padding: "8px", background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", color: "#00ff88", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "\u25B6 INICIAR")) : (React.createElement("button", { onClick: function () { stopAlert(alert); }, style: { flex: 2, padding: "8px", background: "rgba(255,68,68,.1)", border: "1px solid #ff4444", color: "#ff4444", borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "\u25A0 DETENER")),
-                    React.createElement("button", { onClick: function () { removeAlert(alert); }, style: { flex: 1, padding: "8px", background: "transparent", border: "1px solid #333", color: "#444", borderRadius: 5, fontSize: 9, cursor: "pointer" } }, "Eliminar")),
-                alert.error && React.createElement("div", { style: { fontSize: 8, color: "#ff4444", marginTop: 5 } }, "Error de conexion. Verifica tu internet.")));
-        }),
+                        rsi.toFixed(0)),
+                    alert.currentPrice != null && React.createElement("span", { style: { fontSize: 9, color: "#555" } },
+                        "$",
+                        parseFloat(alert.currentPrice).toLocaleString("es-ES", { maximumFractionDigits: 2 })),
+                    alert.error && React.createElement("button", { onClick: function () { startAlert(alert); }, style: { fontSize: 8, padding: "3px 8px", background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", color: "#00ff88", borderRadius: 4, cursor: "pointer" } }, "\u25B6"),
+                    !isBtc && React.createElement("button", { onClick: function () { removeAlert(alert); }, style: { width: 22, height: 22, borderRadius: "50%", background: "rgba(255,68,68,.12)", border: "1px solid rgba(255,68,68,.3)", color: "#ff6666", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0 }, title: "Dejar de monitorear" }, "\u00D7"))));
+        })),
+        React.createElement("div", { style: { background: "#0d0d16", border: "1px solid #1e1e2e", borderRadius: 7, padding: 10, marginBottom: 12 } },
+            React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 6, fontWeight: 700 } }, "A\u00D1ADIR ACTIVO"),
+            React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+                React.createElement("input", { value: addInput, onChange: function (e) { setAddInput(e.target.value.toUpperCase().trim()); setAddStatus(null); }, onKeyDown: function (e) { if (e.key === "Enter")
+                        addQuickAsset(); }, placeholder: "Ej: SOLUSDT, AAPL, TLT...", style: { ...S.inp, flex: 1, padding: "7px 10px", fontSize: 10 } }),
+                React.createElement("select", { value: addInterval, onChange: function (e) { setAddInterval(e.target.value); }, style: { ...S.inp, padding: "7px 8px", fontSize: 9, width: 52, cursor: "pointer" } }, INTERVALS.map(function (iv) { return React.createElement("option", { key: iv.value, value: iv.value }, iv.label); })),
+                React.createElement("button", { onClick: addQuickAsset, style: { padding: "7px 12px", background: addStatus === "ok" ? "rgba(0,255,136,.15)" : addStatus === "error" ? "rgba(255,68,68,.15)" : "rgba(240,180,41,.15)",
+                        border: "1px solid " + (addStatus === "ok" ? "#00ff88" : addStatus === "error" ? "#ff4444" : "#f0b429"),
+                        color: addStatus === "ok" ? "#00ff88" : addStatus === "error" ? "#ff4444" : "#f0b429",
+                        borderRadius: 5, fontSize: 9, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" } }, addStatus === "checking" ? "…" : addStatus === "ok" ? "✓ Añadido" : addStatus === "error" ? "✗ No encontrado" : addStatus === "dup" ? "Ya existe" : "+ Añadir")),
+            React.createElement("div", { style: { fontSize: 7, color: "#333", marginTop: 5 } }, "Crypto: escribe el par Binance (SOLUSDT). Acciones: ticker (AAPL, TLT) \u2014 requiere Finnhub configurado (\uD83D\uDCC8)")),
         (function () {
             var bops = [];
             try {
