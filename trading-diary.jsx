@@ -144,104 +144,91 @@ function calcScore(ps,pats,jnl){
 
 // - ANALISIS PERFIL -
 function generateProfileSummary(ps,pats,jnl,hist,xhist,sc){
-  const lines=[];
-  const allHist=[...xhist,...hist];
-  const totalOps=allHist.length;
-  const wins=allHist.filter(function(h){return h.result>0;}).length;
-  const losses=allHist.filter(function(h){return h.result<0;}).length;
-  const winRate=totalOps>0?Math.round(wins/totalOps*100):0;
+  // Returns array of {text, cat} where cat = "positive"|"neutral"|"negative"
+  var items=[];
+  function add(text,cat){items.push({text:text,cat:cat||"neutral"});}
 
-  // Nivel general
-  if(sc>=80)lines.push("Operas con disciplina profesional. Tu gestion del riesgo es solida.");
-  else if(sc>=65)lines.push("Estas en la recta final hacia la consistencia. Los fundamentos son buenos.");
-  else if(sc>=50)lines.push("En transicion. Ves el camino correcto pero te cuesta mantenerlo.");
-  else lines.push("Todavia hay patrones de comportamiento que te cuestan dinero.");
+  var allHist=[...xhist,...hist];
+  var totalOps=allHist.length;
+  var wins=allHist.filter(function(h){return h.result>0;}).length;
+  var winRate=totalOps>0?Math.round(wins/totalOps*100):0;
+  var slTotal=(ps.slOk||0)+(ps.slBroken||0);
+  var slRate=slTotal>0?Math.round((ps.slOk||0)/slTotal*100):null;
+  var totClose=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
+  var earlyPct=totClose>0?Math.round((ps.earlyClose||0)/totClose*100):null;
+  var tpPct=totClose>0?Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totClose*100):null;
+  var rCount=ps.ratioCount||0;
+  var avgR=rCount>0?(ps.ratioSum||0)/rCount:null;
 
-  // SL discipline
-  const slTotal=ps.slOk+ps.slBroken;
-  if(slTotal>0){
-    const slRate=Math.round(ps.slOk/slTotal*100);
-    if(slRate===100)lines.push("Respetas el Stop Loss en el 100% de las operaciones. Excelente.");
-    else if(slRate>=80)lines.push("Respetas el SL en el "+slRate+"% de casos. Queda margen de mejora en la disciplina.");
-    else lines.push("Solo respetas el SL en el "+slRate+"% de casos. Esto es lo que mas dinero te cuesta.");
+  // ── 1. SL + cierre prematuro: contextualizados juntos ──
+  if(slRate!==null&&earlyPct!==null){
+    if(slRate>=90&&earlyPct<=20){
+      add("Disciplina solida: respetas el SL en el "+slRate+"% de los casos y cierras prematuramente solo el "+earlyPct+"% de las veces.","positive");
+    }else if(slRate>=80&&earlyPct>40){
+      add("Contradicion clave: respetas el SL en el "+slRate+"% de las operaciones (bien) pero cierras antes del objetivo el "+earlyPct+"% de las veces (impaciente). Tu disciplina para las perdidas supera tu confianza en las ganancias.","neutral");
+    }else if(slRate>=80){
+      add("Respetas el SL en el "+slRate+"% de los casos. Disciplina correcta en la gestion de perdidas.","positive");
+    }else if(slRate<70){
+      add("Solo respetas el SL en el "+slRate+"% de casos — estas saltandote el stop loss con demasiada frecuencia. Es el habito que mas dinero cuesta a largo plazo.","negative");
+    }else{
+      add("Respetas el SL en el "+slRate+"% de casos. Queda margen de mejora.","neutral");
+    }
+  }else if(slRate!==null){
+    if(slRate>=90)add("Respetas el SL en el "+slRate+"% de los casos. Excelente gestion del riesgo.","positive");
+    else if(slRate<70)add("Solo respetas el SL en el "+slRate+"% de casos. Revisa tu disciplina de entrada.","negative");
+    else add("Respetas el SL en el "+slRate+"% de casos.","neutral");
+  }
+  // Si solo hay datos de cierre pero no de SL
+  if(slRate===null&&earlyPct!==null){
+    if(earlyPct>40)add("Cierras antes del objetivo el "+earlyPct+"% de las veces. Trabaja la confianza en tu propio plan.","negative");
+    else if(tpPct!==null&&tpPct>=60)add("Alcanzas el objetivo en el "+tpPct+"% de los cierres. Buena ejecucion del plan.","positive");
   }
 
-  // Close behavior — tipos de cierre
-  const totClose=(ps.tpAuto||0)+(ps.tpManual||0)+(ps.earlyClose||0)+(ps.manualClose||0);
-  if(totClose>0){
-    const tpPct=Math.round(((ps.tpAuto||0)+(ps.tpManual||0))/totClose*100);
-    const earlyPct=Math.round((ps.earlyClose||0)/totClose*100);
-    if(earlyPct>40)lines.push("Cierras antes del objetivo el "+earlyPct+"% de las veces. Esto revela impaciencia o miedo a perder las ganancias.");
-    else if(earlyPct>20)lines.push("Cierras prematuramente en el "+earlyPct+"% de casos. Trabaja la confianza en tu propio plan.");
-    else if(tpPct>=60)lines.push("Alcanzas el objetivo en el "+tpPct+"% de los cierres. Buena ejecucion del plan.");
+  // ── 2. Ratio R:R (formato correcto: 1:X) ──
+  if(avgR!==null){
+    var rStr="1:"+avgR.toFixed(1);
+    if(avgR>=3)add("Ratio R:R medio "+rStr+" en "+rCount+" operaciones. Excelente seleccion de niveles — los TPs son ambiciosos respecto al riesgo asumido.","positive");
+    else if(avgR>=2)add("Ratio R:R medio "+rStr+" en "+rCount+" operaciones. Solido. Por cada euro arriesgado ganas "+avgR.toFixed(1)+" de media.","positive");
+    else if(avgR>=1)add("Ratio R:R medio "+rStr+" en "+rCount+" operaciones. Por debajo de 1:2 — o los TPs estan demasiado cerca o los SLs demasiado lejos de la entrada.","neutral");
+    else add("Ratio R:R medio "+rStr+" — las perdidas superan las ganancias en proporcion. Revisa la ubicacion de TPs y SLs.","negative");
   }
 
-  // Analisis de descripciones de cierre (jnl linkedClose)
-  const closeDocs=jnl.filter(function(j){return j.linkedClose;});
-  const tpDocs=jnl.filter(function(j){return j.linkedClose==="tp";});
-  const slDocs=jnl.filter(function(j){return j.linkedClose==="sl";});
-  const manualDocs=jnl.filter(function(j){return j.linkedClose==="manual";});
-  if(totClose>0){
-    const docRate=Math.round(closeDocs.length/Math.max(totClose,1)*100);
-    if(docRate===0)lines.push("No documentas tus cierres. Sin reflexion post-cierre no hay aprendizaje.");
-    else if(docRate>=70)lines.push("Documentas el "+docRate+"% de tus cierres. La reflexion constante es la base del progreso.");
-    else lines.push("Solo documentas el "+docRate+"% de tus cierres. Intenta escribir algo despues de cada operacion.");
-  }
-  // Calidad emocional en SL vs TP
-  if(slDocs.length>0){
-    const slLessons=slDocs.filter(function(j){return j.type==="lesson"||j.type==="analysis";}).length;
-    const slMistakes=slDocs.filter(function(j){return j.type==="mistake";}).length;
-    if(slLessons>slMistakes)lines.push("Conviertes los SL en aprendizaje ("+slLessons+" lecciones vs "+slMistakes+" errores). Mentalidad correcta.");
-    else if(slMistakes>slLessons)lines.push("Los SL te afectan mas emocionalmente de lo ideal ("+slMistakes+" entradas de error). Trabaja la aceptacion de perdidas.");
-  }
-  if(manualDocs.length>0){
-    const earlyWins=manualDocs.filter(function(j){return j.type==="win";}).length;
-    const earlyLessons=manualDocs.filter(function(j){return j.type==="lesson";}).length;
-    if(earlyWins>earlyLessons)lines.push("Clasificas tus cierres manuales como victorias. Asegurate de que realmente mejoran tu R/R.");
-    else if(earlyLessons>=earlyWins&&manualDocs.length>2)lines.push("Reconoces que los cierres anticipados son una area de mejora. Buen autoconocimiento.");
+  // ── 3. Tasa de acierto (solo xhist, no incluye Quantfury que distorsiona) ──
+  var appOps=xhist.length;
+  var appWins=xhist.filter(function(h){return h.result>0;}).length;
+  var appWinRate=appOps>=5?Math.round(appWins/appOps*100):null;
+  if(appWinRate!==null){
+    if(appWinRate>=60)add("Tasa de acierto del "+appWinRate+"% en las "+appOps+" operaciones registradas en la app. Por encima de la media del mercado.","positive");
+    else if(appWinRate>=45)add("Tasa de acierto del "+appWinRate+"% en "+appOps+" operaciones. Aceptable si el ratio R:R compensa las perdidas.","neutral");
+    else add("Tasa de acierto del "+appWinRate+"% en "+appOps+" operaciones. Revisa los criterios de entrada — demasiadas posiciones llegan al SL.","negative");
   }
 
-  // Revenge trading — penalización activa, puede hundir el score
-  if(ps.revenge>=3)lines.push("ALERTA CRITICA: "+ps.revenge+" episodios de revenge trading. Cada uno resta 10 pts al score sin límite — puedes llegar a negativo. Es el patrón más autodestructivo del trading.");
-  else if(ps.revenge===1)lines.push("Un episodio de revenge trading registrado. Aunque sea uno, te resta 10 pts directos. Si se repite, el score puede volverse negativo.");
-  else if(ps.revenge===2)lines.push("Dos episodios de revenge trading: −20 pts directos en tu score. Trabajo urgente en control emocional post-pérdida.");
-  else lines.push("Sin trading de revancha registrado. Excelente control emocional — es uno de los pilares más difíciles de mantener.");
+  // ── 4. Documentacion y reflexion ──
+  var closeDocs=jnl.filter(function(j){return j.linkedClose;});
+  var docRate=totClose>0?Math.round(closeDocs.length/Math.max(totClose,1)*100):null;
+  var lessons=jnl.filter(function(j){return j.type==="lesson";}).length;
+  var mistakes=jnl.filter(function(j){return j.type==="mistake";}).length;
+  if(docRate!==null){
+    if(docRate>=70)add("Documentas el "+docRate+"% de tus cierres. La reflexion constante es la base del progreso.","positive");
+    else if(docRate>=30)add("Documentas el "+docRate+"% de tus cierres. Escribir despues de cada operacion acelera la mejora.","neutral");
+    else if(docRate>0)add("Solo documentas el "+docRate+"% de tus cierres. Sin reflexion post-operacion el aprendizaje es muy lento.","negative");
+    else add("No documentas ningun cierre. Escribir aunque sea una frase despues de cada trade marca la diferencia.","negative");
+  }
+  if(lessons>0||mistakes>0){
+    if(lessons>mistakes)add("Conviertes "+lessons+" errores en lecciones vs "+mistakes+" que quedaron sin analizar. Mentalidad de mejora continua.","positive");
+    else if(mistakes>lessons&&mistakes>2)add("Tienes "+mistakes+" errores documentados y solo "+lessons+" convertidos en leccion. Dedica tiempo a analizar que fallo en cada operacion perdedora.","neutral");
+  }
 
-  // Journal quality
-  const victories=jnl.filter(function(j){return j.type==="win";}).length;
-  const lessons=jnl.filter(function(j){return j.type==="lesson";}).length;
-  const mistakes=jnl.filter(function(j){return j.type==="mistake";}).length;
-  if(jnl.length===0)lines.push("El diario esta vacio. Documentar cada operacion es clave para mejorar.");
-  else if(lessons>mistakes)lines.push("Conviertes los errores en lecciones. Eso es lo que diferencia a un trader profesional.");
-  else if(mistakes>lessons*2)lines.push("Tienes muchos errores documentados sin su leccion correspondiente. Reflexiona mas.");
-
-  // Patterns — only include best pattern if tested at least 100 times
-  const confPats=pats.filter(function(p){return p.conf>0&&p.obs>=100;});
+  // ── 5. Patron mas fiable (solo si tiene estadistica real: >=20 obs) ──
+  var confPats=pats.filter(function(p){return p.conf>0&&p.obs>=20;});
   if(confPats.length>0){
-    const bestPat=confPats.sort(function(a,b){
-      const ra=a.obs>0?(a.conf/a.obs):0;
-      const rb=b.obs>0?(b.conf/b.obs):0;
-      return rb-ra;
-    })[0];
-    const bestRate=bestPat.obs>0?Math.round(bestPat.conf/bestPat.obs*100):0;
-    if(bestRate>=70)lines.push("Tu patron mas fiable es '"+bestPat.name+"' con un "+bestRate+"% de acierto ("+bestPat.obs+" observaciones).");
+    confPats.sort(function(a,b){return(b.conf/b.obs)-(a.conf/a.obs);});
+    var best=confPats[0];
+    var bestRate=Math.round(best.conf/best.obs*100);
+    if(bestRate>=65)add("Patron mas fiable: '"+best.name+"' con "+bestRate+"% de confirmacion en "+best.obs+" observaciones.","positive");
   }
 
-  // Win rate
-  if(winRate>=60)lines.push("Tasa de acierto del "+winRate+"%. Por encima de la media del mercado.");
-  else if(winRate<40)lines.push("Solo ganas el "+winRate+"% de las operaciones. Revisa tus criterios de entrada.");
-
-  // Ratio R:R medio (calculado al cerrar posiciones)
-  const rCount=ps.ratioCount||0;
-  const rSum=ps.ratioSum||0;
-  if(rCount>0){
-    const avgR=rSum/rCount;
-    if(avgR>=3)lines.push("Tu ratio R:R medio es "+avgR.toFixed(1)+":1 en "+rCount+" operaciones. Excelente seleccion de niveles.");
-    else if(avgR>=2)lines.push("Ratio R:R medio de "+avgR.toFixed(1)+":1. Solido. Mantener TPs ambiciosos y SLs ajustados.");
-    else lines.push("Ratio R:R medio de "+avgR.toFixed(1)+":1. Por debajo de 2:1. Mejora la seleccion de TP o ajusta el SL mas cerca de la entrada.");
-  }
-
-  return lines;
+  return items;
 }
 
 const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat"];
@@ -4198,23 +4185,25 @@ function ModalCloseEth({pr,closeEthLegacy,setModal,S}){
 
 function ProfileAnalysis({ps,pats,jnl,hist,xhist,sc,S}){
   const summary=generateProfileSummary(ps,pats,jnl,hist,xhist,sc);
+  const catColor={positive:"#00ff88",neutral:"#f0b429",negative:"#ff4444"};
+  const catDot={positive:"●",neutral:"●",negative:"●"};
   return(
     <div style={{...S.card,marginBottom:10,border:"1px solid rgba(240,180,41,.2)"}}>
       <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:10}}>ANALISIS DE TU TRADING</div>
-      {summary.map((line,i)=>{
-        const isGood=line.includes("Excelente")||line.includes("100%")||line.includes("solida")||line.includes("Bien")||line.includes("profesional")||line.includes("fiable")||line.includes("No hay")||line.includes("Por encima");
-        const isBad=line.includes("Alerta")||line.includes("cuestan")||line.includes("destructivo")||line.includes("Solo ganas")||line.includes("vacio");
-        const icon=isGood?"✓":isBad?"⚠":"→";
-        const col=isGood?"#00ff88":isBad?"#ff4444":"#f0b429";
+      {summary.length===0&&(
+        <div style={{fontSize:10,color:"#555",padding:"8px 0"}}>Sin suficientes datos todavia. Cierra al menos 5 operaciones para ver el analisis.</div>
+      )}
+      {summary.map(function(item,i){
+        var col=catColor[item.cat]||"#f0b429";
         return(
-          <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"7px 0",borderBottom:i<summary.length-1?"1px solid #1a1a2a":"none"}}>
-            <span style={{fontSize:13,flexShrink:0,color:col,fontWeight:700}}>{icon}</span>
-            <span style={{fontSize:10,color:"#888",lineHeight:1.6}}>{line}</span>
+          <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 0",borderBottom:i<summary.length-1?"1px solid #1a1a2a":"none"}}>
+            <span style={{fontSize:8,flexShrink:0,color:col,marginTop:3}}>●</span>
+            <span style={{fontSize:10,color:item.cat==="negative"?"#cc8888":item.cat==="positive"?"#88bb88":"#999",lineHeight:1.7}}>{item.text}</span>
           </div>
         );
       })}
       <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1a1a2a",fontSize:8,color:"#444"}}>
-        Analisis en tiempo real segun operaciones y diario
+        Basado en tus operaciones cerradas y diario psicologico
       </div>
     </div>
   );
