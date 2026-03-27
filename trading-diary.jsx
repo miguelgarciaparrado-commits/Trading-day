@@ -1570,6 +1570,7 @@ export default function App(){
                     var over=mergedData[h.id]||{};
                     var result=over.result!==undefined?over.result:h.result;
                     var note=over.note||h.note||"";
+                    var isAppEntry=xhist.some(function(x){return x.id===h.id;});
                     return(
                       <div key={h.id} style={S.row}>
                         <div style={{display:"flex",gap:7,alignItems:"center",flex:1,minWidth:0}}>
@@ -1581,6 +1582,7 @@ export default function App(){
                         <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                           <span style={{fontSize:9,color:"#444"}}>${h.cap>=1000?h.cap.toLocaleString():h.cap}</span>
                           <span style={{fontWeight:700,color:result>0?"#00ff88":result<0?"#ff4444":"#666",minWidth:68,textAlign:"right"}}>{result===0?"$0.00":fmtNum(result)}</span>
+                          {isAppEntry&&<button title="Eliminar entrada" onClick={function(){var nX=xhist.filter(function(x){return x.id!==h.id;});D.current.xhist=nX;setXhist(nX);save();}} style={{background:"transparent",border:"none",color:"#3a1a1a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>}
                         </div>
                       </div>
                     );
