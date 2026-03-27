@@ -1575,8 +1575,6 @@ export default function App(){
                         <div style={{display:"flex",gap:7,alignItems:"center"}}>
                           <span style={{fontSize:14,fontWeight:700}}>{p.asset}</span>
                           <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
-                          <span style={{fontSize:7,color:"#f0b429",background:"rgba(240,180,41,.1)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(240,180,41,.3)"}}>EN ESPERA</span>
-                          {livePrice>0&&<span style={{fontSize:9,color:distColor,fontWeight:600}}>${livePrice.toLocaleString(undefined,{minimumFractionDigits:livePrice>100?2:4,maximumFractionDigits:livePrice>100?2:4})}{distPct!==null&&<span style={{fontSize:8,marginLeft:3,opacity:.8}}>({distPct>0?"+":""}{distPct.toFixed(2)}%)</span>}</span>}
                           {p.patternId&&(function(){
                             var pat=pats.find(function(x){return String(x.id)===String(p.patternId);});
                             return pat?<span style={{fontSize:7,color:"#88aaff",background:"rgba(136,170,255,.08)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(136,170,255,.25)"}}>📊 {pat.name}</span>:null;
@@ -1592,11 +1590,13 @@ export default function App(){
                         </div>
                       </div>
                       <div style={S.grid(105)}>
-                        {[
-                          {l:"CAPITAL",v:"$"+p.capital.toLocaleString()},
-                          {l:"ENTRADA ESPERADA",v:p.entry?("$"+parseFloat(p.entry).toLocaleString()):"--"},
-                          {l:"RATIO",v:mG&&mL&&mL>0?"1:"+Math.round(mG/mL):"--"},
-                        ].map(function(i){return <div key={i.l}><div style={S.lbl}>{i.l}</div><div style={{fontSize:11,fontWeight:600,color:i.c||"#e0e0e0"}}>{i.v}</div></div>;})}
+                        <div><div style={S.lbl}>CAPITAL</div><div style={{fontSize:11,fontWeight:600,color:"#e0e0e0"}}>{"$"+p.capital.toLocaleString()}</div></div>
+                        <div>
+                          <div style={S.lbl}>ENTRADA ESPERADA</div>
+                          <div style={{fontSize:11,fontWeight:600,color:"#e0e0e0"}}>{p.entry?("$"+parseFloat(p.entry).toLocaleString()):"--"}</div>
+                          {livePrice>0&&<div style={{fontSize:10,color:distColor,marginTop:2}}>${livePrice.toLocaleString(undefined,{minimumFractionDigits:livePrice>100?2:4,maximumFractionDigits:livePrice>100?2:4})}{distPct!==null&&<span style={{marginLeft:3,opacity:.8}}>({distPct>0?"+":""}{distPct.toFixed(2)}%)</span>}</div>}
+                        </div>
+                        <div><div style={S.lbl}>RATIO</div><div style={{fontSize:11,fontWeight:600,color:"#e0e0e0"}}>{mG&&mL&&mL>0?"1:"+Math.round(mG/mL):"--"}</div></div>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
                         <div style={{background:"rgba(255,68,68,.06)",border:"1px solid rgba(255,68,68,.2)",borderRadius:6,padding:"8px 10px"}}>
