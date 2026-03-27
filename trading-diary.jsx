@@ -4113,12 +4113,9 @@ function AlertasTab({S,predictions}){
                   sendAlert(alert.label,alert.interval,rsi,"pennant_bull",null,null,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult,pennantResult:pennantResult});
                 }
               }else{
-                if(!lastTrigRef.current[ak+"pennant_fake"]&&!lastTrigRef.current[ak+"pennant_bull"]){
-                  lastTrigRef.current[ak+"pennant_fake"]=true;
-                  sendAlert(alert.label,alert.interval,rsi,"pennant_fake",null,null,
-                    "Posible falsa ruptura: "+pennantResult.falseBrkReasons.join(", "),
-                    closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult,pennantResult:pennantResult});
-                }
+                // Fakeout detectado — rastrear estado internamente, no notificar
+                // Cuando el fakeout se resuelva y sea limpio, pennant_bull disparará
+                lastTrigRef.current[ak+"pennant_fake"]=true;
               }
             }
             // ─── BANDERÍN BAJISTA ───
@@ -4135,12 +4132,8 @@ function AlertasTab({S,predictions}){
                   sendAlert(alert.label,alert.interval,rsi,"pennant_bear",null,null,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult,pennantResult:bearPennantResult});
                 }
               }else{
-                if(!lastTrigRef.current[ak+"pennant_bear_fake"]&&!lastTrigRef.current[ak+"pennant_bear"]){
-                  lastTrigRef.current[ak+"pennant_bear_fake"]=true;
-                  sendAlert(alert.label,alert.interval,rsi,"pennant_bear_fake",null,null,
-                    "Posible falsa ruptura bajista: "+bearPennantResult.falseBrkReasons.join(", "),
-                    closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult,pennantResult:bearPennantResult});
-                }
+                // Fakeout detectado — rastrear estado internamente, no notificar
+                lastTrigRef.current[ak+"pennant_bear_fake"]=true;
               }
             }
           }
@@ -4181,7 +4174,9 @@ function AlertasTab({S,predictions}){
               if(channelResult){
                 var cExtra={ohlc:ohlc,volDir:volDir,divResult:divResult,channelResult:channelResult};
                 // Combo con FVG (señal de mayor calidad)
-                if(fvgResult){
+                var CHAN_BREAKOUT_TYPES=["canal_bajista_ruptura_alcista","canal_bajista_ruptura_bajista","canal_alcista_ruptura_alcista","canal_alcista_ruptura_bajista"];
+                var isChanBreakout=CHAN_BREAKOUT_TYPES.indexOf(channelResult.type)>=0;
+                if(fvgResult&&isChanBreakout){
                   var comboKey2=ak+"combo_"+channelResult.type+"_"+fvgResult.age;
                   if(!lastTrigRef.current[comboKey2]){
                     lastTrigRef.current[comboKey2]=true;
@@ -4189,8 +4184,8 @@ function AlertasTab({S,predictions}){
                       channelResult.desc+" + FVG "+fvgResult.subtype+" ($"+fvgResult.bot.toFixed(2)+"–$"+fvgResult.top.toFixed(2)+")",
                       closePrice,cExtra);
                   }
-                }else{
-                  // Canal solo
+                }else if(isChanBreakout){
+                  // Solo notificar rupturas — soporte/resistencia se ignoran
                   sendAlert(alert.label,alert.interval,rsi,channelResult.type,null,null,
                     channelResult.desc,closePrice,cExtra);
                 }
