@@ -4580,6 +4580,57 @@ function AlertasTab({ S, predictions }) {
                         })
                             .catch(function () { setTgStatus("error"); });
                     }, style: { flex: 2, padding: "7px", background: "#0088cc", color: "#fff", border: "none", borderRadius: 4, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "Guardar y probar"),
+                tgToken && tgChatId && React.createElement("button", { onClick: function () {
+                        var tk2 = (tgToken || "").trim();
+                        var cid2 = (tgChatId || "").trim();
+                        if (!tk2 || !cid2)
+                            return;
+                        var base2 = "https://api.telegram.org/bot" + tk2 + "/sendMessage";
+                        // ── Mensaje 1: Alerta RSI sobreventa (formato real) ──
+                        var now2 = new Date();
+                        var ts2 = now2.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+                        var msg1 = "📊 📉 RSI Sobreventa\n\n" +
+                            "📅 Temporalidad: 1H  |  BTC/USD\n" +
+                            "📊 RSI: 28.4 | Sin div/conv\n" +
+                            "💰 Precio: $83.240,00\n" +
+                            "📈 Volumen: Alcista\n\n" +
+                            "💡 Operación Bot (Long):\n" +
+                            "   📍 Entrada: $83.240,00\n" +
+                            "   🎯 TP: $84.906,00 (+2.0%) [2:1]\n" +
+                            "   🛑 SL: $81.575,00 (-2.0%)\n" +
+                            "   ⚖️ Ratio: 1:2.00\n\n" +
+                            "⏰ " + ts2 + "\n\n" +
+                            "⚠️ MENSAJE DE PRUEBA — formato real";
+                        fetch(base2, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: cid2, text: msg1 }) }).catch(function () { });
+                        // ── Mensaje 2: Seguimiento predicción (última pendiente con activo) ──
+                        setTimeout(function () {
+                            var preds = D.current.predictions || [];
+                            var pred2 = preds.find(function (p) { return p.status === "pending" && p.asset; }) || preds.find(function (p) { return p.status === "pending"; });
+                            var msg2;
+                            if (pred2) {
+                                var asset2 = (pred2.asset || "(sin activo)").toUpperCase();
+                                var tf2label = { "1h": "1H", "4h": "4H", "1d": "Diario", "1w": "Semanal" };
+                                var tf2 = tf2label[pred2.tf] || pred2.tf || "";
+                                msg2 = "📊 Seguimiento " + asset2 + (tf2 ? " " + tf2 : "") + "\n\n";
+                                if (pred2.userQuery) {
+                                    msg2 += "💬 Tu análisis:\n\"" + pred2.userQuery.slice(0, 200) + (pred2.userQuery.length > 200 ? "…" : "") + "\"\n\n";
+                                }
+                                msg2 += "🤖 Update:\nEste es el formato real del mensaje que recibirás cuando Claude detecte un cambio relevante en la predicción. Solo se enviará si hay algo concreto que reportar.";
+                                if (pred2.note) {
+                                    msg2 += "\n\n📌 " + pred2.note;
+                                }
+                                msg2 += "\n\n⚠️ MENSAJE DE PRUEBA — formato real";
+                            }
+                            else {
+                                msg2 = "📊 Seguimiento BTCUSDT 1H\n\n" +
+                                    "💬 Tu análisis:\n\"Veo FVG pendiente de cubrir en el 4H cerca de los 85.000. RSI en 45, sin señales claras aún...\"\n\n" +
+                                    "🤖 Update:\nEste es el formato real del mensaje que recibirás cuando Claude detecte un cambio relevante. Solo se envía si hay algo concreto que reportar.\n\n" +
+                                    "⚠️ MENSAJE DE PRUEBA — no tienes predicciones activas con activo configurado";
+                            }
+                            fetch(base2, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: cid2, text: msg2 }) }).catch(function () { });
+                        }, 1200);
+                        setTgStatus("ok");
+                    }, style: { flex: 2, padding: "7px", background: "rgba(0,136,204,.15)", color: "#0088cc", border: "1px solid #0088cc", borderRadius: 4, fontSize: 9, fontWeight: 700, cursor: "pointer" } }, "\uD83D\uDCE8 Enviar mensajes de prueba"),
                 tgToken && React.createElement("button", { onClick: function () {
                         localStorage.removeItem("td-tg-token");
                         localStorage.removeItem("td-tg-chatid");
