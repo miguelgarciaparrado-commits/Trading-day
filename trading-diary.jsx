@@ -2173,6 +2173,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   const[tmpKey,setTmpKey]=useState("");
   const[pendingImage,setPendingImage]=useState(null);
   const[chatMode,setChatMode]=useState("analisis"); // "analisis" | "reflexion"
+  const[expandedPreds,setExpandedPreds]=useState({});
   const listRef=useRef(null);
   const fileInputRef=useRef(null);
 
@@ -2909,7 +2910,15 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
                   </div>
                   <button onClick={function(){deletePrediction(p.id);}} style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:12,lineHeight:1}}>✕</button>
                 </div>
-                <div style={{fontSize:9,color:"#888",lineHeight:1.5,marginBottom:p.note?4:0,whiteSpace:"pre-wrap"}}>{p.content.slice(0,200)}{p.content.length>200?"…":""}</div>
+                <div style={{fontSize:9,color:"#888",lineHeight:1.5,marginBottom:p.note?4:0,whiteSpace:"pre-wrap"}}>
+                  {expandedPreds[p.id]?p.content:p.content.slice(0,200)}
+                  {p.content.length>200&&(
+                    <span onClick={function(){setExpandedPreds(function(prev){var n={};for(var k in prev)n[k]=prev[k];n[p.id]=!prev[p.id];return n;});}}
+                      style={{color:"#88aaff",cursor:"pointer",marginLeft:4,fontSize:8}}>
+                      {expandedPreds[p.id]?" ver menos":" … ver más"}
+                    </span>
+                  )}
+                </div>
                 {p.note&&<div style={{fontSize:8,color:"#f0b429",marginBottom:4}}>Nota: {p.note}</div>}
                 {p.status==="pending"&&(
                   <div style={{display:"flex",gap:4,marginTop:6}}>
