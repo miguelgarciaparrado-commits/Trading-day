@@ -3645,14 +3645,6 @@ function AlertasTab({ S, predictions }) {
     function sendAlert(label, interval, rsi, type, e1, e2, customDesc, price, extra) {
         if (globalPausedRef.current)
             return;
-        // Cooldown: evita notificaciones repetidas de la misma señal antes de que termine una vela
-        var cooldownKey = "tdc_" + label + "|" + interval + "|" + type;
-        var lastFired = parseInt(localStorage.getItem(cooldownKey) || "0");
-        var cooldownPeriods = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 };
-        var minCooldown = cooldownPeriods[interval] || 14400000;
-        if (Date.now() - lastFired < minCooldown)
-            return;
-        localStorage.setItem(cooldownKey, String(Date.now()));
         var extra = extra || {};
         const isPriceAlert = type === "price_target";
         const tf = isPriceAlert ? "Precio" : interval === "1h" ? "1H" : interval === "4h" ? "4H" : interval === "1d" ? "Diario" : "Semanal";
@@ -4017,6 +4009,19 @@ function AlertasTab({ S, predictions }) {
     function startStockAlertFinnhub(alert) {
         requestWakeLock();
         var sid = alert.id.toString();
+        // Restaurar estado de zona persistido para Finnhub
+        var savedZonesFH = {};
+        try {
+            var szFH = localStorage.getItem("td-alert-zones");
+            if (szFH)
+                savedZonesFH = JSON.parse(szFH);
+        }
+        catch (e) { }
+        var ak0FH = sid + "_";
+        if (savedZonesFH[ak0FH + "rsizone"] !== undefined)
+            lastTrigRef.current[ak0FH + "rsizone"] = savedZonesFH[ak0FH + "rsizone"];
+        if (savedZonesFH[ak0FH + "rsicustom"] !== undefined)
+            lastTrigRef.current[ak0FH + "rsicustom"] = savedZonesFH[ak0FH + "rsicustom"];
         var fhKey2 = localStorage.getItem("td-finnhub-key");
         if (!fhKey2) {
             setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
@@ -4062,6 +4067,15 @@ function AlertasTab({ S, predictions }) {
                 var prevZone2 = lastTrigRef.current[ak + "rsizone"] || "neutral";
                 if (rsiZone2 !== prevZone2) {
                     lastTrigRef.current[ak + "rsizone"] = rsiZone2;
+                    try {
+                        var szFh = {};
+                        var szFhStr = localStorage.getItem("td-alert-zones");
+                        if (szFhStr)
+                            szFh = JSON.parse(szFhStr);
+                        szFh[ak + "rsizone"] = rsiZone2;
+                        localStorage.setItem("td-alert-zones", JSON.stringify(szFh));
+                    }
+                    catch (e) { }
                     if (rsiZone2 === "oversold" && (alert.rsiOversoldEnabled !== false))
                         sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc });
                     else if (rsiZone2 === "overbought" && (alert.rsiOverboughtEnabled !== false))
@@ -4072,11 +4086,30 @@ function AlertasTab({ S, predictions }) {
                     var triggered2 = (alert.rsiCustomCondition === "below" && rsi <= alert.rsiCustomTarget) || (alert.rsiCustomCondition === "above" && rsi >= alert.rsiCustomTarget);
                     if (triggered2 && !lastTrigRef.current[rsiKey2]) {
                         lastTrigRef.current[rsiKey2] = true;
+                        try {
+                            var szFh2 = {};
+                            var szFhStr2 = localStorage.getItem("td-alert-zones");
+                            if (szFhStr2)
+                                szFh2 = JSON.parse(szFhStr2);
+                            szFh2[rsiKey2] = true;
+                            localStorage.setItem("td-alert-zones", JSON.stringify(szFh2));
+                        }
+                        catch (e) { }
                         var condLabel2 = alert.rsiCustomCondition === "below" ? "por debajo de" : "por encima de";
                         sendAlert(alert.label, alert.interval, rsi, "rsi_custom", ema7, ema25, "RSI " + condLabel2 + " " + alert.rsiCustomTarget + " (actual: " + rsi.toFixed(1) + ")", closePrice);
                     }
-                    if (!triggered2)
+                    if (!triggered2 && lastTrigRef.current[rsiKey2]) {
                         lastTrigRef.current[rsiKey2] = false;
+                        try {
+                            var szFh3 = {};
+                            var szFhStr3 = localStorage.getItem("td-alert-zones");
+                            if (szFhStr3)
+                                szFh3 = JSON.parse(szFhStr3);
+                            szFh3[rsiKey2] = false;
+                            localStorage.setItem("td-alert-zones", JSON.stringify(szFh3));
+                        }
+                        catch (e) { }
+                    }
                 }
             }
             if (alert.interval !== "1w") {
@@ -4169,10 +4202,20 @@ function AlertasTab({ S, predictions }) {
         });
     }
     function startAlert(alert) {
-        // Limpiar estado de zona RSI al (re)iniciar para que el primer tick siempre dispare si ya está en zona
+        // Restaurar estado de zona persistido para este alert (evita re-disparar al reconectar o recargar)
         var sidReset = alert.id.toString();
-        delete lastTrigRef.current[sidReset + "_rsizone"];
-        delete lastTrigRef.current[sidReset + "_rsicustom"];
+        var savedZonesInit = {};
+        try {
+            var szInit = localStorage.getItem("td-alert-zones");
+            if (szInit)
+                savedZonesInit = JSON.parse(szInit);
+        }
+        catch (e) { }
+        var ak0Init = sidReset + "_";
+        if (savedZonesInit[ak0Init + "rsizone"] !== undefined)
+            lastTrigRef.current[ak0Init + "rsizone"] = savedZonesInit[ak0Init + "rsizone"];
+        if (savedZonesInit[ak0Init + "rsicustom"] !== undefined)
+            lastTrigRef.current[ak0Init + "rsicustom"] = savedZonesInit[ak0Init + "rsicustom"];
         // Acciones/ETFs (no Binance) → usar Finnhub polling
         var isBinancePair = /USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
         if (!isBinancePair) {
@@ -4274,9 +4317,18 @@ function AlertasTab({ S, predictions }) {
                         var ovThr = alert.rsiOversoldTarget != null ? alert.rsiOversoldTarget : 30;
                         var obThr = alert.rsiOverboughtTarget != null ? alert.rsiOverboughtTarget : 70;
                         var rsiZone = rsi <= ovThr ? "oversold" : rsi >= obThr ? "overbought" : "neutral";
-                        const prevZone = lastTrigRef.current[ak + "rsizone"] || "neutral";
+                        var prevZone = lastTrigRef.current[ak + "rsizone"] || "neutral";
                         if (rsiZone !== prevZone) {
                             lastTrigRef.current[ak + "rsizone"] = rsiZone;
+                            try {
+                                var szWs = {};
+                                var szWsStr = localStorage.getItem("td-alert-zones");
+                                if (szWsStr)
+                                    szWs = JSON.parse(szWsStr);
+                                szWs[ak + "rsizone"] = rsiZone;
+                                localStorage.setItem("td-alert-zones", JSON.stringify(szWs));
+                            }
+                            catch (e) { }
                             if (rsiZone === "oversold" && (alert.rsiOversoldEnabled !== false))
                                 sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
                             else if (rsiZone === "overbought" && (alert.rsiOverboughtEnabled !== false))
@@ -4284,15 +4336,34 @@ function AlertasTab({ S, predictions }) {
                         }
                         // RSI personalizado (nivel configurado por el usuario)
                         if (alert.rsiCustomEnabled && alert.rsiCustomTarget) {
-                            const rsiKey = ak + "rsicustom";
-                            const triggered = (alert.rsiCustomCondition === "below" && rsi <= alert.rsiCustomTarget) || (alert.rsiCustomCondition === "above" && rsi >= alert.rsiCustomTarget);
+                            var rsiKey = ak + "rsicustom";
+                            var triggered = (alert.rsiCustomCondition === "below" && rsi <= alert.rsiCustomTarget) || (alert.rsiCustomCondition === "above" && rsi >= alert.rsiCustomTarget);
                             if (triggered && !lastTrigRef.current[rsiKey]) {
                                 lastTrigRef.current[rsiKey] = true;
-                                const condLabel = alert.rsiCustomCondition === "below" ? "por debajo de" : "por encima de";
+                                try {
+                                    var szWs2 = {};
+                                    var szWsStr2 = localStorage.getItem("td-alert-zones");
+                                    if (szWsStr2)
+                                        szWs2 = JSON.parse(szWsStr2);
+                                    szWs2[rsiKey] = true;
+                                    localStorage.setItem("td-alert-zones", JSON.stringify(szWs2));
+                                }
+                                catch (e) { }
+                                var condLabel = alert.rsiCustomCondition === "below" ? "por debajo de" : "por encima de";
                                 sendAlert(alert.label, alert.interval, rsi, "rsi_custom", ema7, ema25, "RSI " + condLabel + " " + alert.rsiCustomTarget + " (actual: " + rsi.toFixed(1) + ")", closePrice);
                             }
-                            if (!triggered)
+                            if (!triggered && lastTrigRef.current[rsiKey]) {
                                 lastTrigRef.current[rsiKey] = false;
+                                try {
+                                    var szWs3 = {};
+                                    var szWsStr3 = localStorage.getItem("td-alert-zones");
+                                    if (szWsStr3)
+                                        szWs3 = JSON.parse(szWsStr3);
+                                    szWs3[rsiKey] = false;
+                                    localStorage.setItem("td-alert-zones", JSON.stringify(szWs3));
+                                }
+                                catch (e) { }
+                            }
                         }
                         // Divergencias/Convergencias RSI — todas las temporalidades, solo vela cerrada
                         if (k.x && (alert.rsiDivEnabled !== false)) {
