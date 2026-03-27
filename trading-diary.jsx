@@ -2174,6 +2174,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   const[pendingImage,setPendingImage]=useState(null);
   const[chatMode,setChatMode]=useState("analisis"); // "analisis" | "reflexion"
   const[expandedPreds,setExpandedPreds]=useState({});
+  const[pendingReply,setPendingReply]=useState(null); // {content,asset,tf,savedDate,days,note}
   const listRef=useRef(null);
   const fileInputRef=useRef(null);
 
@@ -2655,13 +2656,24 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
     const img=pendingImage;
     var isVoiceMsg=pendingVoice;
     var isReflexion=chatMode==="reflexion";
-    const userMsg={role:"user",content:input,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),image:img||null,isVoice:isVoiceMsg,isReflexion:isReflexion};
+    var replySnap=pendingReply;
+    // Contenido que ve el usuario en el chat = su texto limpio
+    // Contenido que recibe Claude = cita del análisis anterior + pregunta nueva
+    var apiContent=input;
+    if(replySnap){
+      apiContent="[ANÁLISIS ANTERIOR QUE REFERENCIO ("+replySnap.savedDate+", hace "+(replySnap.days===0?"hoy":replySnap.days+" días")+
+        (replySnap.asset?" — "+replySnap.asset+(replySnap.tf?" "+replySnap.tf:""):"")+"):\n"+
+        replySnap.content+(replySnap.note?"\n\nNota: "+replySnap.note:"")+
+        "]\n\nMI PREGUNTA AHORA: "+input;
+    }
+    const userMsg={role:"user",content:input,apiContent:apiContent,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),image:img||null,isVoice:isVoiceMsg,isReflexion:isReflexion,replyTo:replySnap||null};
     const newMessages=[...messages,userMsg];
     setMessages(newMessages);
     var currentInput=input;
     setInput("");
     setPendingImage(null);
     setPendingVoice(false);
+    setPendingReply(null);
     // Stop any active recording when sending
     if(speechRef.current){speechRef.current.stop();speechRef.current=null;setIsRecording(false);}
     setLoading(true);
@@ -2695,13 +2707,15 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       contextMessages.forEach(function(m,idx){if(m.role==="user"&&m.image)lastImageIdx=idx;});
       const hasImage=lastImageIdx>=0;
       const apiMessages=contextMessages.map(function(m,idx){
+        // Usar apiContent (con cita incluida) si existe, si no el content normal
+        var textContent=(m.role==="user"&&m.apiContent)?m.apiContent:m.content;
         if(m.role==="user"&&m.image&&idx===lastImageIdx){
           return{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:m.image.mediaType,data:m.image.base64}},
-            {type:"text",text:m.content||"Analiza este grafico"}
+            {type:"text",text:textContent||"Analiza este grafico"}
           ]};
         }
-        return{role:m.role==="assistant"?"assistant":"user",content:m.content};
+        return{role:m.role==="assistant"?"assistant":"user",content:textContent};
       });
 
       const response=await fetch("https://api.anthropic.com/v1/messages",{
@@ -2927,9 +2941,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
                     <button onClick={function(){resolvePrediction(p.id,"missed");}}
                       style={{flex:1,padding:"4px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.3)",color:"#ff4444",borderRadius:4,fontSize:8,cursor:"pointer",fontWeight:700}}>✗ Fallida</button>
                     <button onClick={function(){
-                      var reminderMsg={role:"assistant",content:"📌 ANALISIS ANTERIOR ("+p.savedDate+", hace "+days+" días):\n\n"+p.content+(p.note?"\n\n[Nota: "+p.note+"]":""),time:p.savedTime,isReminder:true};
-                      setMessages(function(prev){return[...prev,reminderMsg];});
-                      setInput("Han pasado "+days+" dias desde este analisis"+(p.asset?" sobre "+p.asset:"")+(days===0?" (hoy mismo)":".")+". Recalcula en funcion del tiempo transcurrido y los datos actuales.");
+                      setPendingReply({content:p.content,asset:p.asset,tf:p.tf,savedDate:p.savedDate,days:days,note:p.note||""});
+                      setInput("");
                       setShowPredictions(false);
                     }}
                       style={{flex:2,padding:"4px",background:"rgba(136,170,255,.08)",border:"1px solid rgba(136,170,255,.3)",color:"#88aaff",borderRadius:4,fontSize:8,cursor:"pointer"}}>↩ Preguntar update</button>
@@ -2963,6 +2976,12 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
               border:"1px solid "+(m.role==="user"?"rgba(240,180,41,.3)":"#1e1e2e"),
               fontSize:11,color:"#e0e0e0",lineHeight:1.7,whiteSpace:"pre-wrap",
             }}>
+              {m.replyTo&&(
+                <div style={{borderLeft:"2px solid #88aaff",paddingLeft:7,marginBottom:8,opacity:.75}}>
+                  <div style={{fontSize:7,color:"#88aaff",marginBottom:2}}>↩ {m.replyTo.asset&&m.replyTo.asset+(m.replyTo.tf?" "+m.replyTo.tf:"")} · {m.replyTo.savedDate}</div>
+                  <div style={{fontSize:9,color:"#666",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.replyTo.content.slice(0,100)}{m.replyTo.content.length>100?"…":""}</div>
+                </div>
+              )}
               {m.image&&<img src={"data:"+m.image.mediaType+";base64,"+m.image.base64} style={{display:"block",maxWidth:"100%",maxHeight:220,borderRadius:6,marginBottom:8,objectFit:"contain"}}/>}
               {m.isVoice&&<span style={{fontSize:8,color:"#00cc66",display:"block",marginBottom:4}}>🎙️ Mensaje de voz</span>}
               {m.isReflexion&&m.role==="user"&&<span style={{fontSize:8,color:"#f0b429",display:"block",marginBottom:4}}>💭 Reflexión · no guardado en historial</span>}
@@ -3067,6 +3086,19 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
 
       {/* Input */}
       <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImageFile}/>
+      {pendingReply&&(
+        <div style={{display:"flex",alignItems:"flex-start",gap:6,padding:"7px 10px",background:"rgba(136,170,255,.05)",borderLeft:"3px solid #88aaff",borderRadius:"0 6px 6px 0",marginBottom:4}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:8,color:"#88aaff",fontWeight:700,marginBottom:3}}>
+              ↩ Referenciando{pendingReply.asset?" · "+pendingReply.asset+(pendingReply.tf?" "+pendingReply.tf:""):""} · {pendingReply.savedDate} · hace {pendingReply.days===0?"hoy":pendingReply.days+" días"}
+            </div>
+            <div style={{fontSize:9,color:"#555",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+              {pendingReply.content.slice(0,120)}{pendingReply.content.length>120?"…":""}
+            </div>
+          </div>
+          <button onClick={function(){setPendingReply(null);}} style={{background:"transparent",border:"none",color:"#444",cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0}}>✕</button>
+        </div>
+      )}
       {pendingImage&&(
         <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",background:"rgba(240,180,41,.08)",border:"1px solid rgba(240,180,41,.2)",borderRadius:6,marginBottom:4}}>
           <img src={"data:"+pendingImage.mediaType+";base64,"+pendingImage.base64} style={{width:40,height:40,objectFit:"cover",borderRadius:4}}/>
