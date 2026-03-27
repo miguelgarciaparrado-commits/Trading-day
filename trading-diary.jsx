@@ -4120,16 +4120,90 @@ function AlertasTab({S,predictions}){
                 delete confluenceRef.current[confKeyPat]["pennant_bear"];
               }
             }
-            // Canal
-            var CHAN_BREAKOUT_TYPES=["canal_bajista_ruptura_alcista","canal_bajista_ruptura_bajista","canal_alcista_ruptura_alcista","canal_alcista_ruptura_bajista"];
-            var channelResult=detectChannelAlert(ohlc);
-            var chanType=channelResult&&CHAN_BREAKOUT_TYPES.indexOf(channelResult.type)>=0?channelResult.type:null;
-            // Limpiar canales previos que ya no están activos
-            CHAN_BREAKOUT_TYPES.forEach(function(ct){
-              if(ct!==chanType)delete confluenceRef.current[confKeyPat][ct];
-            });
-            if(chanType){
-              confluenceRef.current[confKeyPat][chanType]=Date.now();
+            // ─── CANAL: máquina de estados con notificaciones ───
+            var chanResult=detectChannelAlert(ohlc);
+            var prevCT=lastTrigRef.current[ak+"chan_type"]||null;
+            var prevCZ=lastTrigRef.current[ak+"chan_zone"]||null;
+            var ALL_CHAN_KEYS=["canal_bajista_ruptura_alcista","canal_bajista_ruptura_bajista","canal_bajista_soporte","canal_bajista_resistencia","canal_alcista_ruptura_alcista","canal_alcista_ruptura_bajista","canal_alcista_soporte","canal_alcista_resistencia"];
+            if(!chanResult){
+              // Canal desaparecido — limpiar estado
+              if(prevCT){
+                lastTrigRef.current[ak+"chan_type"]=null;
+                lastTrigRef.current[ak+"chan_zone"]=null;
+                lastTrigRef.current[ak+"chan_was_out"]=false;
+                lastTrigRef.current[ak+"chan_hp_done"]=false;
+                ALL_CHAN_KEYS.forEach(function(ct){delete confluenceRef.current[confKeyPat][ct];});
+              }
+            }else{
+              var curCT=chanResult.canalType;
+              // Determinar zona actual del precio
+              var curCZ;
+              if(chanResult.breakout){curCZ=chanResult.breakoutDir==="alcista"?"out_above":"out_below";}
+              else if(chanResult.pos<0.18){curCZ="support";}
+              else if(chanResult.pos>0.82){curCZ="resistance";}
+              else{curCZ="mid";}
+
+              if(curCT!==prevCT){
+                // ─── Nuevo canal detectado (tipo cambió o primera vez) ───
+                lastTrigRef.current[ak+"chan_was_out"]=false;
+                lastTrigRef.current[ak+"chan_hp_done"]=false;
+                ALL_CHAN_KEYS.forEach(function(ct){delete confluenceRef.current[confKeyPat][ct];});
+                if(!chanResult.falseBrk){
+                  // Notificar detección con posición actual
+                  var newNotifType;
+                  if(curCZ==="out_above"){newNotifType="canal_"+curCT+"_ruptura_alcista";}
+                  else if(curCZ==="out_below"){newNotifType="canal_"+curCT+"_ruptura_bajista";}
+                  else if(curCZ==="resistance"){newNotifType="canal_"+curCT+"_resistencia";}
+                  else{newNotifType="canal_"+curCT+"_soporte";}
+                  sendAlert(alert.label,alert.interval,rsi,newNotifType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:"🆕 Canal "+curCT+" detectado. "+chanResult.desc});
+                  confluenceRef.current[confKeyPat][newNotifType]=Date.now();
+                }
+                lastTrigRef.current[ak+"chan_type"]=curCT;
+                lastTrigRef.current[ak+"chan_zone"]=curCZ;
+              }else{
+                // ─── Mismo canal: procesar transición de zona ───
+                var wasOut=lastTrigRef.current[ak+"chan_was_out"]||false;
+                var hpDone=lastTrigRef.current[ak+"chan_hp_done"]||false;
+
+                if(curCZ==="out_above"||curCZ==="out_below"){
+                  if(chanResult.falseBrk){
+                    // Fakeout → no notificar, actualizar zona para detectar re-entrada
+                    lastTrigRef.current[ak+"chan_zone"]=curCZ;
+                  }else{
+                    var isHP=(curCT==="bajista"&&curCZ==="out_above")||(curCT==="alcista"&&curCZ==="out_below");
+                    if(isHP&&!hpDone){
+                      // ─── ALTA PROBABILIDAD: ruptura contraria al canal ─── siempre notificar
+                      var hpType="canal_"+curCT+"_ruptura_"+(curCZ==="out_above"?"alcista":"bajista");
+                      sendAlert(alert.label,alert.interval,rsi,hpType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc});
+                      confluenceRef.current[confKeyPat][hpType]=Date.now();
+                      lastTrigRef.current[ak+"chan_hp_done"]=true;
+                    }else if(!isHP&&prevCZ!==curCZ){
+                      // Salida en dirección del canal (continuación) → marcar para detectar re-entrada
+                      lastTrigRef.current[ak+"chan_was_out"]=true;
+                    }
+                    lastTrigRef.current[ak+"chan_zone"]=curCZ;
+                  }
+                }else{
+                  // Precio dentro del canal
+                  var reEntry=wasOut&&(prevCZ==="out_above"||prevCZ==="out_below"||prevCZ===null);
+                  if(reEntry){
+                    // Re-entrada real tras salida (no fakeout)
+                    var reEntryType="canal_"+curCT+(curCZ==="resistance"?"_resistencia":"_soporte");
+                    sendAlert(alert.label,alert.interval,rsi,reEntryType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:"↩️ RE-ENTRADA al canal "+curCT+". "+chanResult.desc});
+                    confluenceRef.current[confKeyPat][reEntryType]=Date.now();
+                    lastTrigRef.current[ak+"chan_was_out"]=false;
+                  }else if(curCZ==="support"&&prevCZ!=="support"){
+                    // Llegada al soporte dinámico
+                    sendAlert(alert.label,alert.interval,rsi,"canal_"+curCT+"_soporte",ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc});
+                    confluenceRef.current[confKeyPat]["canal_"+curCT+"_soporte"]=Date.now();
+                  }else if(curCZ==="resistance"&&prevCZ!=="resistance"){
+                    // Llegada a la resistencia dinámica
+                    sendAlert(alert.label,alert.interval,rsi,"canal_"+curCT+"_resistencia",ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc});
+                    confluenceRef.current[confKeyPat]["canal_"+curCT+"_resistencia"]=Date.now();
+                  }
+                  lastTrigRef.current[ak+"chan_zone"]=curCZ;
+                }
+              }
             }
             // FVG
             var fvgResult=checkFVGCovered(ohlc,closePrice);
