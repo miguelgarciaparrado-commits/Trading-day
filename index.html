@@ -3645,6 +3645,14 @@ function AlertasTab({ S, predictions }) {
     function sendAlert(label, interval, rsi, type, e1, e2, customDesc, price, extra) {
         if (globalPausedRef.current)
             return;
+        // Cooldown: evita notificaciones repetidas de la misma señal antes de que termine una vela
+        var cooldownKey = "tdc_" + label + "|" + interval + "|" + type;
+        var lastFired = parseInt(localStorage.getItem(cooldownKey) || "0");
+        var cooldownPeriods = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 };
+        var minCooldown = cooldownPeriods[interval] || 14400000;
+        if (Date.now() - lastFired < minCooldown)
+            return;
+        localStorage.setItem(cooldownKey, String(Date.now()));
         var extra = extra || {};
         const isPriceAlert = type === "price_target";
         const tf = isPriceAlert ? "Precio" : interval === "1h" ? "1H" : interval === "4h" ? "4H" : interval === "1d" ? "Diario" : "Semanal";
@@ -4009,8 +4017,6 @@ function AlertasTab({ S, predictions }) {
     function startStockAlertFinnhub(alert) {
         requestWakeLock();
         var sid = alert.id.toString();
-        delete lastTrigRef.current[sid + "_rsizone"];
-        delete lastTrigRef.current[sid + "_rsicustom"];
         var fhKey2 = localStorage.getItem("td-finnhub-key");
         if (!fhKey2) {
             setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
