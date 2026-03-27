@@ -1167,10 +1167,6 @@ export default function App(){
             <div style={{fontSize:9,color:"#444"}}>NIVEL</div>
             <div style={{fontSize:11,color:lvColor,fontWeight:700}}>{lvLabel} {sc}%</div>
           </div>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:9,color:"#444"}}>P&L ACTIVAS</div>
-            <div style={{fontSize:18,fontWeight:700,color:actPnl>=0?"#00ff88":"#ff4444"}}>{fmtNum(actPnl)}</div>
-          </div>
         </div>
       </div>
 
@@ -1199,7 +1195,6 @@ export default function App(){
               {[
                 {l:"PERDIDA HISTORICA",v:fmtNum(h0Total),c:"#ff4444"},
                 {l:"PERDIDA ETH LEGADO",v:fmtNum(ethT),c:"#ff4444"},
-                {l:"P&L ACTIVAS",v:fmtNum(actPnl),c:actPnl>=0?"#00ff88":"#ff4444"},
                 {l:"PERDIDA TOTAL",v:fmtNum(h0Total+ethT),c:h0Total+ethT>=0?"#00ff88":"#ff4444"},
                 {l:"OPS TOTALES",v:hist.length,c:"#e0e0e0"},
                 {l:"TASA GANADORA",v:Math.round(wins/hist.length*100)+"%",c:"#f0b429"},
@@ -1207,7 +1202,6 @@ export default function App(){
                 {l:"🔥 RACHA TP AUTO",v:(()=>{const s=ps.tpStreak||0;const b=ps.bestTpStreak||0;return s>0?s+" consecutivos (récord: "+b+")":b>0?"0 (récord: "+b+")":"--";})(),c:(ps.tpStreak||0)>=3?"#00ff88":(ps.tpStreak||0)>0?"#f0b429":"#555"},
                 {l:"ROI HISTORICO",v:(()=>{const inv=hist.reduce((a,h)=>a+(h.cap||0),0);return inv>0?(h0Total/inv*100).toFixed(1)+"%":"--";})(),c:h0Total>=0?"#00ff88":"#ff4444"},
                 {l:"ROI ETH LEGADO",v:((pr.ETH-3621.58)/3621.58*100).toFixed(1)+"%",c:pr.ETH>=3621.58?"#00ff88":"#ff4444"},
-                {l:"ROI ACTIVAS",v:(()=>{const inv=pos.reduce((a,p)=>a+p.capital,0);return inv>0?(actPnl/inv*100).toFixed(1)+"%":"--";})(),c:actPnl>=0?"#00ff88":"#ff4444"},
               ].map(k=><div key={k.l} style={S.card}><div style={S.lbl}>{k.l}</div><div style={S.val(k.c)}>{k.v}</div></div>)}
             </div>
             {/* ETH Legado */}
@@ -1322,43 +1316,6 @@ export default function App(){
               );
             })()}
 
-            {/* Posiciones activas */}
-            <div style={S.card}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>POSICIONES ACTIVAS</div>
-                <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:"",dir:"Short",capital:"",entry:"",sl:"",tp:"",tpLevels:[],patternId:""},editPosId:null}))} style={{...S.btn(true),padding:"4px 10px",fontSize:9}}>+ NUEVA OPERACION</button>
-              </div>
-              {!ethClosed&&(
-                <div style={S.row}>
-                  <div style={{display:"flex",gap:7,alignItems:"center"}}>
-                    <span style={{width:5,height:5,borderRadius:"50%",background:ethU>=0?"#00ff88":"#ff4444",display:"inline-block"}}/>
-                    <span>ETH/USD</span>
-                    <span style={S.bdg("#00ff88")}>Long</span>
-                    <span style={{fontSize:8,color:"#888",background:"rgba(255,68,68,.1)",padding:"1px 5px",borderRadius:3,border:"1px solid rgba(255,68,68,.2)"}}>LEGADO</span>
-                  </div>
-                  <span style={{fontWeight:700,color:ethU>=0?"#00ff88":"#ff4444"}}>{fmtNum(ethU)}</span>
-                </div>
-              )}
-              {pos.map(p=>{
-                const g=getPnL(p);
-                const noLivePrice=PM[p.asset]===undefined||PM[p.asset]===p.entry;
-                return(
-                  <div key={p.id} style={S.row}>
-                    <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
-                      <span style={{width:5,height:5,borderRadius:"50%",background:g>=0?"#00ff88":"#ff4444",display:"inline-block"}}/>
-                      <span>{p.asset}</span>
-                      <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
-                      {(p.be||p.sl===p.entry)&&<span style={S.bdg("#00ff88")}>BE</span>}
-                      {noLivePrice&&<span style={{fontSize:7,color:"#ff8844",background:"rgba(255,136,68,.1)",padding:"1px 5px",borderRadius:3,border:"1px solid rgba(255,136,68,.3)"}}>sin precio · editar ticker</span>}
-                    </div>
-                    <span style={{fontWeight:700,color:noLivePrice?"#555":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"$0.00":fmtNum(g)}</span>
-                  </div>
-                );
-              })}
-              <div style={{textAlign:"right",marginTop:8,paddingTop:8,borderTop:"1px solid #1a1a2a"}}>
-                <span style={{fontSize:16,fontWeight:700,color:actPnl>=0?"#00ff88":"#ff4444"}}>{fmtNum(actPnl)}</span>
-              </div>
-            </div>
           </div>
         )}
 
