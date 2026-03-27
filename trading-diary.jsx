@@ -2983,7 +2983,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
                 style={{background:"transparent",border:"none",color:"#2a2a3a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>
             </div>
             {/* Botón guardar predicción — visible en mensajes del asistente */}
-            {m.role==="assistant"&&i>0&&!m.isReminder&&(
+            {m.role==="assistant"&&i>0&&!m.isReminder&&!m.isReflexion&&(
               <div style={{marginTop:4,alignSelf:"flex-start",marginLeft:4}}>
                 {savingMsgIdx===i?(
                   <div style={{background:"#0d0d16",border:"1px solid rgba(136,170,255,.4)",borderRadius:6,padding:"8px 10px",minWidth:220}}>
