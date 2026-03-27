@@ -2412,6 +2412,16 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
         }
     }
     function saveMessageAsPrediction(msg, note, userMsg) {
+        // Guard: evitar duplicados si se pulsa rápido dos veces
+        var msgContent = typeof msg.content === "string" ? msg.content.trim() : "";
+        var alreadySaved = predictions.some(function (p) {
+            return typeof p.content === "string" && p.content.trim() === msgContent && p.status === "pending";
+        });
+        if (alreadySaved) {
+            setSavingMsgIdx(null);
+            setPredNote("");
+            return;
+        }
         var asset = detectedInfo ? detectedInfo.display : marketData ? marketData.asset : "";
         var tf = detectedInfo ? detectedInfo.tf : marketData ? marketData.tf : "";
         // Fallback: detectar asset desde el contenido del mensaje si no hay contexto activo
@@ -2500,8 +2510,28 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
             return;
         var reader = new FileReader();
         reader.onload = function (ev) {
-            var b64 = ev.target.result.split(",")[1];
-            setPendingImage({ base64: b64, mediaType: file.type || "image/jpeg", name: file.name });
+            var img = new Image();
+            img.onload = function () {
+                // Redimensionar a máx 1024px y comprimir JPEG al 82% — reduce de 4-8MB a ~150KB
+                var MAX = 1024;
+                var w = img.width, h = img.height;
+                if (w > MAX) {
+                    h = Math.round(h * (MAX / w));
+                    w = MAX;
+                }
+                if (h > MAX) {
+                    w = Math.round(w * (MAX / h));
+                    h = MAX;
+                }
+                var canvas = document.createElement("canvas");
+                canvas.width = w;
+                canvas.height = h;
+                var ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0, w, h);
+                var b64 = canvas.toDataURL("image/jpeg", 0.82).split(",")[1];
+                setPendingImage({ base64: b64, mediaType: "image/jpeg", name: file.name });
+            };
+            img.src = ev.target.result;
         };
         reader.readAsDataURL(file);
         e.target.value = "";
@@ -2773,9 +2803,13 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
             }
             // Only include messages from the current chat mode in API context
             var contextMessages = newMessages.filter(function (m) { return isReflexion ? m.isReflexion : !m.isReflexion; });
-            const hasImage = contextMessages.some(function (m) { return m.image; });
-            const apiMessages = contextMessages.map(function (m) {
-                if (m.role === "user" && m.image) {
+            // Solo enviar imagen del último mensaje que tenga una — las anteriores se mandan solo como texto
+            var lastImageIdx = -1;
+            contextMessages.forEach(function (m, idx) { if (m.role === "user" && m.image)
+                lastImageIdx = idx; });
+            const hasImage = lastImageIdx >= 0;
+            const apiMessages = contextMessages.map(function (m, idx) {
+                if (m.role === "user" && m.image && idx === lastImageIdx) {
                     return { role: "user", content: [
                             { type: "image", source: { type: "base64", media_type: m.image.mediaType, data: m.image.base64 } },
                             { type: "text", text: m.content || "Analiza este grafico" }
