@@ -873,6 +873,23 @@ export default function App(){
   const lTot=hist.filter(h=>h.dir==="Long").length;
   const sTot=hist.filter(h=>h.dir==="Short").length;
 
+  // ─── Actualizar estadísticas de estrategia al cerrar posición ───
+  function applyPatternResult(patId,isWin){
+    if(!patId)return;
+    var d=today();
+    var newPats=D.current.pats.map(function(x){
+      if(String(x.id)!==String(patId))return x;
+      var currentFail=x.fail!==undefined?x.fail:Math.max(0,(x.obs||0)-(x.conf||0));
+      if(isWin){
+        return{...x,obs:(x.obs||0)+1,conf:(x.conf||0)+1,fail:currentFail,log:[{date:d,result:"conf"},...(x.log||[])]};
+      }else{
+        return{...x,obs:(x.obs||0)+1,conf:(x.conf||0),fail:currentFail+1,log:[{date:d,result:"fail"},...(x.log||[])]};
+      }
+    });
+    D.current.pats=newPats;
+    setPats(newPats);
+  }
+
   // - CLOSE POSITION -
   function closePos(p,type,manualPrice){
     // Guard: position might have been auto-closed while ModalCerrar was open
@@ -971,7 +988,15 @@ export default function App(){
     const newX=[entry,...(D.current.xhist||[])];
     const newPos2=D.current.pos.filter(x=>x.id!==p.id);
     D.current.xhist=newX;D.current.pos=newPos2;D.current.ps=newPs;
-    setXhist(newX);setPos(newPos2);setPs(newPs);save();
+    setXhist(newX);setPos(newPos2);setPs(newPs);
+    // Actualizar stats de estrategia: win si ganó, fail si SL o perdida manual
+    if(p.patternId){
+      var isPatWin=(type==="tp")||(type!=="sl"&&type!=="be"&&result>0);
+      var isPatLoss=(type==="sl"&&!isBE)||(type!=="sl"&&type!=="be"&&result<0);
+      if(isPatWin)applyPatternResult(p.patternId,true);
+      else if(isPatLoss)applyPatternResult(p.patternId,false);
+    }
+    save();
     setModal(m=>({...m,close:null}));
   }
 
@@ -1047,6 +1072,7 @@ export default function App(){
           if(isBE){psU.slBreakeven=(psU.slBreakeven||0)+1;}else{psU.slOk=(psU.slOk||0)+1;}
           psU.tpStreak=0; // SL rompe la racha
           changed=true;
+          if(p.patternId&&!isBE)applyPatternResult(p.patternId,false);
           notifyAutoClose(p.asset,p.dir,"SL ejecutado",price,slResult);
           kept=false;
         }
@@ -1077,6 +1103,7 @@ export default function App(){
           if(psU.tpStreak>(psU.bestTpStreak||0))psU.bestTpStreak=psU.tpStreak;
           var tpPrices=updLevels.map(function(l){return "$"+parseFloat(l.price).toLocaleString();}).join("/");
           entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(totalResult.toFixed(2)),date:today(),note:"🎯 TPs completados "+tpPrices,autoClose:true,...(fullRatio!==null?{ratio:fullRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})});
+          if(p.patternId)applyPatternResult(p.patternId,true);
           changed=true;continue;
         }
         var someNew=updLevels.some(function(l,i){return l.hit&&!p.tpLevels[i].hit;});
@@ -1097,6 +1124,7 @@ export default function App(){
           psU.tpAuto=(psU.tpAuto||0)+1;
           psU.tpStreak=(psU.tpStreak||0)+1;
           if(psU.tpStreak>(psU.bestTpStreak||0))psU.bestTpStreak=psU.tpStreak;
+          if(p.patternId)applyPatternResult(p.patternId,true);
           changed=true;
           notifyAutoClose(p.asset,p.dir,"TP alcanzado",price,tpResult);
           continue;
