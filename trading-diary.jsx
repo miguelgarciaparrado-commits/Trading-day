@@ -1535,6 +1535,12 @@ export default function App(){
                 {pos.filter(function(p){return p.status==="pending";}).map(function(p){
                   var mL=p.sl?p.capital*Math.abs(p.entry-p.sl)/p.entry:0;
                   var mG=p.tp?p.capital*Math.abs(p.tp-p.entry)/p.entry:null;
+                  var liveBase=p.asset.replace(/\/.*$/,"").toUpperCase();
+                  var livePrice=pr[liveBase]||0;
+                  var distPct=livePrice&&p.entry?((livePrice-p.entry)/p.entry*100):null;
+                  var isLongP=p.dir!=="Short";
+                  var approaching=distPct!==null&&(isLongP?(distPct>-3&&distPct<0):(distPct<3&&distPct>0));
+                  var distColor=distPct===null?"#555":approaching?"#f0b429":Math.abs(distPct)<1?"#00ff88":"#888";
                   return(
                     <div key={p.id} style={{...S.card,border:"1px solid rgba(240,180,41,.25)",marginBottom:8,opacity:0.85}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -1542,6 +1548,7 @@ export default function App(){
                           <span style={{fontSize:14,fontWeight:700}}>{p.asset}</span>
                           <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
                           <span style={{fontSize:7,color:"#f0b429",background:"rgba(240,180,41,.1)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(240,180,41,.3)"}}>EN ESPERA</span>
+                          {livePrice>0&&<span style={{fontSize:9,color:distColor,fontWeight:600}}>${livePrice.toLocaleString(undefined,{minimumFractionDigits:livePrice>100?2:4,maximumFractionDigits:livePrice>100?2:4})}{distPct!==null&&<span style={{fontSize:8,marginLeft:3,opacity:.8}}>({distPct>0?"+":""}{distPct.toFixed(2)}%)</span>}</span>}
                           {p.patternId&&(function(){
                             var pat=pats.find(function(x){return String(x.id)===String(p.patternId);});
                             return pat?<span style={{fontSize:7,color:"#88aaff",background:"rgba(136,170,255,.08)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(136,170,255,.25)"}}>📊 {pat.name}</span>:null;
