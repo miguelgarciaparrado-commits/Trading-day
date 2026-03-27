@@ -477,7 +477,16 @@ export default function App(){
           if(d.ps){D.current.ps=d.ps;setPs(d.ps);}
 
           if(d.xhist){D.current.xhist=d.xhist;setXhist(d.xhist);}
-          if(d.predictions){D.current.predictions=d.predictions;setPredictions(d.predictions);}
+          if(d.predictions){
+            // Deduplicar al cargar: quedarse con la primera aparición por contenido+status
+            var seenPred={};
+            var dedupPred=d.predictions.filter(function(p){
+              var k=(typeof p.content==="string"?p.content.trim().slice(0,120):String(p.id))+"__"+p.status;
+              if(seenPred[k])return false;
+              seenPred[k]=true;return true;
+            });
+            D.current.predictions=dedupPred;setPredictions(dedupPred);
+          }
           if(d.chatMsgs&&d.chatMsgs.length){D.current.chatMsgs=d.chatMsgs;}
           if(d.ethClosed)setEthClosed(true);
           // carga de fotos eliminada
@@ -2310,7 +2319,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   function saveMessageAsPrediction(msg,note,userMsg){
     // Guard: evitar duplicados si se pulsa rápido dos veces
     var msgContent=typeof msg.content==="string"?msg.content.trim():"";
-    var alreadySaved=predictions.some(function(p){
+    // Usar D.current.predictions (síncrono) en lugar del estado React (puede ser stale en doble-click)
+    var alreadySaved=(D.current.predictions||[]).some(function(p){
       return typeof p.content==="string"&&p.content.trim()===msgContent&&p.status==="pending";
     });
     if(alreadySaved){setSavingMsgIdx(null);setPredNote("");return;}
