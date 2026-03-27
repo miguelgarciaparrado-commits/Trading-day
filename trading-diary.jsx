@@ -1082,7 +1082,8 @@ export default function App(){
     var newX=[...entries,...(D.current.xhist||[])];
     D.current.xhist=newX;D.current.pos=newPos;D.current.ps=psU;
     setXhist(newX);setPos(newPos);setPs(psU);
-    save();
+    // Guardar inmediatamente (sin debounce) — operación crítica: SL/TP auto-cerrados
+    if(saveRef&&saveRef.current)saveRef.current();else save();
   }
 
   function closeEthLegacy(closePrice){
