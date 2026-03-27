@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Day — Manual de Usuario</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 40px; max-width: 900px; margin: 0 auto; line-height: 1.6; }
+  h1 { font-size: 28px; font-weight: 700; color: #0a0a0a; margin-bottom: 4px; }
+  h2 { font-size: 18px; font-weight: 700; color: #1a1a1a; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #e0e0e0; page-break-after: avoid; }
+  h3 { font-size: 14px; font-weight: 700; color: #2a2a2a; margin: 20px 0 8px; page-break-after: avoid; }
+  p { margin-bottom: 10px; }
+  ul, ol { margin: 8px 0 12px 22px; }
+  li { margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  th { background: #f0f0f0; text-align: left; padding: 7px 10px; font-weight: 700; border: 1px solid #d0d0d0; }
+  td { padding: 6px 10px; border: 1px solid #d8d8d8; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafa; }
+  .header { border-bottom: 3px solid #1a1a1a; padding-bottom: 16px; margin-bottom: 28px; }
+  .subtitle { color: #555; font-size: 14px; margin-top: 4px; }
+  .toc { background: #f7f7f7; border: 1px solid #e0e0e0; border-radius: 6px; padding: 18px 24px; margin-bottom: 32px; page-break-inside: avoid; }
+  .toc h2 { margin-top: 0; border: none; font-size: 15px; }
+  .toc ol { margin-left: 18px; }
+  .toc a { color: #1a1a1a; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc li { margin-bottom: 3px; }
+  .badge { display: inline-block; background: #1a1a1a; color: #fff; border-radius: 3px; padding: 1px 6px; font-size: 11px; font-weight: 700; margin: 0 2px; }
+  .badge.green { background: #1a7a3a; }
+  .badge.blue { background: #1a4a8a; }
+  .badge.orange { background: #b05a00; }
+  .note { background: #fff8e6; border-left: 3px solid #f0b429; padding: 10px 14px; margin: 12px 0; border-radius: 0 4px 4px 0; font-size: 12px; }
+  .tip { background: #e8f4fd; border-left: 3px solid #1a7abf; padding: 10px 14px; margin: 12px 0; border-radius: 0 4px 4px 0; font-size: 12px; }
+  .section { margin-bottom: 28px; page-break-inside: avoid; }
+  .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e0e0e0; color: #888; font-size: 11px; text-align: center; }
+  .tab-label { display: inline-block; background: #e8e8e8; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 600; margin-right: 4px; }
+  @media print {
+    body { padding: 20px; font-size: 11px; }
+    h2 { page-break-before: auto; }
+    .section { page-break-inside: avoid; }
+    a { color: #1a1a1a; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Trading Day</h1>
+  <div class="subtitle">Manual de Usuario — Diario Personal de Trading</div>
+</div>
+
+<div class="toc">
+  <h2>Índice</h2>
+  <ol>
+    <li><a href="#resumen">Resumen / Dashboard</a></li>
+    <li><a href="#posiciones">Posiciones abiertas</a></li>
+    <li><a href="#nueva">Nueva posición</a></li>
+    <li><a href="#historial">Historial de operaciones</a></li>
+    <li><a href="#calendario">Calendario P&amp;L</a></li>
+    <li><a href="#horarios">Horarios</a></li>
+    <li><a href="#patrones">Libro de patrones</a></li>
+    <li><a href="#diario">Diario psicológico</a></li>
+    <li><a href="#alertas">Alertas en tiempo real</a></li>
+    <li><a href="#chat">Chat — Análisis &amp; Reflexión</a></li>
+  </ol>
+</div>
+
+<!-- 1. RESUMEN -->
+<div class="section">
+<h2 id="resumen">1. Resumen / Dashboard</h2>
+<p>Vista general del estado de tu cuenta y evolución como trader.</p>
+
+<h3>P&amp;L y objetivo de recuperación</h3>
+<p>Muestra el resultado total de operaciones cerradas y una barra de progreso hacia el objetivo de recuperación de capital. La barra avanza a medida que acumulas beneficios.</p>
+
+<h3>Score de trader (0–100)</h3>
+<p>Puntuación calculada automáticamente en función de tu disciplina y hábitos:</p>
+<table>
+  <tr><th>Nivel</th><th>Puntuación</th></tr>
+  <tr><td>Aprendiz</td><td>0 – 39</td></tr>
+  <tr><td>En Desarrollo</td><td>40 – 59</td></tr>
+  <tr><td>Consistente</td><td>60 – 74</td></tr>
+  <tr><td>Avanzado</td><td>75 – 89</td></tr>
+  <tr><td>Profesional</td><td>90 – 100</td></tr>
+</table>
+
+<h3>Estadísticas clave</h3>
+<table>
+  <tr><th>Indicador</th><th>Qué mide</th></tr>
+  <tr><td>SL respetados</td><td>Número de veces que cerraste respetando el stop loss</td></tr>
+  <tr><td>SL rotos</td><td>Veces que no respetaste el stop loss</td></tr>
+  <tr><td>Cierre anticipado</td><td>Posiciones cerradas antes de alcanzar el TP</td></tr>
+  <tr><td>TP automático</td><td>Posiciones cerradas al alcanzar el objetivo</td></tr>
+  <tr><td>Revenge trading</td><td>Operaciones abiertas por impulso emocional</td></tr>
+  <tr><td>Ratio R:R medio</td><td>Promedio riesgo:beneficio de operaciones ganadoras</td></tr>
+</table>
+
+<div class="note">El Ratio R:R medio solo se actualiza cuando se alcanza un TP o se cierra manualmente con beneficio. Los SL no cuentan en este cálculo.</div>
+</div>
+
+<!-- 2. POSICIONES -->
+<div class="section">
+<h2 id="posiciones">2. Posiciones abiertas</h2>
+<p>Lista de todas las operaciones que tienes actualmente abiertas.</p>
+
+<h3>Información por posición</h3>
+<table>
+  <tr><th>Campo</th><th>Descripción</th></tr>
+  <tr><td>Activo</td><td>Par de trading (BTC, SOL, ETH, etc.)</td></tr>
+  <tr><td>Dirección</td><td>Long (compra) o Short (venta)</td></tr>
+  <tr><td>Capital</td><td>USD invertido en la operación</td></tr>
+  <tr><td>Entrada</td><td>Precio al que se abrió la posición</td></tr>
+  <tr><td>SL (Stop Loss)</td><td>Precio de cierre automático en caso de pérdida</td></tr>
+  <tr><td>TP (Take Profit)</td><td>Precio objetivo de beneficio</td></tr>
+  <tr><td>P&amp;L actual</td><td>Ganancia/pérdida en tiempo real</td></tr>
+  <tr><td>BE</td><td>Indicador de que el SL ha sido movido a breakeven</td></tr>
+</table>
+
+<h3>Acciones disponibles</h3>
+<ul>
+  <li><strong>Cerrar posición:</strong> Abre un modal donde puedes confirmar el cierre. Puedes introducir un precio manual o usar el precio de mercado actual. Después del cierre se te invita a añadir una reflexión en el diario.</li>
+  <li><strong>Editar posición:</strong> Modifica SL, TP u otros datos de la operación abierta.</li>
+</ul>
+
+<h3>Niveles de TP parciales</h3>
+<p>Puedes definir múltiples niveles de take-profit, cada uno con un porcentaje de la posición que se cierra al alcanzar ese precio. Ejemplo: 50% de la posición al primer objetivo, 50% al segundo.</p>
+
+<h3>Cierre automático</h3>
+<p>El sistema comprueba cada minuto si alguna posición ha alcanzado su SL o TP. Si se cumple:</p>
+<ul>
+  <li>La posición se cierra automáticamente y pasa al historial.</li>
+  <li>Recibes una notificación push y un mensaje de Telegram.</li>
+  <li>El resultado se registra con la nota "🛑 SL auto" o "🎯 TP auto".</li>
+</ul>
+</div>
+
+<!-- 3. NUEVA POSICIÓN -->
+<div class="section">
+<h2 id="nueva">3. Nueva posición</h2>
+<p>Formulario para registrar una nueva operación.</p>
+
+<h3>Campos del formulario</h3>
+<table>
+  <tr><th>Campo</th><th>Descripción</th></tr>
+  <tr><td>Activo</td><td>Selecciona el par (BTC, SOL, ETH, LINK, etc.)</td></tr>
+  <tr><td>Dirección</td><td>Long o Short</td></tr>
+  <tr><td>Capital (USD)</td><td>Cantidad en dólares destinada a esta operación</td></tr>
+  <tr><td>Precio entrada</td><td>Precio al que abres la posición</td></tr>
+  <tr><td>Stop Loss</td><td>Precio límite de pérdida (Long: por debajo de entrada; Short: por encima)</td></tr>
+  <tr><td>Take Profit</td><td>Precio objetivo (Long: por encima de entrada; Short: por debajo)</td></tr>
+  <tr><td>Nota</td><td>Descripción opcional de la tesis de la operación</td></tr>
+</table>
+
+<h3>Añadir niveles de TP</h3>
+<p>Activa la opción de TPs parciales para definir hasta varios niveles de cierre progresivo. Cada nivel tiene precio y porcentaje de la posición a cerrar. Los porcentajes deben sumar 100%.</p>
+
+<div class="tip">Regla de validación: en Long el SL debe estar por debajo de la entrada y el TP por encima. En Short, al revés. La aplicación te avisa si los valores son incorrectos.</div>
+</div>
+
+<!-- 4. HISTORIAL -->
+<div class="section">
+<h2 id="historial">4. Historial de operaciones</h2>
+<p>Registro completo de todas las operaciones cerradas.</p>
+<ul>
+  <li>Cada entrada muestra: fecha, activo, dirección, capital, resultado en USD, nota y ratio R:R.</li>
+  <li>Los cierres automáticos por SL o TP aparecen marcados con sus respectivos iconos.</li>
+  <li>Puedes filtrar por rango de fechas.</li>
+  <li>El resultado positivo aparece en verde, el negativo en rojo.</li>
+</ul>
+</div>
+
+<!-- 5. CALENDARIO -->
+<div class="section">
+<h2 id="calendario">5. Calendario P&amp;L</h2>
+<p>Vista mensual con el resultado de cada día de trading.</p>
+<ul>
+  <li>Cada celda del calendario muestra el P&amp;L acumulado del día.</li>
+  <li>Color verde: día con beneficio. Color rojo: día con pérdida.</li>
+  <li>Útil para identificar patrones de rendimiento por día de la semana o por épocas del mes.</li>
+</ul>
+</div>
+
+<!-- 6. HORARIOS -->
+<div class="section">
+<h2 id="horarios">6. Horarios</h2>
+<p>Seguimiento de rendimiento en ventanas horarias específicas (especialmente 19:30–20:00).</p>
+<ul>
+  <li>Registra si operar en determinadas franjas horarias es consistentemente rentable o no.</li>
+  <li>Ayuda a identificar los mejores momentos del día para tomar posiciones.</li>
+</ul>
+</div>
+
+<!-- 7. PATRONES -->
+<div class="section">
+<h2 id="patrones">7. Libro de patrones</h2>
+<p>Biblioteca personal de patrones técnicos que has identificado y validado.</p>
+
+<h3>Para qué sirve</h3>
+<p>Cada vez que detectas un patrón en el mercado (cuña, canal, banderín, etc.) puedes guardarlo aquí con notas y el activo donde lo observaste. Con el tiempo construyes tu propio atlas de patrones de confianza.</p>
+
+<h3>Campos de un patrón</h3>
+<table>
+  <tr><th>Campo</th><th>Descripción</th></tr>
+  <tr><td>Nombre</td><td>Identificador del patrón (ej. "Cuña bajista BTC 4H")</td></tr>
+  <tr><td>Descripción</td><td>Condiciones que definen el patrón</td></tr>
+  <tr><td>Activo</td><td>Par donde se observó</td></tr>
+  <tr><td>Temporalidad</td><td>1H, 4H, Diario, Semanal</td></tr>
+  <tr><td>Notas</td><td>Contexto adicional, resultado esperado</td></tr>
+</table>
+
+<div class="note">Los patrones del libro contribuyen al Score de trader: cada patrón confirmado en operación suma puntos al indicador de "uso del libro de patrones".</div>
+</div>
+
+<!-- 8. DIARIO -->
+<div class="section">
+<h2 id="diario">8. Diario psicológico</h2>
+<p>Registro de reflexiones, aprendizajes y errores psicológicos relacionados con tu trading.</p>
+
+<h3>Categorías de entrada</h3>
+<table>
+  <tr><th>Categoría</th><th>Cuándo usarla</th></tr>
+  <tr><td>🏆 Victoria</td><td>Operación cerrada con éxito, qué hiciste bien</td></tr>
+  <tr><td>📚 Lección</td><td>Aprendizaje extraído de una situación</td></tr>
+  <tr><td>⚠️ Error</td><td>Fallo emocional o técnico que quieres recordar</td></tr>
+  <tr><td>🔍 Análisis</td><td>Análisis posterior de una operación</td></tr>
+</table>
+
+<h3>Reflexiones desde el cierre de posición</h3>
+<p>Al cerrar una posición, la aplicación te invita automáticamente a añadir una reflexión psicológica. Estas entradas quedan vinculadas a la operación cerrada y aportan puntos extra al Score.</p>
+
+<h3>Chat de Reflexión</h3>
+<p>También puedes iniciar conversaciones de coaching psicológico desde la pestaña Chat (modo 💭 Reflexión). Estas conversaciones con Claude están orientadas a analizar tu estado emocional y patrones de comportamiento. No generan registros en el historial de operaciones.</p>
+</div>
+
+<!-- 9. ALERTAS -->
+<div class="section">
+<h2 id="alertas">9. Alertas en tiempo real</h2>
+<p>Sistema de monitorización de mercados 24/7 con notificaciones inteligentes vía Telegram, push y vibración.</p>
+
+<h3>Añadir un activo a monitorizar</h3>
+<ul>
+  <li>Escribe el símbolo en el campo de búsqueda (ej. BTCUSDT, SOLUSDT) o usa los botones rápidos de los activos principales.</li>
+  <li>Pulsa <span class="badge">➕ TF</span> para añadir automáticamente las 4 temporalidades (1H, 4H, Diario, Semanal) de un símbolo de una sola vez.</li>
+  <li>Para activos fuera de Binance (acciones, ETFs) se necesita configurar una clave de Finnhub.</li>
+</ul>
+
+<h3>Señales monitorizadas automáticamente</h3>
+<table>
+  <tr><th>Señal</th><th>Qué detecta</th><th>Temporalidades</th></tr>
+  <tr><td>RSI Sobreventa</td><td>RSI ≤ 30 (zona de posible rebote alcista)</td><td>Todas</td></tr>
+  <tr><td>RSI Sobrecompra</td><td>RSI ≥ 70 (zona de posible corrección)</td><td>Todas</td></tr>
+  <tr><td>Cruce Dorado EMA 7/25</td><td>EMA7 cruza EMA25 al alza</td><td>1H, 4H, Diario</td></tr>
+  <tr><td>Cruce de la Muerte EMA 7/25</td><td>EMA7 cruza EMA25 a la baja</td><td>1H, 4H, Diario</td></tr>
+  <tr><td>Cruce Dorado EMA 50/200</td><td>EMA50 cruza EMA200 al alza</td><td>4H, Diario, Semanal</td></tr>
+  <tr><td>Cruce de la Muerte EMA 50/200</td><td>EMA50 cruza EMA200 a la baja</td><td>4H, Diario, Semanal</td></tr>
+  <tr><td>Divergencia RSI alcista</td><td>Precio hace mínimos decrecientes, RSI hace mínimos crecientes</td><td>Todas</td></tr>
+  <tr><td>Divergencia RSI bajista</td><td>Precio hace máximos crecientes, RSI hace máximos decrecientes</td><td>Todas</td></tr>
+</table>
+
+<h3>Patrones chartistas (señales de confirmación)</h3>
+<p>Los siguientes patrones <strong>no generan notificaciones por sí solos</strong>. Se registran internamente como señales de confluencia y aparecen en la notificación cuando RSI o EMA disparan una alerta:</p>
+<table>
+  <tr><th>Patrón</th><th>Señal</th></tr>
+  <tr><td>Canal bajista — ruptura alcista</td><td>El precio rompe hacia arriba el canal descendente</td></tr>
+  <tr><td>Canal bajista — ruptura bajista</td><td>El precio continúa la caída rompiendo el soporte del canal</td></tr>
+  <tr><td>Canal alcista — ruptura alcista</td><td>El precio rompe hacia arriba el canal ascendente</td></tr>
+  <tr><td>Canal alcista — ruptura bajista</td><td>El precio rompe a la baja el canal ascendente</td></tr>
+  <tr><td>Banderín alcista</td><td>Ruptura confirmada al alza del triángulo de consolidación</td></tr>
+  <tr><td>Banderín bajista</td><td>Ruptura confirmada a la baja del triángulo de consolidación</td></tr>
+  <tr><td>FVG (Fair Value Gap)</td><td>El precio cubre una ineficiencia de precios anterior</td></tr>
+</table>
+<div class="note">Los fakeouts (falsas rupturas) son detectados internamente para filtrar señales de mala calidad. Si el sistema detecta una posible falsa ruptura, el patrón NO se registra como confluencia.</div>
+
+<h3>Sistema de confluencia</h3>
+<p>Para que aparezca una <strong>Operación Bot</strong> en el mensaje de Telegram, se necesitan al menos <strong>2 señales alineadas</strong> en la misma dirección (alcista o bajista) dentro de una ventana de tiempo:</p>
+<table>
+  <tr><th>Temporalidad</th><th>Ventana de confluencia</th></tr>
+  <tr><td>1H</td><td>2 horas</td></tr>
+  <tr><td>4H</td><td>8 horas</td></tr>
+  <tr><td>Diario</td><td>48 horas</td></tr>
+  <tr><td>Semanal</td><td>2 semanas</td></tr>
+</table>
+<p>Ejemplo: RSI en sobreventa + banderín alcista con ruptura limpia = 2 señales alcistas → se muestra operación bot con entrada, SL, TP y ratio mínimo 1:2.</p>
+
+<h3>Comportamiento de las notificaciones</h3>
+<ul>
+  <li><strong>Una sola notificación por zona:</strong> Si el RSI entra en sobreventa (ej. 28), se envía UNA notificación. Aunque el RSI siga bajando (27, 26...) no se vuelve a notificar. Cuando el RSI sube por encima de 30 y vuelve a bajar, entonces sí se envía una nueva notificación.</li>
+  <li>Este comportamiento se mantiene incluso si recargas la página o la conexión se interrumpe.</li>
+</ul>
+
+<h3>Formato del mensaje de Telegram</h3>
+<p>Cada notificación incluye:</p>
+<ol>
+  <li>Tipo de señal e icono</li>
+  <li>Temporalidad y activo</li>
+  <li>RSI actual y divergencia/convergencia detectada</li>
+  <li>Precio actual</li>
+  <li>Dirección del volumen (ascendente / descendente / estable)</li>
+  <li>Bloque de confluencia: señales activas alineadas</li>
+  <li><strong>Operación Bot</strong> (solo con ≥2 señales): entrada sugerida, TP, SL y ratio R:R</li>
+  <li>Precisión histórica de este tipo de señal (%)</li>
+  <li>Botones ✅ / ❌ (solo en operaciones bot): para marcar si la señal fue correcta o falsa</li>
+</ol>
+
+<h3>Barra de herramientas de alertas</h3>
+<table>
+  <tr><th>Botón</th><th>Función</th></tr>
+  <tr><td>⏸ Pausa global</td><td>Detiene el envío de todas las notificaciones temporalmente</td></tr>
+  <tr><td>📋 Lista Telegram</td><td>Envía a Telegram un resumen de todos los activos monitorizados y predicciones activas</td></tr>
+  <tr><td>Telegram conectado</td><td>Accede a la configuración del bot de Telegram (token y chat ID)</td></tr>
+</table>
+
+<h3>Precisión de patrones</h3>
+<p>Cada vez que pulsas ✅ o ❌ en un mensaje de Telegram, se registra si la señal fue correcta o falsa. La pestaña de alertas muestra estadísticas de precisión por tipo de patrón. Cada dos semanas puedes enviar un informe de estadísticas a Telegram.</p>
+
+<h3>Configuración de Telegram</h3>
+<ol>
+  <li>Crea un bot en Telegram con @BotFather y copia el token.</li>
+  <li>Inicia una conversación con el bot y obtén tu Chat ID.</li>
+  <li>En la app, pulsa "Telegram conectado" e introduce el token y el Chat ID.</li>
+  <li>Pulsa "Verificar conexión" para confirmar que funciona.</li>
+  <li>Usa "📨 Enviar mensajes de prueba" para ver el formato de las notificaciones.</li>
+</ol>
+</div>
+
+<!-- 10. CHAT -->
+<div class="section">
+<h2 id="chat">10. Chat — Análisis &amp; Reflexión</h2>
+<p>Chat con Claude (IA de Anthropic) con dos modos de uso bien diferenciados.</p>
+
+<h3>Modo 📊 Análisis</h3>
+<p>Claude tiene acceso al contexto de tu cuenta: posiciones abiertas, historial reciente, P&amp;L y patrones. Úsalo para:</p>
+<ul>
+  <li>Pedir análisis técnico de un activo</li>
+  <li>Revisar si una operación tiene sentido dado tu perfil de riesgo</li>
+  <li>Preguntar por setups en las temporalidades que monitoreas</li>
+  <li>Cualquier consulta de mercado o estrategia</li>
+</ul>
+
+<h3>Modo 💭 Reflexión</h3>
+<p>Coach psicológico de trading. Claude analiza tu estado emocional, patrones de comportamiento y errores recurrentes. <strong>Estas conversaciones no se guardan en el historial de trades</strong> y no muestran el botón de Monitorizar.</p>
+
+<h3>Funciones del modo Análisis</h3>
+<table>
+  <tr><th>Función</th><th>Descripción</th></tr>
+  <tr><td>💾 Guardar predicción</td><td>Guarda la respuesta de Claude como predicción con nota opcional. Aparece en el historial de predicciones.</td></tr>
+  <tr><td>✈️ Monitorizar</td><td>Guarda la respuesta como predicción activa. Cuando saltan alertas de mercado, Telegram incluye un aviso indicando que tienes esa predicción en seguimiento.</td></tr>
+  <tr><td>📌 Anclar mensaje</td><td>El mensaje anclado siempre se incluye en el contexto que recibe Claude, aunque sea antiguo.</td></tr>
+  <tr><td>✕ Borrar mensaje</td><td>Elimina el mensaje del historial visible.</td></tr>
+  <tr><td>🎤 Voz</td><td>Dictado por voz para enviar mensajes.</td></tr>
+</table>
+
+<h3>Predicciones monitorizadas</h3>
+<ul>
+  <li>Un mensaje marcado con ✈️ Monitorizar muestra el badge <strong>✈️ Monitoreando</strong>.</li>
+  <li>La predicción permanece activa hasta que la elimines manualmente.</li>
+  <li>Cuando llega una alerta de Telegram, incluye el texto de las predicciones activas para que puedas valorar si se está cumpliendo.</li>
+  <li>El badge se mantiene aunque cambies de pestaña o recargues la página.</li>
+</ul>
+
+<h3>Configuración de la API de Claude</h3>
+<p>Para usar el chat necesitas una clave de API de Anthropic. Introdúcela en el campo de configuración del chat. Se guarda localmente en tu navegador.</p>
+</div>
+
+<div class="footer">
+  Trading Day — Manual de Usuario &nbsp;|&nbsp; Uso personal &nbsp;|&nbsp; Miguel Garcia Parrado
+</div>
+
+</body>
+</html>
