@@ -3856,17 +3856,28 @@ function AlertasTab({S,predictions}){
       }
       tgLines.push("");
       tgLines.push("⏰ "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
-      // Canal ascendente: bloque detallado en Telegram
+      // Canal: bloque detallado en Telegram
       if(extra.channelResult){
         var cr=extra.channelResult;
         tgLines.push("");
         var cLabel=cr.canalType==="alcista"?"📈 CANAL ASCENDENTE":"📉 CANAL DESCENDENTE";
         tgLines.push(cLabel+":");
         tgLines.push("   Toques soporte: "+cr.supportTouches+"  |  Toques resistencia: "+cr.resistTouches);
-        tgLines.push("   Calidad canal: "+cr.channelQuality+"% | Posición precio: "+Math.round(cr.pos*100)+"%");
-        tgLines.push("   Soporte $"+cr.botLine.toFixed(2)+"  —  Resistencia $"+cr.topLine.toFixed(2));
-        if(cr.canalType==="alcista"){
-          tgLines.push("   ⚠️ En canal ascendente la ruptura más frecuente es BAJISTA (compradores se agotan)");
+        tgLines.push("   Calidad: "+cr.channelQuality+"%");
+        tgLines.push("   Soporte dinámico: $"+parseFloat(cr.botLine).toFixed(2)+"  —  Resistencia: $"+parseFloat(cr.topLine).toFixed(2));
+        // Posición precio en lenguaje legible
+        var posLabel;
+        if(cr.pos<-0.15){posLabel="⬇️ Por debajo del canal";}
+        else if(cr.pos<=0.2){posLabel="📍 En soporte (zona baja)";}
+        else if(cr.pos>=0.8){posLabel="📍 En resistencia (zona alta)";}
+        else if(cr.pos>1.15){posLabel="⬆️ Por encima del canal";}
+        else{posLabel="↔️ Zona media del canal";}
+        tgLines.push("   Precio: "+posLabel);
+        if(cr.canalType==="bajista"&&!cr.breakout){
+          tgLines.push("   🎯 Alta probabilidad: esperar ruptura ALCISTA para confirmar cambio de tendencia");
+        }
+        if(cr.canalType==="alcista"&&!cr.breakout){
+          tgLines.push("   ⚠️ Ruptura más frecuente: BAJISTA (compradores se agotan)");
           if(cr.ascLowsOk)tgLines.push("   ✅ Mínimos ascendentes confirmados");
           if(cr.ascHighsOk)tgLines.push("   ✅ Máximos ascendentes confirmados");
         }
@@ -4254,7 +4265,7 @@ function AlertasTab({S,predictions}){
                   else if(curCZ==="out_below"){newNotifType="canal_"+curCT+"_ruptura_bajista";}
                   else if(curCZ==="resistance"){newNotifType="canal_"+curCT+"_resistencia";}
                   else{newNotifType="canal_"+curCT+"_soporte";}
-                  sendAlert(alert.label,alert.interval,rsi,newNotifType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:"🆕 Canal "+curCT+" detectado. "+chanResult.desc});
+                  sendAlert(alert.label,alert.interval,rsi,newNotifType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:"🆕 Canal "+curCT+" detectado. "+chanResult.desc,channelResult:chanResult});
                   confluenceRef.current[confKeyPat][newNotifType]=Date.now();
                 }
                 lastTrigRef.current[ak+"chan_type"]=curCT;
@@ -4273,7 +4284,7 @@ function AlertasTab({S,predictions}){
                     if(isHP&&!hpDone){
                       // ─── ALTA PROBABILIDAD: ruptura contraria al canal ─── siempre notificar
                       var hpType="canal_"+curCT+"_ruptura_"+(curCZ==="out_above"?"alcista":"bajista");
-                      sendAlert(alert.label,alert.interval,rsi,hpType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc});
+                      sendAlert(alert.label,alert.interval,rsi,hpType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc,channelResult:chanResult});
                       confluenceRef.current[confKeyPat][hpType]=Date.now();
                       lastTrigRef.current[ak+"chan_hp_done"]=true;
                     }else if(!isHP&&prevCZ!==curCZ){
@@ -4288,16 +4299,16 @@ function AlertasTab({S,predictions}){
                   if(reEntry){
                     // Re-entrada real tras salida (no fakeout)
                     var reEntryType="canal_"+curCT+(curCZ==="resistance"?"_resistencia":"_soporte");
-                    sendAlert(alert.label,alert.interval,rsi,reEntryType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:"↩️ RE-ENTRADA al canal "+curCT+". "+chanResult.desc});
+                    sendAlert(alert.label,alert.interval,rsi,reEntryType,ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:"↩️ RE-ENTRADA al canal "+curCT+". "+chanResult.desc,channelResult:chanResult});
                     confluenceRef.current[confKeyPat][reEntryType]=Date.now();
                     lastTrigRef.current[ak+"chan_was_out"]=false;
                   }else if(curCZ==="support"&&prevCZ!=="support"){
                     // Llegada al soporte dinámico
-                    sendAlert(alert.label,alert.interval,rsi,"canal_"+curCT+"_soporte",ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc});
+                    sendAlert(alert.label,alert.interval,rsi,"canal_"+curCT+"_soporte",ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc,channelResult:chanResult});
                     confluenceRef.current[confKeyPat]["canal_"+curCT+"_soporte"]=Date.now();
                   }else if(curCZ==="resistance"&&prevCZ!=="resistance"){
                     // Llegada a la resistencia dinámica
-                    sendAlert(alert.label,alert.interval,rsi,"canal_"+curCT+"_resistencia",ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc});
+                    sendAlert(alert.label,alert.interval,rsi,"canal_"+curCT+"_resistencia",ema7,ema25,null,closePrice,{ohlc:ohlc,customDesc:chanResult.desc,channelResult:chanResult});
                     confluenceRef.current[confKeyPat]["canal_"+curCT+"_resistencia"]=Date.now();
                   }
                   lastTrigRef.current[ak+"chan_zone"]=curCZ;
@@ -6588,8 +6599,9 @@ function detectChannelAlert(ohlc){
     if(!ascLowsOk&&!ascHighsOk)return null; // ambas fallando → no es canal ascendente válido
   }
 
-  // Calidad: contar toques reales en cada línea (pivots dentro del 12% de altura del canal)
-  var touchMargin=ch*0.12;
+  // Contar toques: todos los pivots que construyeron la regresión son toques válidos
+  // Margen amplio (35% altura canal) para incluir pivots con algo de ruido
+  var touchMargin=ch*0.35;
   var supportTouches=pivs.pL.filter(function(pt){
     var lineVal=rL.slope*pt[0]+rL.intercept;
     return Math.abs(pt[1]-lineVal)<=touchMargin;
@@ -6598,8 +6610,8 @@ function detectChannelAlert(ohlc){
     var lineVal=rH.slope*pt[0]+rH.intercept;
     return Math.abs(pt[1]-lineVal)<=touchMargin;
   }).length;
-  // Calidad general: más toques = canal más fiable
-  var channelQuality=Math.min(100,Math.round((supportTouches+resistTouches)/2*25));
+  // Calidad general: más toques = canal más fiable (mínimo 3 pivots de cada lado)
+  var channelQuality=Math.min(100,Math.round((supportTouches+resistTouches)/2*20));
 
   // Posición del precio dentro del canal (0 = soporte, 1 = resistencia)
   var pos=(price-botLine)/ch;
