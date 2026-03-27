@@ -3361,7 +3361,8 @@ function AlertasTab({ S, predictions }) {
         }).catch(function () { });
     }
     useEffect(function () {
-        var iv = setInterval(pollTelegramFeedback, 30000);
+        pollTelegramFeedback();
+        var iv = setInterval(pollTelegramFeedback, 10000);
         return function () { clearInterval(iv); };
     }, []);
     // Re-acquire wake lock when tab becomes visible again
@@ -3956,8 +3957,8 @@ function AlertasTab({ S, predictions }) {
                 tgLines.push("📊 Precisión histórica: " + fbPct + "% (" + fbStats.correct + " correctas / " + fbStats.total + " total)");
             }
             var tgFullText = tgLines.join("\n");
-            if (needsFb && fbStats.total < 50) {
-                // Send with inline keyboard asking for feedback
+            if (needsFb && hasConfluence && fbStats.total < 50) {
+                // Botones de feedback solo cuando hay operación bot (confluencia suficiente)
                 fetch("https://api.telegram.org/bot" + tk + "/sendMessage", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
