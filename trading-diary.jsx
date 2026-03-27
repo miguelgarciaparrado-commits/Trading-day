@@ -6613,6 +6613,9 @@ function detectChannelAlert(ohlc){
   // Calidad general: más toques = canal más fiable (mínimo 3 pivots de cada lado)
   var channelQuality=Math.min(100,Math.round((supportTouches+resistTouches)/2*20));
 
+  // ─── Validación obligatoria: canal requiere toques en AMBOS lados ───
+  if(supportTouches<2||resistTouches<2)return null;
+
   // Posición del precio dentro del canal (0 = soporte, 1 = resistencia)
   var pos=(price-botLine)/ch;
 
