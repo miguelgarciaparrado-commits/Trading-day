@@ -107,7 +107,7 @@ const J0=[
   {id:3,date:"19/03/2026",text:"Ineficiencia Fibonacci 0.5 en BTC confirmado. Patron validado.",emoji:"💪",type:"win"},
   {id:4,date:"20/03/2026",text:"BTC/USDT 70800 salio en BE. El SL hizo su trabajo.",emoji:"🧘",type:"lesson",linkedClose:"sl"},
 ];
-const PS0={slOk:14,slBroken:2,slBreakeven:0,earlyClose:8,tpAuto:0,tpManual:2,revenge:1,manualClose:4};
+const PS0={slOk:14,slBroken:2,slBreakeven:0,earlyClose:8,tpAuto:0,tpManual:2,revenge:1,manualClose:4,tpStreak:0,bestTpStreak:0};
 // Precios eliminados - se actualizan manualmente en la app
 
 // - HELPERS -
@@ -913,7 +913,10 @@ export default function App(){
         note="TP alcanzado";
       }
       newPs.tpAuto=(newPs.tpAuto||0)+1;
+      newPs.tpStreak=(newPs.tpStreak||0)+1;
+      if(newPs.tpStreak>(newPs.bestTpStreak||0))newPs.bestTpStreak=newPs.tpStreak;
     }else{
+      newPs.tpStreak=0; // Cierre manual interrumpe la racha
       // Si hay precio manual, usar ese; si no, usar precio de mercado
       if(manualPrice&&manualPrice>0){
         const r=p.dir==="Short"?(p.entry-manualPrice)/p.entry:(manualPrice-p.entry)/p.entry;
@@ -1016,6 +1019,7 @@ export default function App(){
           var slAutoNote=isBE?"⚖️ BE auto @ $"+price.toLocaleString():"🛑 SL auto @ $"+price.toLocaleString();
           entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(slResult.toFixed(2)),date:today(),note:slAutoNote,autoClose:true,...(slRatio!==null?{ratio:slRatio}:{})});
           if(isBE){psU.slBreakeven=(psU.slBreakeven||0)+1;}else{psU.slOk=(psU.slOk||0)+1;}
+          psU.tpStreak=0; // SL rompe la racha
           changed=true;
           notifyAutoClose(p.asset,p.dir,"SL ejecutado",price,slResult);
           kept=false;
@@ -1043,6 +1047,8 @@ export default function App(){
           var fullRatio=calcPosRatio(p);
           if(fullRatio!==null){psU.ratioSum=(psU.ratioSum||0)+fullRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
           psU.tpAuto=(psU.tpAuto||0)+1;
+          psU.tpStreak=(psU.tpStreak||0)+1;
+          if(psU.tpStreak>(psU.bestTpStreak||0))psU.bestTpStreak=psU.tpStreak;
           var tpPrices=updLevels.map(function(l){return "$"+parseFloat(l.price).toLocaleString();}).join("/");
           entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(totalResult.toFixed(2)),date:today(),note:"🎯 TPs completados "+tpPrices,autoClose:true,...(fullRatio!==null?{ratio:fullRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})});
           changed=true;continue;
@@ -1063,6 +1069,8 @@ export default function App(){
           if(tpRatio!==null){psU.ratioSum=(psU.ratioSum||0)+tpRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
           entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(tpResult.toFixed(2)),date:today(),note:"🎯 TP auto @ $"+price.toLocaleString(),autoClose:true,...(tpRatio!==null?{ratio:tpRatio}:{})});
           psU.tpAuto=(psU.tpAuto||0)+1;
+          psU.tpStreak=(psU.tpStreak||0)+1;
+          if(psU.tpStreak>(psU.bestTpStreak||0))psU.bestTpStreak=psU.tpStreak;
           changed=true;
           notifyAutoClose(p.asset,p.dir,"TP alcanzado",price,tpResult);
           continue;
@@ -1195,6 +1203,7 @@ export default function App(){
                 {l:"OPS TOTALES",v:hist.length,c:"#e0e0e0"},
                 {l:"TASA GANADORA",v:Math.round(wins/hist.length*100)+"%",c:"#f0b429"},
                 {l:"RATIO R:R MEDIO",v:(()=>{const cnt=ps.ratioCount||0;const sum=ps.ratioSum||0;return cnt>0?"1 : "+(sum/cnt).toFixed(2)+" ("+cnt+"ops)":"--";})(),c:"#88aaff"},
+                {l:"🔥 RACHA TP AUTO",v:(()=>{const s=ps.tpStreak||0;const b=ps.bestTpStreak||0;return s>0?s+" consecutivos (récord: "+b+")":b>0?"0 (récord: "+b+")":"--";})(),c:(ps.tpStreak||0)>=3?"#00ff88":(ps.tpStreak||0)>0?"#f0b429":"#555"},
                 {l:"ROI HISTORICO",v:(()=>{const inv=hist.reduce((a,h)=>a+(h.cap||0),0);return inv>0?(h0Total/inv*100).toFixed(1)+"%":"--";})(),c:h0Total>=0?"#00ff88":"#ff4444"},
                 {l:"ROI ETH LEGADO",v:((pr.ETH-3621.58)/3621.58*100).toFixed(1)+"%",c:pr.ETH>=3621.58?"#00ff88":"#ff4444"},
                 {l:"ROI ACTIVAS",v:(()=>{const inv=pos.reduce((a,p)=>a+p.capital,0);return inv>0?(actPnl/inv*100).toFixed(1)+"%":"--";})(),c:actPnl>=0?"#00ff88":"#ff4444"},
