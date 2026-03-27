@@ -5985,9 +5985,26 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
   // Direction-aware validation: for SHORT, SL must be above entry and TP below; for LONG, reversed
   const slValid=(!f.sl||!f.entry)||(isShort?(sl>e2):(sl<e2));
   const tpValid=(!f.tp||!f.entry)||(isShort?(tp2<e2):(tp2>e2));
-  const risk=hasCalc?cap*Math.abs(e2-sl)/e2:0;
-  const reward=hasCalc&&tpValid?cap*Math.abs(tp2-e2)/e2:0;
-  const ratio=risk>0&&tpValid?reward/risk:0;
+  const hasTpLvls=(f.tpLevels&&f.tpLevels.length>0&&f.tpLevels.some(function(l){return l.price&&(l.pct||l.capInput);}));
+  const hasCalcFull=f.entry&&f.sl&&f.capital&&(f.tp||hasTpLvls);
+  const risk=hasCalcFull?cap*Math.abs(e2-sl)/e2:0;
+  // Ganancia: si hay niveles parciales, sumar cada nivel por separado
+  var reward=0;var rewardValid=false;
+  if(hasTpLvls&&cap>0&&e2>0){
+    var lvlSum=(f.tpLevels||[]).reduce(function(sum,lvl){
+      var lvlCap=parseFloat(lvl.capInput)||0;
+      if(!lvlCap){var pN=parseFloat(lvl.pct)||0;lvlCap=pN>0?cap*pN/100:0;}
+      var lvlP=parseFloat(lvl.price)||0;
+      if(!lvlP||!lvlCap)return sum;
+      if(isShort&&lvlP>=e2)return sum;
+      if(!isShort&&lvlP<=e2)return sum;
+      return sum+lvlCap*Math.abs(lvlP-e2)/e2;
+    },0);
+    reward=lvlSum;rewardValid=lvlSum>0;
+  }else if(hasCalcFull&&tpValid){
+    reward=cap*Math.abs(tp2-e2)/e2;rewardValid=true;
+  }
+  const ratio=risk>0&&rewardValid?reward/risk:0;
   return(
     <div style={S.modal}><div style={S.mc}>
       <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>{editId?"EDITAR OPERACION":"NUEVA OPERACION"}</div>
@@ -6126,7 +6143,7 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
           return <div style={{fontSize:8,color:tot>100?"#ff4444":tot===100?"#00ff88":"#f0b429",textAlign:"right",marginTop:2}}>Total: {tot}%{tot>100?" ⚠ supera 100%":tot===100?" ✓":""}</div>;
         })()}
       </div>
-      {hasCalc&&(
+      {hasCalcFull&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
           <div style={{background:slValid?"rgba(255,68,68,.06)":"rgba(255,136,68,.1)",border:slValid?"none":"1px solid rgba(255,136,68,.4)",borderRadius:4,padding:"8px 10px"}}>
             <div style={{fontSize:8,color:slValid?"#555":"#ff8844",marginBottom:2}}>
@@ -6138,17 +6155,18 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
               : <div style={{fontSize:11,fontWeight:700,color:"#ff4444"}}>{fmtNum(-risk)}</div>
             }
           </div>
-          <div style={{background:tpValid?"rgba(0,255,136,.06)":"rgba(255,136,68,.1)",border:tpValid?"none":"1px solid rgba(255,136,68,.4)",borderRadius:4,padding:"8px 10px"}}>
-            <div style={{fontSize:8,color:tpValid?"#555":"#ff8844",marginBottom:2}}>
+          <div style={{background:rewardValid?"rgba(0,255,136,.06)":"rgba(255,136,68,.1)",border:rewardValid?"none":"1px solid rgba(255,136,68,.4)",borderRadius:4,padding:"8px 10px"}}>
+            <div style={{fontSize:8,color:rewardValid?"#555":"#ff8844",marginBottom:2}}>
               TP - GANANCIA MÁXIMA
-              {!tpValid&&<span> ⚠ {isShort?"debe ser MENOR que entrada":"debe ser MAYOR que entrada"}</span>}
+              {hasTpLvls&&<span style={{color:"#444"}}> (parciales)</span>}
+              {!rewardValid&&!hasTpLvls&&<span> ⚠ {isShort?"debe ser MENOR que entrada":"debe ser MAYOR que entrada"}</span>}
             </div>
-            {tpValid
+            {rewardValid
               ? <div style={{fontSize:11,fontWeight:700,color:"#00ff88"}}>{fmtNum(reward)}</div>
               : <div style={{fontSize:10,fontWeight:700,color:"#ff8844"}}>—</div>
             }
           </div>
-          {risk>0&&tpValid&&(
+          {risk>0&&rewardValid&&(
             <div style={{gridColumn:"1/-1",textAlign:"center",fontSize:10,color:ratio>=3?"#00ff88":ratio>=2?"#f0b429":"#ff4444",fontWeight:700}}>
               {"Ratio R:B 1:"+ratio.toFixed(1)+" "+(ratio>=3?"Sólido":ratio>=2?"Aceptable":"Insuficiente")}
             </div>
