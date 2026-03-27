@@ -5828,7 +5828,17 @@ function CalendarioTab({hist,fmtNum}){
 }
 
 function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,jnl,SJ}){
-  const[f,setF]=useState(form);
+  const[f,setF]=useState(function(){
+    // Pre-poblar capInput en niveles existentes al editar
+    var cap=parseFloat(form.capital)||0;
+    if(cap>0&&form.tpLevels&&form.tpLevels.length>0){
+      return{...form,tpLevels:form.tpLevels.map(function(l){
+        var pctN=parseFloat(l.pct)||0;
+        return{...l,capInput:pctN>0?(cap*pctN/100).toFixed(2):(l.capInput||"")};
+      })};
+    }
+    return form;
+  });
   const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {ticker,price,name} | "error"
   const[preReflection,setPreReflection]=useState(form.preReflection||"");
   function addTpLevel(){setF(function(prev){return{...prev,tpLevels:[...(prev.tpLevels||[]),{id:Date.now(),price:"",pct:"",capInput:""}]};});}
@@ -6053,10 +6063,25 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
           return <div style={{fontSize:8,color:"#f0b429",marginTop:3}}>📊 {pat.name} — {pat.obs} observaciones, {pat.obs>0?Math.round(pat.conf/pat.obs*100):0}% confirmado</div>;
         })()}
       </div>
-      {[["CAPITAL ($)","capital","2000"],["PRECIO ENTRADA","entry","70800"],["PRECIO STOP LOSS","sl","71775"],["PRECIO TAKE PROFIT","tp","44000"]].map(([l,k,ph])=>(
+      {[["CAPITAL ($)","capital","2000"],["PRECIO ENTRADA","entry","70800"],["PRECIO STOP LOSS","sl","71775"],["PRECIO TAKE PROFIT","tp","44000"]].map(function(row){var l=row[0],k=row[1],ph=row[2];return(
         <div key={k} style={{marginBottom:9}}>
           <div style={S.lbl}>{l}</div>
-          <input style={S.inp} type="number" placeholder={ph} value={f[k]||""} onChange={e=>setF({...f,[k]:e.target.value})}/>
+          <input style={S.inp} type="number" placeholder={ph} value={f[k]||""} onChange={function(e){
+            var val=e.target.value;
+            if(k==="capital"){
+              // Al cambiar capital: recalcular capInput de todos los niveles
+              var newCap=parseFloat(val)||0;
+              setF(function(prev){
+                var newLevels=(prev.tpLevels||[]).map(function(lv){
+                  var pctN=parseFloat(lv.pct)||0;
+                  return{...lv,capInput:pctN>0&&newCap>0?(newCap*pctN/100).toFixed(2):(lv.capInput||"")};
+                });
+                return{...prev,capital:val,tpLevels:newLevels};
+              });
+            }else{
+              setF(function(prev){return{...prev,[k]:val};});
+            }
+          }}/>
         </div>
       ))}
       {/* Ventas parciales */}
