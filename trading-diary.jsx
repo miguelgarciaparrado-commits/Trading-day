@@ -2672,9 +2672,10 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
 
       // Extract evaluation for profile update and save to journal
       const evalMatch=raw.match(/EVALUACION_TRADER:(positivo|negativo|neutro):(.+)/);
-      if(evalMatch){
-        const evalType=evalMatch[1];
-        const evalDesc=evalMatch[2].trim();
+      if(isReflexion){
+        // Guardar siempre una entrada de reflexión, con o sin etiqueta de evaluación
+        var evalType=evalMatch?evalMatch[1]:"neutro";
+        var evalDesc=evalMatch?evalMatch[2].trim():"Sesión de coaching — reflexión completada";
         const jEntry={
           id:Date.now(),
           date:new Date().toLocaleDateString("es-ES"),
