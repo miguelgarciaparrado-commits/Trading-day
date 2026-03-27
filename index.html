@@ -4385,46 +4385,69 @@ function AlertasTab({ S, predictions }) {
                             }
                         }
                     }
-                    // ─── BANDERÍN ALCISTA: solo en vela confirmada (k.x) ───
+                    // ─── PATRONES CHARTISTAS: solo registran confluencia, no disparan notificación ───
+                    // Las notificaciones vienen de RSI/EMA; los patrones confirman la señal
                     if (k.x) {
+                        var confKeyPat = alert.label + "|" + alert.interval;
+                        if (!confluenceRef.current[confKeyPat])
+                            confluenceRef.current[confKeyPat] = {};
+                        // Banderín alcista
                         var pennantResult = detectBullishPennant(ohlc);
-                        // Reset lock when pattern disappears (price pulled back inside consolidation)
                         if (!pennantResult || !pennantResult.breakout) {
                             lastTrigRef.current[ak + "pennant_bull"] = false;
                             lastTrigRef.current[ak + "pennant_fake"] = false;
+                            delete confluenceRef.current[confKeyPat]["pennant_bull"];
                         }
                         if (pennantResult && pennantResult.breakout) {
                             if (!pennantResult.falseBrkWarning) {
-                                if (!lastTrigRef.current[ak + "pennant_bull"]) {
-                                    lastTrigRef.current[ak + "pennant_bull"] = true;
-                                    lastTrigRef.current[ak + "pennant_fake"] = false;
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bull", null, null, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: pennantResult });
-                                }
+                                // Ruptura limpia → registrar como señal de confluencia alcista
+                                confluenceRef.current[confKeyPat]["pennant_bull"] = Date.now();
+                                lastTrigRef.current[ak + "pennant_bull"] = true;
+                                lastTrigRef.current[ak + "pennant_fake"] = false;
                             }
                             else {
-                                // Fakeout detectado — rastrear estado internamente, no notificar
-                                // Cuando el fakeout se resuelva y sea limpio, pennant_bull disparará
+                                // Fakeout → no registrar (patrón no confirmado)
                                 lastTrigRef.current[ak + "pennant_fake"] = true;
+                                delete confluenceRef.current[confKeyPat]["pennant_bull"];
                             }
                         }
-                        // ─── BANDERÍN BAJISTA ───
+                        // Banderín bajista
                         var bearPennantResult = detectBearishPennant(ohlc);
                         if (!bearPennantResult || !bearPennantResult.breakout) {
                             lastTrigRef.current[ak + "pennant_bear"] = false;
                             lastTrigRef.current[ak + "pennant_bear_fake"] = false;
+                            delete confluenceRef.current[confKeyPat]["pennant_bear"];
                         }
                         if (bearPennantResult && bearPennantResult.breakout) {
                             if (!bearPennantResult.falseBrkWarning) {
-                                if (!lastTrigRef.current[ak + "pennant_bear"]) {
-                                    lastTrigRef.current[ak + "pennant_bear"] = true;
-                                    lastTrigRef.current[ak + "pennant_bear_fake"] = false;
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bear", null, null, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, pennantResult: bearPennantResult });
-                                }
+                                confluenceRef.current[confKeyPat]["pennant_bear"] = Date.now();
+                                lastTrigRef.current[ak + "pennant_bear"] = true;
+                                lastTrigRef.current[ak + "pennant_bear_fake"] = false;
                             }
                             else {
-                                // Fakeout detectado — rastrear estado internamente, no notificar
                                 lastTrigRef.current[ak + "pennant_bear_fake"] = true;
+                                delete confluenceRef.current[confKeyPat]["pennant_bear"];
                             }
+                        }
+                        // Canal
+                        var CHAN_BREAKOUT_TYPES = ["canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista"];
+                        var channelResult = detectChannelAlert(ohlc);
+                        var chanType = channelResult && CHAN_BREAKOUT_TYPES.indexOf(channelResult.type) >= 0 ? channelResult.type : null;
+                        // Limpiar canales previos que ya no están activos
+                        CHAN_BREAKOUT_TYPES.forEach(function (ct) {
+                            if (ct !== chanType)
+                                delete confluenceRef.current[confKeyPat][ct];
+                        });
+                        if (chanType) {
+                            confluenceRef.current[confKeyPat][chanType] = Date.now();
+                        }
+                        // FVG
+                        var fvgResult = checkFVGCovered(ohlc, closePrice);
+                        if (fvgResult) {
+                            confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
+                        }
+                        else {
+                            delete confluenceRef.current[confKeyPat]["patron_fvg"];
                         }
                     }
                     // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
@@ -4474,43 +4497,6 @@ function AlertasTab({ S, predictions }) {
                     }
                     // Nota: el reseteo del cruce EMA se hace solo en vela CERRADA (dentro del if k.x de arriba)
                     // No se resetea en ticks intermedios para evitar re-disparar cuando el precio fluctúa
-                    // Canal + FVG: siempre activos en vela confirmada (ya no requieren toggle manual)
-                    if (k.x) {
-                        var channelResult = detectChannelAlert(ohlc);
-                        var fvgResult = checkFVGCovered(ohlc, closePrice);
-                        // Canal: usar tipo específico como llave de deduplicación
-                        // Reset cuando el tipo cambia (precio salió de la zona)
-                        var chanTypeNow2 = channelResult ? channelResult.type : "";
-                        if (chanTypeNow2 !== lastTrigRef.current[ak + "chan_cur"]) {
-                            lastTrigRef.current[ak + "chan_cur"] = chanTypeNow2;
-                            // Solo dispara si tenemos un nuevo tipo de señal de canal
-                            if (channelResult) {
-                                var cExtra = { ohlc: ohlc, volDir: volDir, divResult: divResult, channelResult: channelResult };
-                                // Combo con FVG (señal de mayor calidad)
-                                var CHAN_BREAKOUT_TYPES = ["canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista"];
-                                var isChanBreakout = CHAN_BREAKOUT_TYPES.indexOf(channelResult.type) >= 0;
-                                if (fvgResult && isChanBreakout) {
-                                    var comboKey2 = ak + "combo_" + channelResult.type + "_" + fvgResult.age;
-                                    if (!lastTrigRef.current[comboKey2]) {
-                                        lastTrigRef.current[comboKey2] = true;
-                                        sendAlert(alert.label, alert.interval, rsi, "patron_combo", null, null, channelResult.desc + " + FVG " + fvgResult.subtype + " ($" + fvgResult.bot.toFixed(2) + "–$" + fvgResult.top.toFixed(2) + ")", closePrice, cExtra);
-                                    }
-                                }
-                                else if (isChanBreakout) {
-                                    // Solo notificar rupturas — soporte/resistencia se ignoran
-                                    sendAlert(alert.label, alert.interval, rsi, channelResult.type, null, null, channelResult.desc, closePrice, cExtra);
-                                }
-                            }
-                        }
-                        // FVG sin canal (siempre activo)
-                        if (!channelResult && fvgResult) {
-                            var fvgKey2 = ak + "fvg_" + fvgResult.subtype + "_" + fvgResult.age;
-                            if (!lastTrigRef.current[fvgKey2]) {
-                                lastTrigRef.current[fvgKey2] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "patron_fvg", null, null, "FVG " + fvgResult.subtype + " cubierta — zona $" + fvgResult.bot.toFixed(2) + "–$" + fvgResult.top.toFixed(2) + " (hace " + fvgResult.age + " velas)", closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
-                            }
-                        }
-                    }
                 };
                 ws.onerror = function () {
                     // will be followed by onclose, handle reconnect there
