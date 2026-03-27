@@ -3252,6 +3252,7 @@ function AlertasTab({S,predictions}){
   const ohlcRef=useRef({});
   const lastTrigRef=useRef({});
   const rsiHistRef=useRef({}); // rolling RSI history per key for divergence detection
+  const confluenceRef=useRef({}); // {symbol+"|"+interval: {signalType: timestamp}} para confluencia
   const[emaData,setEmaData]=useState({});
   const[showImport,setShowImport]=useState(false);
   const[importText,setImportText]=useState("");
@@ -3607,17 +3608,29 @@ function AlertasTab({S,predictions}){
         else if(dr.kind==="convergence"&&dr.type==="bullish")divConvLine="📈 Convergencia alcista";
         else if(dr.kind==="convergence"&&dr.type==="bearish")divConvLine="📉 Convergencia bajista";
       }
-      // Precio de entrada y operación sugerida
+      // ─── CONFLUENCIA: registrar señal y calcular señales alineadas ───
+      var BULLISH_TYPES=["rsi_oversold","golden","ema200_golden","rsi_div_bull","rsi_conv_bull","patron_fvg","pennant_bull","pennant_fake","canal_bajista_ruptura_alcista","canal_alcista_soporte","canal_alcista_ruptura_alcista"];
+      var BEARISH_TYPES=["rsi_overbought","death","ema200_death","rsi_div_bear","rsi_conv_bear","pennant_bear","pennant_bear_fake","canal_alcista_ruptura_bajista","canal_bajista_resistencia","canal_bajista_ruptura_bajista","canal_alcista_resistencia"];
+      var confKey=label+"|"+interval;
+      if(!confluenceRef.current[confKey])confluenceRef.current[confKey]={};
+      confluenceRef.current[confKey][type]=Date.now();
+      var confWindowMs={"1h":7200000,"4h":28800000,"1d":172800000,"1w":1209600000};
+      var confWindow=confWindowMs[interval]||28800000;
+      var confNow=Date.now();
+      var confMap=confluenceRef.current[confKey];
+      var SIGNAL_LABELS={"rsi_oversold":"RSI sobreventa","rsi_overbought":"RSI sobrecompra","golden":"Cruce dorado EMA 7/25","death":"Cruce muerte EMA 7/25","ema200_golden":"Cruce dorado EMA 50/200","ema200_death":"Cruce muerte EMA 50/200","rsi_div_bull":"Divergencia alcista RSI","rsi_div_bear":"Divergencia bajista RSI","rsi_conv_bull":"Convergencia alcista RSI","rsi_conv_bear":"Convergencia bajista RSI","patron_fvg":"FVG cubierta","pennant_bull":"Banderín alcista","pennant_fake":"Banderín alcista (posible falso)","pennant_bear":"Banderín bajista","pennant_bear_fake":"Banderín bajista (posible falso)","canal_bajista_ruptura_alcista":"Canal — ruptura alcista","canal_alcista_soporte":"Canal alcista — soporte","canal_alcista_ruptura_alcista":"Canal — ruptura alcista confirmada","canal_alcista_ruptura_bajista":"Canal — ruptura bajista","canal_bajista_resistencia":"Canal bajista — resistencia","canal_bajista_ruptura_bajista":"Canal — ruptura bajista confirmada","canal_alcista_resistencia":"Canal alcista — resistencia"};
       var ohlcData=extra.ohlc||[];
-      var isLong=["rsi_oversold","golden","ema200_golden","rsi_div_bull","rsi_conv_bull","patron_fvg","pennant_bull","pennant_fake","canal_bajista_ruptura_alcista","canal_alcista_soporte","canal_alcista_ruptura_alcista"].indexOf(type)>=0;
-      // Bearish pennant overrides direction to Short
+      var isLong=BULLISH_TYPES.indexOf(type)>=0;
       if(type==="pennant_bear"||type==="pennant_bear_fake")isLong=false;
+      var alignedTypes=isLong?BULLISH_TYPES:BEARISH_TYPES;
+      var activeSignals=alignedTypes.filter(function(t){return confMap[t]&&(confNow-confMap[t])<confWindow;});
+      var confluenceCount=activeSignals.length;
       var sugDir=isLong?"Long":"Short";
       var entryPrice=price||0;
       var slPct=0.02;
       var slPrice=isLong?entryPrice*(1-slPct):entryPrice*(1+slPct);
       // Buscar FVG para TP
-      var tpPrice=null;var tpNote="2:1";
+      var tpPrice=null;var tpNote="1:2 mínimo";
       if(ohlcData.length>4){
         for(var fi=2;fi<ohlcData.length;fi++){
           var fc0=ohlcData[fi-2],fc2=ohlcData[fi];
@@ -3631,20 +3644,30 @@ function AlertasTab({S,predictions}){
           }
         }
       }
-      // Banderín: TP = altura del asta proyectada (alcista o bajista)
+      // Banderín: TP = altura del asta proyectada
       if(!tpPrice&&extra.pennantResult&&extra.pennantResult.targetPrice){
         tpPrice=extra.pennantResult.targetPrice;
-        tpNote=(type==="pennant_bear"||type==="pennant_bear_fake")?"Objetivo banderín bajista (altura asta)":"Objetivo banderín (altura asta)";
+        tpNote=(type==="pennant_bear"||type==="pennant_bear_fake")?"Objetivo banderín bajista":"Objetivo banderín alcista";
       }
       if(!tpPrice)tpPrice=isLong?entryPrice*(1+slPct*2):entryPrice*(1-slPct*2);
       var riskAmt=Math.abs(entryPrice-slPrice);
       var rewardAmt=Math.abs(tpPrice-entryPrice);
-      var ratioBot=riskAmt>0?(rewardAmt/riskAmt).toFixed(2):"--";
+      // ─── RATIO MÍNIMO 1:2 ───
+      if(riskAmt>0&&rewardAmt/riskAmt<2.0){
+        tpPrice=isLong?entryPrice+riskAmt*2:entryPrice-riskAmt*2;
+        tpNote="1:2 mínimo";
+        rewardAmt=Math.abs(tpPrice-entryPrice);
+      }
+      var ratioNum=riskAmt>0?rewardAmt/riskAmt:0;
+      var ratioBot=riskAmt>0?ratioNum.toFixed(2):"--";
       var slPctShow=((Math.abs(entryPrice-slPrice)/entryPrice)*100).toFixed(1);
       var tpPctShow=((Math.abs(tpPrice-entryPrice)/entryPrice)*100).toFixed(1);
-      // Guardar operación bot
-      var botOp={id:Date.now(),date:new Date().toLocaleDateString("es-ES"),time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),asset:label,interval:tf,signal:type,dir:sugDir,entry:parseFloat(entryPrice.toFixed(4)),sl:parseFloat(slPrice.toFixed(4)),tp:parseFloat(tpPrice.toFixed(4)),ratio:parseFloat(ratioBot),tpNote:tpNote,result:null,hit:null};
-      try{var prevBotOps=JSON.parse(localStorage.getItem("td-bot-ops")||"[]");prevBotOps.unshift(botOp);localStorage.setItem("td-bot-ops",JSON.stringify(prevBotOps.slice(0,100)));}catch(e){}
+      var hasConfluence=confluenceCount>=2;
+      // Guardar operación bot solo si confluencia y ratio ok
+      if(hasConfluence){
+        var botOp={id:Date.now(),date:new Date().toLocaleDateString("es-ES"),time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),asset:label,interval:tf,signal:type,dir:sugDir,entry:parseFloat(entryPrice.toFixed(4)),sl:parseFloat(slPrice.toFixed(4)),tp:parseFloat(tpPrice.toFixed(4)),ratio:parseFloat(ratioBot),tpNote:tpNote,result:null,hit:null};
+        try{var prevBotOps=JSON.parse(localStorage.getItem("td-bot-ops")||"[]");prevBotOps.unshift(botOp);localStorage.setItem("td-bot-ops",JSON.stringify(prevBotOps.slice(0,100)));}catch(e){}
+      }
       // Construir mensaje Telegram
       var tgLines=[];
       tgLines.push("📊 "+title);
@@ -3674,12 +3697,24 @@ function AlertasTab({S,predictions}){
           tgLines.push("   ⚠️ Señales falsa ruptura: "+pr2.falseBrkReasons.join(" · "));
         }
       }
+      // ─── Confluencia en el mensaje ───
       tgLines.push("");
-      tgLines.push("💡 Operación Bot ("+sugDir+"):");
-      tgLines.push("   📍 Entrada: $"+parseFloat(entryPrice).toLocaleString("es-ES",{maximumFractionDigits:4}));
-      tgLines.push("   🎯 TP: $"+parseFloat(tpPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (+"+tpPctShow+"%) ["+tpNote+"]");
-      tgLines.push("   🛑 SL: $"+parseFloat(slPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (-"+slPctShow+"%)");
-      tgLines.push("   ⚖️ Ratio: 1:"+ratioBot);
+      if(activeSignals.length>0){
+        var signalNames=activeSignals.map(function(t){return SIGNAL_LABELS[t]||t;});
+        tgLines.push("🔀 Confluencia ("+confluenceCount+" señales "+sugDir+"):");
+        signalNames.forEach(function(s){tgLines.push("   ✅ "+s);});
+      }
+      tgLines.push("");
+      if(hasConfluence){
+        tgLines.push("💡 Operación Bot ("+sugDir+") — "+confluenceCount+" señales alineadas:");
+        tgLines.push("   📍 Entrada: $"+parseFloat(entryPrice).toLocaleString("es-ES",{maximumFractionDigits:4}));
+        tgLines.push("   🎯 TP: $"+parseFloat(tpPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (+"+tpPctShow+"%) ["+tpNote+"]");
+        tgLines.push("   🛑 SL: $"+parseFloat(slPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (-"+slPctShow+"%)");
+        tgLines.push("   ⚖️ Ratio: 1:"+ratioBot);
+      }else{
+        tgLines.push("⚠️ Sin operación bot — confluencia insuficiente ("+confluenceCount+"/2 señales alineadas)");
+        tgLines.push("   Espera más señales "+sugDir+" en "+tf+" para entrada de calidad");
+      }
       tgLines.push("");
       tgLines.push("⏰ "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
       // Canal ascendente: bloque detallado en Telegram
