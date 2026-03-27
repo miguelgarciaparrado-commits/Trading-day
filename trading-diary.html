@@ -3801,45 +3801,54 @@ function AlertasTab({ S, predictions }) {
             var entryPrice = price || 0;
             var slPct = 0.02;
             var slPrice = isLong ? entryPrice * (1 - slPct) : entryPrice * (1 + slPct);
-            // Buscar FVG para TP
+            // Buscar siguiente FVG (ineficiencia) en dirección del trade
             var tpPrice = null;
             var tpNote = "1:2 mínimo";
-            if (ohlcData.length > 4) {
+            var riskAmt = Math.abs(entryPrice - slPrice);
+            if (ohlcData.length > 4 && riskAmt > 0) {
+                var fvgCands = [];
                 for (var fi = 2; fi < ohlcData.length; fi++) {
                     var fc0 = ohlcData[fi - 2], fc2 = ohlcData[fi];
                     if (isLong && fc2.l > fc0.h) {
-                        var mid = (fc2.l + fc0.h) / 2;
-                        if (mid > entryPrice && (mid - entryPrice) / entryPrice < 0.06 && (mid - entryPrice) / entryPrice > 0.005) {
-                            tpPrice = mid;
-                            tpNote = "FVG alcista";
-                            break;
+                        var fvgMid = (fc2.l + fc0.h) / 2;
+                        if (fvgMid > entryPrice) {
+                            fvgCands.push({ price: fvgMid, note: "FVG alcista $" + fc0.h.toFixed(2) + "–$" + fc2.l.toFixed(2) });
                         }
                     }
                     if (!isLong && fc2.h < fc0.l) {
-                        var mid2 = (fc2.h + fc0.l) / 2;
-                        if (mid2 < entryPrice && (entryPrice - mid2) / entryPrice < 0.06 && (entryPrice - mid2) / entryPrice > 0.005) {
-                            tpPrice = mid2;
-                            tpNote = "FVG bajista";
-                            break;
+                        var fvgMid2 = (fc2.h + fc0.l) / 2;
+                        if (fvgMid2 < entryPrice) {
+                            fvgCands.push({ price: fvgMid2, note: "FVG bajista $" + fc2.h.toFixed(2) + "–$" + fc0.l.toFixed(2) });
                         }
                     }
                 }
+                // Ordenar por proximidad al precio de entrada
+                fvgCands.sort(function (a, b) { return Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice); });
+                // Usar el FVG más cercano que dé ratio ≥1:2
+                for (var ci = 0; ci < fvgCands.length; ci++) {
+                    var cand = fvgCands[ci];
+                    var candReward = Math.abs(cand.price - entryPrice);
+                    if (candReward / riskAmt >= 2.0) {
+                        tpPrice = cand.price;
+                        tpNote = cand.note;
+                        break;
+                    }
+                }
             }
-            // Banderín: TP = altura del asta proyectada
+            // Banderín: TP = altura del asta proyectada (si da ≥1:2)
             if (!tpPrice && extra.pennantResult && extra.pennantResult.targetPrice) {
-                tpPrice = extra.pennantResult.targetPrice;
-                tpNote = (type === "pennant_bear" || type === "pennant_bear_fake") ? "Objetivo banderín bajista" : "Objetivo banderín alcista";
+                var pennTP = extra.pennantResult.targetPrice;
+                var pennReward = Math.abs(pennTP - entryPrice);
+                if (riskAmt <= 0 || pennReward / riskAmt >= 2.0) {
+                    tpPrice = pennTP;
+                    tpNote = (type === "pennant_bear" || type === "pennant_bear_fake") ? "Objetivo banderín bajista" : "Objetivo banderín alcista";
+                }
             }
-            if (!tpPrice)
-                tpPrice = isLong ? entryPrice * (1 + slPct * 2) : entryPrice * (1 - slPct * 2);
-            var riskAmt = Math.abs(entryPrice - slPrice);
-            var rewardAmt = Math.abs(tpPrice - entryPrice);
-            // ─── RATIO MÍNIMO 1:2 ───
-            if (riskAmt > 0 && rewardAmt / riskAmt < 2.0) {
+            // Fallback: 1:2 mínimo
+            if (!tpPrice) {
                 tpPrice = isLong ? entryPrice + riskAmt * 2 : entryPrice - riskAmt * 2;
-                tpNote = "1:2 mínimo";
-                rewardAmt = Math.abs(tpPrice - entryPrice);
             }
+            var rewardAmt = Math.abs(tpPrice - entryPrice);
             var ratioNum = riskAmt > 0 ? rewardAmt / riskAmt : 0;
             var ratioBot = riskAmt > 0 ? ratioNum.toFixed(2) : "--";
             var slPctShow = ((Math.abs(entryPrice - slPrice) / entryPrice) * 100).toFixed(1);
