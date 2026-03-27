@@ -1469,6 +1469,10 @@ export default function App(){
                           <span style={{fontSize:14,fontWeight:700}}>{p.asset}</span>
                           <span style={S.bdg(p.dir==="Short"?"#ff4444":"#00ff88")}>{p.dir}</span>
                           <span style={{fontSize:7,color:"#f0b429",background:"rgba(240,180,41,.1)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(240,180,41,.3)"}}>EN ESPERA</span>
+                          {p.patternId&&(function(){
+                            var pat=pats.find(function(x){return String(x.id)===String(p.patternId);});
+                            return pat?<span style={{fontSize:7,color:"#88aaff",background:"rgba(136,170,255,.08)",padding:"2px 6px",borderRadius:3,border:"1px solid rgba(136,170,255,.25)"}}>📊 {pat.name}</span>:null;
+                          })()}
                         </div>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
                           <button onClick={function(){
