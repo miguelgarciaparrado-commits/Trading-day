@@ -1012,7 +1012,7 @@ export default function App(){
           var isBE=p.be||p.sl===p.entry;
           var slResult=isBE?0:-(p.capital*Math.abs(p.entry-p.sl)/p.entry);
           var slRatio=calcPosRatio(p);
-          if(slRatio!==null){psU.ratioSum=(psU.ratioSum||0)+slRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
+          // No actualizar ratio R:R medio cuando salta el SL — solo cuenta en TPs
           var slAutoNote=isBE?"⚖️ BE auto @ $"+price.toLocaleString():"🛑 SL auto @ $"+price.toLocaleString();
           entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(slResult.toFixed(2)),date:today(),note:slAutoNote,autoClose:true,...(slRatio!==null?{ratio:slRatio}:{})});
           if(isBE){psU.slBreakeven=(psU.slBreakeven||0)+1;}else{psU.slOk=(psU.slOk||0)+1;}
