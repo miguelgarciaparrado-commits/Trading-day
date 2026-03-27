@@ -2383,21 +2383,43 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
     if(!file)return;
     var reader=new FileReader();
     reader.onload=function(ev){
+      var originalDataUrl=ev.target.result;
+      var originalB64=originalDataUrl.split(",")[1];
       var img=new Image();
       img.onload=function(){
-        // Redimensionar a máx 1024px y comprimir JPEG al 82% — reduce de 4-8MB a ~150KB
-        var MAX=1024;
-        var w=img.width,h=img.height;
-        if(w>MAX){h=Math.round(h*(MAX/w));w=MAX;}
-        if(h>MAX){w=Math.round(w*(MAX/h));h=MAX;}
-        var canvas=document.createElement("canvas");
-        canvas.width=w;canvas.height=h;
-        var ctx=canvas.getContext("2d");
-        ctx.drawImage(img,0,0,w,h);
-        var b64=canvas.toDataURL("image/jpeg",0.82).split(",")[1];
-        setPendingImage({base64:b64,mediaType:"image/jpeg",name:file.name});
+        try{
+          // Redimensionar a máx 1280px — suficiente para leer gráficos con claridad
+          var MAX=1280;
+          var w=img.width,h=img.height;
+          if(w>MAX){h=Math.round(h*(MAX/w));w=MAX;}
+          if(h>MAX){w=Math.round(w*(MAX/h));h=MAX;}
+          var canvas=document.createElement("canvas");
+          canvas.width=w;canvas.height=h;
+          var ctx=canvas.getContext("2d");
+          // Fondo negro (igual que gráficos dark) para evitar bordes blancos en transparencias
+          ctx.fillStyle="#000000";
+          ctx.fillRect(0,0,w,h);
+          ctx.drawImage(img,0,0,w,h);
+          // JPEG 0.95: calidad alta — evita artefactos que oscurecen los gráficos dark
+          var b64=canvas.toDataURL("image/jpeg",0.95).split(",")[1];
+          // Validar que canvas funcionó (si devuelve <1KB es que falló, usar original)
+          if(!b64||b64.length<1000){
+            var lim=originalB64.length>700000?originalB64.slice(0,700000):originalB64;
+            setPendingImage({base64:lim,mediaType:file.type||"image/jpeg",name:file.name});
+          }else{
+            setPendingImage({base64:b64,mediaType:"image/jpeg",name:file.name});
+          }
+        }catch(canvasErr){
+          var lim2=originalB64.length>700000?originalB64.slice(0,700000):originalB64;
+          setPendingImage({base64:lim2,mediaType:file.type||"image/jpeg",name:file.name});
+        }
       };
-      img.src=ev.target.result;
+      img.onerror=function(){
+        // Formato no soportado (HEIC, etc.) → usar original con límite
+        var lim3=originalB64.length>700000?originalB64.slice(0,700000):originalB64;
+        setPendingImage({base64:lim3,mediaType:file.type||"image/jpeg",name:file.name});
+      };
+      img.src=originalDataUrl;
     };
     reader.readAsDataURL(file);
     e.target.value="";
