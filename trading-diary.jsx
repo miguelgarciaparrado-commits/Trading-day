@@ -592,6 +592,63 @@ export default function App(){
     return function(){clearInterval(iv);};
   },[]);
 
+  // ─── INFORME QUINCENAL DE PRECISIÓN DE SEÑALES ───
+  useEffect(function(){
+    var TWO_WEEKS=14*24*60*60*1000;
+    var iv2=setInterval(function(){
+      var tk=localStorage.getItem("td-tg-token");
+      var cid=localStorage.getItem("td-tg-chatid");
+      if(!tk||!cid)return;
+      var lastReport=parseInt(localStorage.getItem("td-pattern-fb-last-report")||"0");
+      if(Date.now()-lastReport<TWO_WEEKS)return;
+      var fbAll={};
+      try{fbAll=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
+      var types=Object.keys(fbAll).filter(function(t){return fbAll[t].total>0;});
+      if(!types.length)return;
+      var LABELS={
+        rsi_oversold:"📉 RSI Sobreventa",rsi_overbought:"📈 RSI Sobrecompra",
+        rsi_custom:"🎯 RSI Personalizado",
+        golden:"🌟 Cruce Dorado EMA 7/25",death:"💀 Cruce Muerte EMA 7/25",
+        ema200_golden:"🌟 Cruce Dorado EMA 50/200",ema200_death:"💀 Cruce Muerte EMA 50/200",
+        rsi_div_bull:"🟢 Divergencia Alcista RSI",rsi_div_bear:"🔴 Divergencia Bajista RSI",
+        rsi_conv_bull:"📈 Convergencia Alcista RSI",rsi_conv_bear:"📉 Convergencia Bajista RSI",
+        pennant_bull:"🚩 Banderín Alcista",pennant_fake:"⚠️ Banderín Alcista Falso",
+        pennant_bear:"🔻 Banderín Bajista",pennant_bear_fake:"⚠️ Banderín Bajista Falso",
+        canal_bajista_ruptura_alcista:"📐 Canal Bajista — Ruptura Alcista",
+        canal_alcista_ruptura_bajista:"📐 Canal Alcista — Ruptura Bajista",
+        canal_alcista_soporte:"📐 Canal Alcista — Soporte",
+        canal_alcista_resistencia:"📐 Canal Alcista — Resistencia",
+        patron_fvg:"⚡ FVG Cubierta",patron_combo:"🔥 Patrón Combinado"
+      };
+      var totalCorr=0,totalAll=0;
+      var lines=types.sort(function(a,b){return fbAll[b].total-fbAll[a].total;}).map(function(t){
+        var s=fbAll[t];
+        var pct=Math.round(s.correct/(s.total||1)*100);
+        var icon=pct>=70?"✅":pct>=50?"⚠️":"❌";
+        totalCorr+=s.correct;totalAll+=s.total;
+        return (LABELS[t]||t)+": "+pct+"% "+icon+" ("+s.correct+"/"+s.total+")";
+      });
+      var globalPct=totalAll>0?Math.round(totalCorr/totalAll*100):0;
+      var now2=new Date();
+      var from2=new Date(lastReport||Date.now()-TWO_WEEKS);
+      var dateRange=from2.toLocaleDateString("es-ES")+" — "+now2.toLocaleDateString("es-ES");
+      var msg="📊 INFORME QUINCENAL — Precisión de Señales\n"+
+        "📅 "+dateRange+"\n\n"+
+        lines.join("\n")+"\n\n"+
+        "━━━━━━━━━━━━━━━━\n"+
+        "🎯 Global: "+globalPct+"% ("+totalCorr+"/"+totalAll+" señales)\n"+
+        (globalPct>=70?"✅ Buen rendimiento — señales fiables":"⚠️ Revisar configuración — demasiadas falsas señales");
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({chat_id:cid,text:msg})
+      }).then(function(r){
+        if(r.ok)localStorage.setItem("td-pattern-fb-last-report",String(Date.now()));
+      }).catch(function(){});
+    },3600000); // Revisa cada hora si toca enviar
+    return function(){clearInterval(iv2);};
+  },[]);
+
   // - SAVE -
   // saveRef always holds latest doSave - avoids stale closure
   const saveRef=useRef(null);
@@ -4879,8 +4936,32 @@ function AlertasTab({S,predictions}){
           <div style={{background:"#111118",border:"1px solid rgba(255,136,221,.2)",borderRadius:8,padding:12,marginTop:8,marginBottom:4}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div style={{fontSize:9,color:"#ff88dd",fontWeight:700,letterSpacing:1}}>PRECISIÓN PATRONES (feedback)</div>
-              <button onClick={function(){localStorage.removeItem("td-pattern-fb");localStorage.removeItem("td-tg-offset");setPatternFb({});}}
-                style={{background:"transparent",border:"none",color:"#444",fontSize:8,cursor:"pointer"}}>Reset</button>
+              <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                {(function(){
+                  var tk2=localStorage.getItem("td-tg-token");
+                  var cid2=localStorage.getItem("td-tg-chatid");
+                  if(!tk2||!cid2)return null;
+                  return <button onClick={function(){
+                    var LABELS2={rsi_oversold:"📉 RSI Sobreventa",rsi_overbought:"📈 RSI Sobrecompra",rsi_custom:"🎯 RSI Personalizado",golden:"🌟 Cruce Dorado 7/25",death:"💀 Cruce Muerte 7/25",ema200_golden:"🌟 Cruce Dorado 50/200",ema200_death:"💀 Cruce Muerte 50/200",rsi_div_bull:"🟢 Div Alcista RSI",rsi_div_bear:"🔴 Div Bajista RSI",rsi_conv_bull:"📈 Conv Alcista",rsi_conv_bear:"📉 Conv Bajista",pennant_bull:"🚩 Banderín Alcista",pennant_fake:"⚠️ Banderín Alc. Falso",pennant_bear:"🔻 Banderín Bajista",pennant_bear_fake:"⚠️ Banderín Baj. Falso",canal_bajista_ruptura_alcista:"📐 Canal Baj. Rup↑",canal_alcista_ruptura_bajista:"📐 Canal Alc. Rup↓",canal_alcista_soporte:"📐 Canal Alc. Soporte",patron_fvg:"⚡ FVG Cubierta",patron_combo:"🔥 Patrón Combo"};
+                    var fb2={};try{fb2=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
+                    var ts2=Object.keys(fb2).filter(function(t){return fb2[t].total>0;});
+                    if(!ts2.length){alert("Sin datos de feedback todavía.");return;}
+                    var totC=0,totA=0;
+                    var lines2=ts2.sort(function(a,b){return fb2[b].total-fb2[a].total;}).map(function(t){
+                      var s=fb2[t];var pct=Math.round(s.correct/(s.total||1)*100);
+                      var ic=pct>=70?"✅":pct>=50?"⚠️":"❌";
+                      totC+=s.correct;totA+=s.total;
+                      return (LABELS2[t]||t)+": "+pct+"% "+ic+" ("+s.correct+"/"+s.total+")";
+                    });
+                    var gp=totA>0?Math.round(totC/totA*100):0;
+                    var now3=new Date();
+                    var msg3="📊 INFORME — Precisión de Señales\n📅 "+now3.toLocaleDateString("es-ES")+"\n\n"+lines2.join("\n")+"\n\n━━━━━━━━━━━━\n🎯 Global: "+gp+"% ("+totC+"/"+totA+")\n"+(gp>=70?"✅ Buen rendimiento":"⚠️ Revisar señales");
+                    fetch("https://api.telegram.org/bot"+tk2+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:cid2,text:msg3})}).then(function(r){if(r.ok)localStorage.setItem("td-pattern-fb-last-report",String(Date.now()));}).catch(function(){});
+                  }} style={{background:"rgba(255,136,221,.1)",border:"1px solid rgba(255,136,221,.3)",color:"#ff88dd",padding:"3px 7px",borderRadius:4,fontSize:8,cursor:"pointer"}}>✈️ Enviar</button>;
+                })()}
+                <button onClick={function(){localStorage.removeItem("td-pattern-fb");localStorage.removeItem("td-tg-offset");setPatternFb({});}}
+                  style={{background:"transparent",border:"none",color:"#444",fontSize:8,cursor:"pointer"}}>Reset</button>
+              </div>
             </div>
             {entries.map(function(k){
               var s=patternFb[k];
