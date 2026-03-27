@@ -6599,16 +6599,18 @@ function detectChannelAlert(ohlc){
     if(!ascLowsOk&&!ascHighsOk)return null; // ambas fallando → no es canal ascendente válido
   }
 
-  // Contar toques: todos los pivots que construyeron la regresión son toques válidos
-  // Margen amplio (35% altura canal) para incluir pivots con algo de ruido
+  // Contar toques: pivot que alcanzó o superó la línea cuenta como toque
+  // (incluyendo velas de ruptura — si rompió la resistencia, la tocó)
   var touchMargin=ch*0.35;
   var supportTouches=pivs.pL.filter(function(pt){
     var lineVal=rL.slope*pt[0]+rL.intercept;
-    return Math.abs(pt[1]-lineVal)<=touchMargin;
+    // mínimo tocó el soporte desde arriba (pt[1] <= lineVal+margin) o lo perforó hacia abajo
+    return pt[1]<=lineVal+touchMargin;
   }).length;
   var resistTouches=pivs.pH.filter(function(pt){
     var lineVal=rH.slope*pt[0]+rH.intercept;
-    return Math.abs(pt[1]-lineVal)<=touchMargin;
+    // máximo tocó la resistencia desde abajo (pt[1] >= lineVal-margin) o la perforó hacia arriba
+    return pt[1]>=lineVal-touchMargin;
   }).length;
   // Calidad general: más toques = canal más fiable (mínimo 3 pivots de cada lado)
   var channelQuality=Math.min(100,Math.round((supportTouches+resistTouches)/2*20));
@@ -6624,9 +6626,13 @@ function detectChannelAlert(ohlc){
   var lastVol=vols[n]||0;
   var highVolume=avgVol10>0&&lastVol>avgVol10*1.3;
 
-  // ─── Detección de RUPTURA ───
-  var isBreakoutUp=price>topLine*1.002;   // cierre 0.2% por encima del techo
-  var isBreakoutDown=price<botLine*0.998; // cierre 0.2% por debajo del suelo
+  // ─── Detección de RUPTURA: vela de rotura + vela de confirmación ───
+  // Requiere que tanto la vela actual como la anterior cierren fuera del canal
+  var prevCandle=n>0?recent[n-1]:recent[n];
+  var prevTopLine=rH.slope*(n-1)+rH.intercept;
+  var prevBotLine=rL.slope*(n-1)+rL.intercept;
+  var isBreakoutUp=price>topLine*1.002&&prevCandle.c>prevTopLine*1.002;
+  var isBreakoutDown=price<botLine*0.998&&prevCandle.c<prevBotLine*0.998;
 
   if(isBreakoutUp||isBreakoutDown){
     // Validar: ¿es ruptura real o fakeout?
