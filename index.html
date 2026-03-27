@@ -540,6 +540,7 @@ function App() {
         setPr(newPr);
         SPr(newPr);
         autoCheckPositions(newPr);
+        checkProximityAlerts(newPr);
         setLastPriceTime(new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }));
         setFetchingPrices(false);
     }
@@ -581,6 +582,7 @@ function App() {
     const D = useRef({ pr: { SOL: 91.33, BTC: 84000, ETH: 2000, MSTR: 300, GOOGL: 170, LINK: 9.20 }, pos: P0, pats: PAT0, jnl: J0, ps: PS0,
         xhist: [], ethClosed: false, predictions: [], chatMsgs: [] });
     const tmr = useRef(null);
+    const proximityRef = useRef({});
     // - LOAD -
     useEffect(() => {
         (async () => {
@@ -1199,6 +1201,23 @@ function App() {
         save();
         setModal(m => ({ ...m, close: null }));
     }
+    function notifyProximity(asset, dir, level, targetPrice, currentPrice) {
+        var pct = Math.abs(currentPrice - targetPrice) / targetPrice * 100;
+        var title = "⚠️ " + asset + " cerca de " + level;
+        var body = dir + " | Objetivo: $" + parseFloat(targetPrice).toLocaleString() + " | Actual: $" + parseFloat(currentPrice).toLocaleString() + " (" + pct.toFixed(2) + "% distancia)";
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            try {
+                new Notification(title, { body: body });
+            }
+            catch (e) { }
+        }
+        var tk = localStorage.getItem("td-tg-token");
+        var cid = localStorage.getItem("td-tg-chatid");
+        if (tk && cid) {
+            var txt = encodeURIComponent(title + "\n" + body + "\n⏰ " + new Date().toLocaleTimeString("es-ES"));
+            fetch("https://api.telegram.org/bot" + tk + "/sendMessage?chat_id=" + cid + "&text=" + txt).catch(function () { });
+        }
+    }
     function notifyAutoClose(asset, dir, type, price, result) {
         const isGain = result >= 0;
         const title = (isGain ? "🎯 " : "🛑 ") + type + " — " + asset;
@@ -1357,6 +1376,70 @@ function App() {
             saveRef.current();
         else
             save();
+    }
+    function checkProximityAlerts(newPr) {
+        if (!D.current.pos || !D.current.pos.length)
+            return;
+        var PROX = 0.01; // notificar si el precio está a ≤1% del nivel
+        var RESET = 0.025; // resetear alerta cuando se aleja ≥2.5%
+        D.current.pos.forEach(function (p) {
+            var base = p.asset.replace(/\/.*$/, "").toUpperCase();
+            var price = newPr[base];
+            if (!price || price <= 0)
+                return;
+            if (p.status === "pending") {
+                // ── Posición en espera: avisar cuando el precio se acerca a la entrada ──
+                var distEntry = Math.abs(price - p.entry) / p.entry;
+                var eKey = "prox_" + p.id + "_entry";
+                if (distEntry <= PROX && !proximityRef.current[eKey]) {
+                    proximityRef.current[eKey] = true;
+                    notifyProximity(p.asset, p.dir, "ENTRADA", p.entry, price);
+                }
+                else if (distEntry > RESET) {
+                    proximityRef.current[eKey] = false;
+                }
+            }
+            else {
+                // ── Posición abierta: avisar cuando el precio se acerca al SL o TP ──
+                if (p.sl) {
+                    var distSL = Math.abs(price - p.sl) / p.entry;
+                    var slKey = "prox_" + p.id + "_sl";
+                    if (distSL <= PROX && !proximityRef.current[slKey]) {
+                        proximityRef.current[slKey] = true;
+                        notifyProximity(p.asset, p.dir, "SL", p.sl, price);
+                    }
+                    else if (distSL > RESET) {
+                        proximityRef.current[slKey] = false;
+                    }
+                }
+                if (p.tpLevels && p.tpLevels.length) {
+                    p.tpLevels.forEach(function (lvl, idx) {
+                        if (lvl.hit)
+                            return;
+                        var distTPL = Math.abs(price - lvl.price) / p.entry;
+                        var tplKey = "prox_" + p.id + "_tpl" + idx;
+                        if (distTPL <= PROX && !proximityRef.current[tplKey]) {
+                            proximityRef.current[tplKey] = true;
+                            notifyProximity(p.asset, p.dir, "TP " + lvl.pct + "%", lvl.price, price);
+                        }
+                        else if (distTPL > RESET) {
+                            proximityRef.current[tplKey] = false;
+                        }
+                    });
+                }
+                else if (p.tp) {
+                    var distTP = Math.abs(price - p.tp) / p.entry;
+                    var tpKey = "prox_" + p.id + "_tp";
+                    if (distTP <= PROX && !proximityRef.current[tpKey]) {
+                        proximityRef.current[tpKey] = true;
+                        notifyProximity(p.asset, p.dir, "TP", p.tp, price);
+                    }
+                    else if (distTP > RESET) {
+                        proximityRef.current[tpKey] = false;
+                    }
+                }
+            }
+        });
     }
     function closeEthLegacy(closePrice) {
         const cp = parseFloat(closePrice);
