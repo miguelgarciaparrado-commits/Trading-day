@@ -506,6 +506,68 @@ export default function App(){
     return function(){clearInterval(iv);};
   },[]);
 
+  // ── Polling de feedback Telegram (nivel App — siempre activo, cualquier pestaña) ──
+  useEffect(function(){
+    function appPollTgFeedback(){
+      var tk=localStorage.getItem("td-tg-token");
+      var cid=localStorage.getItem("td-tg-chatid");
+      if(!tk||!cid)return;
+      var offset=0;
+      try{offset=parseInt(localStorage.getItem("td-tg-offset")||"0",10);}catch(e){}
+      fetch("https://api.telegram.org/bot"+tk+"/getUpdates?offset="+offset+"&timeout=0&limit=20")
+        .then(function(r){return r.json();})
+        .then(function(data){
+          if(!data.ok||!data.result||!data.result.length)return;
+          var fb={};try{fb=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
+          var answered={};try{answered=JSON.parse(localStorage.getItem("td-tg-answered")||"{}");}catch(e){}
+          var maxId=offset-1;
+          var changed=false;
+          data.result.forEach(function(upd){
+            if(upd.update_id>maxId)maxId=upd.update_id;
+            if(!upd.callback_query)return;
+            var cbq=upd.callback_query;
+            var msgId=cbq.message&&cbq.message.message_id;
+            if(msgId&&answered[msgId])return;
+            var d=cbq.data||"";
+            if(d.indexOf("fb_")!==0)return;
+            var rest=d.slice(3);
+            var sepIdx=rest.indexOf("_");
+            if(sepIdx<0)return;
+            var verdict=rest.slice(0,sepIdx);
+            var patType=rest.slice(sepIdx+1);
+            if(!fb[patType])fb[patType]={total:0,correct:0,wrong:0};
+            fb[patType].total=(fb[patType].total||0)+1;
+            if(verdict==="correct")fb[patType].correct=(fb[patType].correct||0)+1;
+            else fb[patType].wrong=(fb[patType].wrong||0)+1;
+            if(msgId)answered[msgId]=true;
+            changed=true;
+            // Confirmar al usuario + quitar botones editando el mensaje
+            fetch("https://api.telegram.org/bot"+tk+"/answerCallbackQuery",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({callback_query_id:cbq.id,
+                text:verdict==="correct"?"✅ Registrado: señal correcta":"❌ Registrado: falsa señal",show_alert:true})
+            }).catch(function(){});
+            if(msgId&&cbq.message&&cbq.message.chat){
+              var resultLine=verdict==="correct"?"\n\n✅ CONFIRMADO: señal correcta":"\n\n❌ CONFIRMADO: falsa señal";
+              fetch("https://api.telegram.org/bot"+tk+"/editMessageText",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({chat_id:cbq.message.chat.id,message_id:msgId,text:(cbq.message.text||"")+resultLine})
+              }).catch(function(){});
+            }
+          });
+          if(changed){
+            localStorage.setItem("td-pattern-fb",JSON.stringify(fb));
+            localStorage.setItem("td-tg-answered",JSON.stringify(answered));
+          }
+          localStorage.setItem("td-tg-offset",String(maxId+1));
+          localStorage.setItem("td-tg-last-poll",String(Date.now()));
+        }).catch(function(){});
+    }
+    appPollTgFeedback();
+    var iv2=setInterval(appPollTgFeedback,15000);
+    return function(){clearInterval(iv2);};
+  },[]);
+
   // ── Monitor de predicciones: evalúa con Claude y envía Telegram si hay cambios ──
   const monitorCheckRef=useRef({}); // {predId: lastCheckTimestamp} — no se persiste
   useEffect(function(){
@@ -5187,6 +5249,43 @@ function AlertasTab({S,predictions}){
               );
             })
           )
+        );
+      })()}
+
+      {/* Panel diagnóstico feedback Telegram */}
+      {(function(){
+        var tk3=localStorage.getItem("td-tg-token");
+        var cid3=localStorage.getItem("td-tg-chatid");
+        if(!tk3||!cid3)return null;
+        var lastPoll=localStorage.getItem("td-tg-last-poll");
+        var lastPollStr=lastPoll?new Date(parseInt(lastPoll)).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):"nunca";
+        var offset3=localStorage.getItem("td-tg-offset")||"0";
+        var fbCount=0;try{var fbD=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");fbCount=Object.values(fbD).reduce(function(a,v){return a+(v.total||0);},0);}catch(e){}
+        return(
+          <div style={{background:"#0d1117",border:"1px solid rgba(0,136,204,.25)",borderRadius:8,padding:10,marginTop:8,marginBottom:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:9,color:"#0088cc",fontWeight:700,letterSpacing:1}}>FEEDBACK TELEGRAM</div>
+              <button onClick={function(){
+                var testType="rsi_oversold";
+                var msg="🧪 PRUEBA FEEDBACK\n\nEste mensaje verifica que el sistema de feedback funciona.\nPulsa uno de los botones para confirmar que se registra correctamente.\n\nFeedback acumulado: "+fbCount+" respuestas\nÚltimo poll: "+lastPollStr;
+                fetch("https://api.telegram.org/bot"+tk3+"/sendMessage",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({chat_id:cid3,text:msg,reply_markup:{inline_keyboard:[[
+                    {text:"✅ Se cumplió",callback_data:"fb_correct_"+testType},
+                    {text:"❌ No se cumplió",callback_data:"fb_wrong_"+testType}
+                  ]]}})
+                }).then(function(r){return r.json();}).then(function(d){
+                  if(d.ok){alert("Mensaje de prueba enviado a Telegram. Pulsa un botón allí y espera ~15s para ver si se registra aquí.");}
+                  else{alert("Error enviando: "+JSON.stringify(d));}
+                }).catch(function(e){alert("Error de red: "+e.message);});
+              }} style={{background:"rgba(0,136,204,.15)",border:"1px solid #0088cc",color:"#0088cc",padding:"3px 8px",borderRadius:4,fontSize:8,cursor:"pointer",fontWeight:700}}>Enviar prueba</button>
+            </div>
+            <div style={{display:"flex",gap:12,fontSize:8,color:"#555"}}>
+              <span>Último poll: <span style={{color:"#888"}}>{lastPollStr}</span></span>
+              <span>Offset: <span style={{color:"#888"}}>{offset3}</span></span>
+              <span>Respuestas totales: <span style={{color:fbCount>0?"#00ff88":"#888"}}>{fbCount}</span></span>
+            </div>
+          </div>
         );
       })()}
 
