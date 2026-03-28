@@ -3597,32 +3597,10 @@ function AlertasTab({S,predictions}){
               rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below",
               active:true,currentRsi:null,currentPrice:null,error:false};
             loaded=[btcA,...loaded];
+            localStorage.setItem("td-alerts-v2",JSON.stringify(loaded));
           }
-          // Auto-expandir: para cada símbolo, asegurar que existen las 4 temporalidades
-          var ALL_TF=["1h","4h","1d","1w"];
-          var expanded=loaded.slice();
-          var symbols=[...new Set(loaded.map(function(a){return a.symbol;}))];
-          symbols.forEach(function(sym){
-            var base=loaded.find(function(a){return a.symbol===sym;})||{};
-            ALL_TF.forEach(function(tf,idx){
-              var has=expanded.some(function(a){return a.symbol===sym&&a.interval===tf;});
-              if(!has){
-                expanded.push({
-                  id:Date.now()+idx*7+Math.floor(Math.random()*1000),
-                  symbol:sym,label:base.label||sym,interval:tf,
-                  rsiCustomEnabled:base.rsiCustomEnabled||false,
-                  rsiCustomTarget:base.rsiCustomTarget||50,
-                  rsiCustomCondition:base.rsiCustomCondition||"below",
-                  active:true,currentRsi:null,currentPrice:null,error:false
-                });
-              }
-            });
-          });
-          if(expanded.length!==loaded.length){
-            localStorage.setItem("td-alerts-v2",JSON.stringify(expanded));
-          }
-          alertsRef.current=expanded;
-          setAlerts(expanded);
+          alertsRef.current=loaded;
+          setAlerts(loaded);
           // Auto-restart monitors que estaban activos antes de cerrar
           setTimeout(function(){expanded.forEach(function(a){if(a.active)startAlert(a);});},700);
           return;
