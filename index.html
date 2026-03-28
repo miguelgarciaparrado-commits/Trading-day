@@ -3559,6 +3559,11 @@ function AlertasTab({ S, predictions }) {
                 fb = JSON.parse(localStorage.getItem("td-pattern-fb") || "{}");
             }
             catch (e) { }
+            var answered = {};
+            try {
+                answered = JSON.parse(localStorage.getItem("td-tg-answered") || "{}");
+            }
+            catch (e) { }
             var maxId = offset - 1;
             data.result.forEach(function (upd) {
                 if (upd.update_id > maxId)
@@ -3566,15 +3571,19 @@ function AlertasTab({ S, predictions }) {
                 if (!upd.callback_query)
                     return;
                 var cbq = upd.callback_query;
+                var msgId = cbq.message && cbq.message.message_id;
+                // Solo procesar una vez por mensaje
+                if (msgId && answered[msgId])
+                    return;
                 var d = cbq.data || "";
                 if (d.indexOf("fb_") !== 0)
                     return;
-                var rest = d.slice(3); // strip "fb_"
+                var rest = d.slice(3);
                 var sepIdx = rest.indexOf("_");
                 if (sepIdx < 0)
                     return;
-                var verdict = rest.slice(0, sepIdx); // "correct" or "wrong"
-                var patType = rest.slice(sepIdx + 1); // e.g. "pennant_bull"
+                var verdict = rest.slice(0, sepIdx);
+                var patType = rest.slice(sepIdx + 1);
                 if (!fb[patType])
                     fb[patType] = { total: 0, correct: 0, wrong: 0 };
                 fb[patType].total = (fb[patType].total || 0) + 1;
@@ -3582,13 +3591,28 @@ function AlertasTab({ S, predictions }) {
                     fb[patType].correct = (fb[patType].correct || 0) + 1;
                 else
                     fb[patType].wrong = (fb[patType].wrong || 0) + 1;
+                // Marcar mensaje como respondido
+                if (msgId)
+                    answered[msgId] = true;
+                // Confirmar al usuario con toast
                 fetch("https://api.telegram.org/bot" + tk + "/answerCallbackQuery", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ callback_query_id: cbq.id,
-                        text: verdict === "correct" ? "✅ Correcto registrado" : "❌ Incorrecto registrado", show_alert: false })
+                        text: verdict === "correct" ? "✅ Registrado como señal correcta" : "❌ Registrado como falsa señal", show_alert: true })
                 }).catch(function () { });
+                // Editar el mensaje para quitar los botones y mostrar el resultado (un solo clic)
+                if (msgId && cbq.message && cbq.message.chat) {
+                    var msgChatId = cbq.message.chat.id;
+                    var originalText = cbq.message.text || "";
+                    var resultLine = verdict === "correct" ? "\n\n✅ MARCADO: Señal correcta — gracias por el feedback" : "\n\n❌ MARCADO: Falsa señal — aprendiendo...";
+                    fetch("https://api.telegram.org/bot" + tk + "/editMessageText", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ chat_id: msgChatId, message_id: msgId, text: originalText + resultLine })
+                    }).catch(function () { });
+                }
             });
             localStorage.setItem("td-pattern-fb", JSON.stringify(fb));
+            localStorage.setItem("td-tg-answered", JSON.stringify(answered));
             localStorage.setItem("td-tg-offset", String(maxId + 1));
             setPatternFb(fb);
         }).catch(function () { });
@@ -4076,6 +4100,29 @@ function AlertasTab({ S, predictions }) {
             var slPctShow = ((Math.abs(entryPrice - slPrice) / entryPrice) * 100).toFixed(1);
             var tpPctShow = ((Math.abs(tpPrice - entryPrice) / entryPrice) * 100).toFixed(1);
             var hasConfluence = confluenceCount >= 2;
+            // Calcular probabilidad estimada (mejora con feedback histórico)
+            var probPct = null;
+            if (hasConfluence) {
+                var fbAllProb = {};
+                try {
+                    fbAllProb = JSON.parse(localStorage.getItem("td-pattern-fb") || "{}");
+                }
+                catch (e) { }
+                var fbStatsProb = fbAllProb[type] || { total: 0, correct: 0 };
+                // Base: 55% para 2 señales, +8% por cada señal extra (máx 82%)
+                var basePct = Math.min(82, 55 + (confluenceCount - 2) * 8);
+                if (fbStatsProb.total >= 10) {
+                    probPct = Math.round(fbStatsProb.correct / fbStatsProb.total * 100);
+                }
+                else if (fbStatsProb.total >= 3) {
+                    var histPct2 = fbStatsProb.correct / fbStatsProb.total * 100;
+                    var w = fbStatsProb.total / 10;
+                    probPct = Math.round(histPct2 * w + basePct * (1 - w));
+                }
+                else {
+                    probPct = basePct;
+                }
+            }
             // Guardar operación bot solo si confluencia y ratio ok
             if (hasConfluence) {
                 var botOp = { id: Date.now(), date: new Date().toLocaleDateString("es-ES"), time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }), asset: label, interval: tf, signal: type, dir: sugDir, entry: parseFloat(entryPrice.toFixed(4)), sl: parseFloat(slPrice.toFixed(4)), tp: parseFloat(tpPrice.toFixed(4)), ratio: parseFloat(ratioBot), tpNote: tpNote, result: null, hit: null };
@@ -4131,6 +4178,13 @@ function AlertasTab({ S, predictions }) {
                 tgLines.push("   🎯 TP: $" + parseFloat(tpPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (+" + tpPctShow + "%) [" + tpNote + "]");
                 tgLines.push("   🛑 SL: $" + parseFloat(slPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (-" + slPctShow + "%)");
                 tgLines.push("   ⚖️ Ratio: 1:" + ratioBot);
+                var fbStatsTg = {};
+                try {
+                    fbStatsTg = (JSON.parse(localStorage.getItem("td-pattern-fb") || "{}"))[type] || { total: 0 };
+                }
+                catch (e) { }
+                var probSrc = fbStatsTg.total >= 3 ? "basada en " + fbStatsTg.total + " señales previas" : "base estadística";
+                tgLines.push("   🧠 Probabilidad: " + probPct + "% (" + probSrc + ")");
             }
             else {
                 tgLines.push("⚠️ Sin operación bot — confluencia insuficiente (" + confluenceCount + "/2 señales alineadas)");
@@ -4179,33 +4233,15 @@ function AlertasTab({ S, predictions }) {
                     tgLines.push("   ⚠️ Señales de fakeout: " + cr.falseBrkReasons.join(" · "));
                 }
             }
-            // Feedback system — ALL pattern types tracked for first 50 signals
-            var FEEDBACK_TYPES = ["rsi_oversold", "rsi_overbought", "rsi_custom", "golden", "death", "ema200_golden", "ema200_death",
-                "rsi_div_bull", "rsi_div_bear", "rsi_conv_bull", "rsi_conv_bear",
-                "pennant_bull", "pennant_fake", "pennant_bear", "pennant_bear_fake",
-                "canal_bajista_soporte", "canal_bajista_resistencia", "canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista",
-                "canal_alcista_soporte", "canal_alcista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista",
-                "patron_combo", "patron_fvg"];
-            var needsFb = FEEDBACK_TYPES.indexOf(type) >= 0;
-            var fbAll = {};
-            try {
-                fbAll = JSON.parse(localStorage.getItem("td-pattern-fb") || "{}");
-            }
-            catch (e) { }
-            var fbStats = fbAll[type] || { total: 0, correct: 0, wrong: 0 };
-            if (needsFb && fbStats.total > 0) {
-                var fbPct = Math.round(fbStats.correct / (fbStats.total || 1) * 100);
-                tgLines.push("📊 Precisión histórica: " + fbPct + "% (" + fbStats.correct + " correctas / " + fbStats.total + " total)");
-            }
             var tgFullText = tgLines.join("\n");
-            if (needsFb && hasConfluence && fbStats.total < 50) {
-                // Botones de feedback solo cuando hay operación bot (confluencia suficiente)
+            if (hasConfluence) {
+                // Con confluencia: siempre enviar con botones de feedback para mejorar la probabilidad
                 fetch("https://api.telegram.org/bot" + tk + "/sendMessage", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ chat_id: cid, text: tgFullText, reply_markup: { inline_keyboard: [[
-                                    { text: "✅ Detección correcta", callback_data: "fb_correct_" + type },
-                                    { text: "❌ Falsa señal", callback_data: "fb_wrong_" + type }
+                                    { text: "✅ Se cumplió", callback_data: "fb_correct_" + type },
+                                    { text: "❌ No se cumplió", callback_data: "fb_wrong_" + type }
                                 ]] } })
                 }).catch(function () { });
             }
