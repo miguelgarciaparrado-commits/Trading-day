@@ -697,7 +697,7 @@ export default function App(){
         canal_alcista_ruptura_bajista:"📐 Canal Alcista — Ruptura Bajista",
         canal_alcista_soporte:"📐 Canal Alcista — Soporte",
         canal_alcista_resistencia:"📐 Canal Alcista — Resistencia",
-        patron_fvg:"⚡ FVG Cubierta",patron_combo:"🔥 Patrón Combinado"
+        patron_fvg:"⚡ Precio en FVG",patron_combo:"🔥 Patrón Combinado"
       };
       var totalCorr=0,totalAll=0;
       var lines=types.sort(function(a,b){return fbAll[b].total-fbAll[a].total;}).map(function(t){
@@ -3949,7 +3949,7 @@ function AlertasTab({S,predictions}){
     else if(type==="rsi_conv_bear"){title="📉 Convergencia Bajista RSI";}
     else if(type==="patron_combo"){title="🔥 Patrón Combinado";body=(customDesc||"")+priceStr;}
     else if(type==="patron_canal"){title="📐 Canal Detectado";body=(customDesc||"")+priceStr;}
-    else if(type==="patron_fvg"){title="⚡ FVG Cubierta";body=(customDesc||"")+priceStr;}
+    else if(type==="patron_fvg"){title="⚡ Precio en FVG";body=(customDesc||"")+priceStr;}
     else if(type==="pennant_bull"){title="🚩 Banderín Alcista — Ruptura Confirmada";}
     else if(type==="pennant_fake"){title="⚠️ Banderín Alcista — Posible Falsa Ruptura";}
     else if(type==="pennant_bear"){title="🔻 Banderín Bajista — Ruptura Bajista Confirmada";}
@@ -3996,7 +3996,7 @@ function AlertasTab({S,predictions}){
       var confWindow=confWindowMs[interval]||28800000;
       var confNow=Date.now();
       var confMap=confluenceRef.current[confKey];
-      var SIGNAL_LABELS={"rsi_oversold":"RSI sobreventa","rsi_overbought":"RSI sobrecompra","golden":"Cruce dorado EMA 7/25","death":"Cruce muerte EMA 7/25","ema200_golden":"Cruce dorado EMA 50/200","ema200_death":"Cruce muerte EMA 50/200","rsi_div_bull":"Divergencia alcista RSI","rsi_div_bear":"Divergencia bajista RSI","rsi_conv_bull":"Convergencia alcista RSI","rsi_conv_bear":"Convergencia bajista RSI","patron_fvg":"FVG cubierta","pennant_bull":"Banderín alcista","pennant_fake":"Banderín alcista (posible falso)","pennant_bear":"Banderín bajista","pennant_bear_fake":"Banderín bajista (posible falso)","canal_bajista_ruptura_alcista":"Canal — ruptura alcista","canal_alcista_soporte":"Canal alcista — soporte","canal_alcista_ruptura_alcista":"Canal — ruptura alcista confirmada","canal_alcista_ruptura_bajista":"Canal — ruptura bajista","canal_bajista_resistencia":"Canal bajista — resistencia","canal_bajista_ruptura_bajista":"Canal — ruptura bajista confirmada","canal_alcista_resistencia":"Canal alcista — resistencia"};
+      var SIGNAL_LABELS={"rsi_oversold":"RSI sobreventa","rsi_overbought":"RSI sobrecompra","golden":"Cruce dorado EMA 7/25","death":"Cruce muerte EMA 7/25","ema200_golden":"Cruce dorado EMA 50/200","ema200_death":"Cruce muerte EMA 50/200","rsi_div_bull":"Divergencia alcista RSI","rsi_div_bear":"Divergencia bajista RSI","rsi_conv_bull":"Convergencia alcista RSI","rsi_conv_bear":"Convergencia bajista RSI","patron_fvg":"Precio en FVG (soporte)","pennant_bull":"Banderín alcista","pennant_fake":"Banderín alcista (posible falso)","pennant_bear":"Banderín bajista","pennant_bear_fake":"Banderín bajista (posible falso)","canal_bajista_ruptura_alcista":"Canal — ruptura alcista","canal_alcista_soporte":"Canal alcista — soporte","canal_alcista_ruptura_alcista":"Canal — ruptura alcista confirmada","canal_alcista_ruptura_bajista":"Canal — ruptura bajista","canal_bajista_resistencia":"Canal bajista — resistencia","canal_bajista_ruptura_bajista":"Canal — ruptura bajista confirmada","canal_alcista_resistencia":"Canal alcista — resistencia"};
       var ohlcData=extra.ohlc||[];
       var isLong=BULLISH_TYPES.indexOf(type)>=0;
       if(type==="pennant_bear"||type==="pennant_bear_fake")isLong=false;
@@ -4007,23 +4007,30 @@ function AlertasTab({S,predictions}){
       var entryPrice=price||0;
       var slPct=0.02;
       var slPrice=isLong?entryPrice*(1-slPct):entryPrice*(1+slPct);
-      // Buscar siguiente FVG (ineficiencia) en dirección del trade
+      // Buscar siguiente FVG (ineficiencia) en dirección del trade — solo últimas 80 velas
       var tpPrice=null;var tpNote="1:2 mínimo";
       var riskAmt=Math.abs(entryPrice-slPrice);
       if(ohlcData.length>4&&riskAmt>0){
         var fvgCands=[];
-        for(var fi=2;fi<ohlcData.length;fi++){
+        var fvgScanStart=Math.max(2,ohlcData.length-80);
+        for(var fi=fvgScanStart;fi<ohlcData.length;fi++){
           var fc0=ohlcData[fi-2],fc2=ohlcData[fi];
+          var gapSize=0;
           if(isLong&&fc2.l>fc0.h){
+            gapSize=fc2.l-fc0.h;
+            // Solo FVGs con gap mínimo de 0.05% del precio para evitar micro-gaps
+            if(gapSize/entryPrice<0.0005)continue;
             var fvgMid=(fc2.l+fc0.h)/2;
             if(fvgMid>entryPrice){
-              fvgCands.push({price:fvgMid,note:"FVG alcista $"+fc0.h.toFixed(2)+"–$"+fc2.l.toFixed(2)});
+              fvgCands.push({price:fvgMid,top:fc2.l,bot:fc0.h,note:"FVG alcista $"+fc0.h.toFixed(2)+"–$"+fc2.l.toFixed(2)});
             }
           }
           if(!isLong&&fc2.h<fc0.l){
+            gapSize=fc0.l-fc2.h;
+            if(gapSize/entryPrice<0.0005)continue;
             var fvgMid2=(fc2.h+fc0.l)/2;
             if(fvgMid2<entryPrice){
-              fvgCands.push({price:fvgMid2,note:"FVG bajista $"+fc2.h.toFixed(2)+"–$"+fc0.l.toFixed(2)});
+              fvgCands.push({price:fvgMid2,top:fc0.l,bot:fc2.h,note:"FVG bajista $"+fc2.h.toFixed(2)+"–$"+fc0.l.toFixed(2)});
             }
           }
         }
@@ -6993,8 +7000,9 @@ function detectChannelAlert(ohlc){
 function checkFVGCovered(ohlc,price){
   if(!ohlc||ohlc.length<10)return null;
   var n=ohlc.length;
-  // Scan from index 2 up to last-2 (avoid most recent partial candle)
-  for(var i=2;i<n-2;i++){
+  // Solo escanear las últimas 60 velas — FVGs muy antiguos no son relevantes visualmente
+  var scanStart=Math.max(2,n-60);
+  for(var i=scanStart;i<n-2;i++){
     var h0=ohlc[i-2].h,l0=ohlc[i-2].l;
     var h2=ohlc[i].h,l2=ohlc[i].l;
     var age=n-1-i;
