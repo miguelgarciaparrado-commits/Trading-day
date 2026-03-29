@@ -4235,7 +4235,50 @@ function AlertasTab({ S, predictions }) {
             var activeSignals = alignedTypes.filter(function (t) { return confMap[t] && (confNow - confMap[t]) < confWindow; });
             var confluenceCount = activeSignals.length;
             var sugDir = isLong ? "Long" : "Short";
+            // ─── PRECIO DE ENTRADA según estrategia ───
             var entryPrice = price || 0;
+            var entryNote = ""; // explicación del nivel de entrada
+            if ((type === "golden" || type === "death") && e1 && e1 > 0) {
+                // Cruce EMA 7/25: entrar en EMA7 (línea dinámica que acaba de cruzar)
+                entryPrice = parseFloat(parseFloat(e1).toFixed(2));
+                entryNote = "EMA7";
+            }
+            else if ((type === "ema200_golden" || type === "ema200_death") && e1 && e1 > 0) {
+                // Cruce EMA 50/200: entrar en EMA50
+                entryPrice = parseFloat(parseFloat(e1).toFixed(2));
+                entryNote = "EMA50";
+            }
+            else if (type === "canal_alcista_soporte" && extra.channelResult && extra.channelResult.botLine) {
+                // Rebote en soporte del canal alcista: entrada en la línea de soporte
+                entryPrice = parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
+                entryNote = "Soporte canal";
+            }
+            else if (type === "canal_bajista_resistencia" && extra.channelResult && extra.channelResult.topLine) {
+                // Rebote en resistencia del canal bajista: entrada en la línea de resistencia
+                entryPrice = parseFloat(parseFloat(extra.channelResult.topLine).toFixed(2));
+                entryNote = "Resistencia canal";
+            }
+            else if ((type === "canal_bajista_ruptura_alcista" || type === "canal_alcista_ruptura_alcista") && extra.channelResult && extra.channelResult.topLine) {
+                // Ruptura alcista: entrada en la resistencia rota (posible retest)
+                entryPrice = parseFloat(parseFloat(extra.channelResult.topLine).toFixed(2));
+                entryNote = "Resistencia rota (retest)";
+            }
+            else if ((type === "canal_alcista_ruptura_bajista" || type === "canal_bajista_ruptura_bajista") && extra.channelResult && extra.channelResult.botLine) {
+                // Ruptura bajista: entrada en el soporte roto (posible retest)
+                entryPrice = parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
+                entryNote = "Soporte roto (retest)";
+            }
+            else if ((type === "pennant_bull" || type === "pennant_fake") && extra.pennantResult && extra.pennantResult.upperLine) {
+                // Banderín alcista: entrada en la línea de resistencia del banderín (punto de ruptura)
+                entryPrice = parseFloat(extra.pennantResult.upperLine.toFixed(2));
+                entryNote = "Ruptura banderín";
+            }
+            else if ((type === "pennant_bear" || type === "pennant_bear_fake") && extra.pennantResult && extra.pennantResult.lowerLine) {
+                // Banderín bajista: entrada en el soporte del banderín roto
+                entryPrice = parseFloat(extra.pennantResult.lowerLine.toFixed(2));
+                entryNote = "Ruptura bajista banderín";
+            }
+            // RSI, divergencias, FVG: precio de mercado actual (no hay nivel técnico derivado)
             var slPct = 0.02;
             var slPrice = isLong ? entryPrice * (1 - slPct) : entryPrice * (1 + slPct);
             // Buscar siguiente FVG (ineficiencia) en dirección del trade — solo últimas 80 velas
@@ -4341,7 +4384,7 @@ function AlertasTab({ S, predictions }) {
             if (isEMACross)
                 tgLines.push("🔀 Cruce EMAs: " + emaCrossLabel);
             tgLines.push("📊 RSI: " + (rsi != null ? rsi.toFixed(1) : "--") + " | " + divConvLine);
-            tgLines.push("💰 Precio: $" + parseFloat(entryPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }));
+            tgLines.push("💰 Precio mercado: $" + parseFloat(price || 0).toLocaleString("es-ES", { maximumFractionDigits: 4 }));
             tgLines.push("📈 Volumen: " + (extra.volDir || "Desconocido"));
             // Pennant-specific detail block
             if (extra.pennantResult) {
@@ -4374,7 +4417,7 @@ function AlertasTab({ S, predictions }) {
             tgLines.push("");
             if (hasConfluence) {
                 tgLines.push("💡 Operación Bot (" + sugDir + ") — " + confluenceCount + " señales alineadas:");
-                tgLines.push("   📍 Entrada: $" + parseFloat(entryPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }));
+                tgLines.push("   📍 Entrada: $" + parseFloat(entryPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + (entryNote ? " [" + entryNote + "]" : ""));
                 tgLines.push("   🎯 TP: $" + parseFloat(tpPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (+" + tpPctShow + "%) [" + tpNote + "]");
                 tgLines.push("   🛑 SL: $" + parseFloat(slPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (-" + slPctShow + "%)");
                 tgLines.push("   ⚖️ Ratio: 1:" + ratioBot);
