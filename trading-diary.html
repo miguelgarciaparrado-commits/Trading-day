@@ -754,7 +754,15 @@ function App() {
         return function () { clearInterval(iv2); };
     }, []);
     // ── Monitor de predicciones: evalúa con Claude y envía Telegram si hay cambios ──
-    const monitorCheckRef = useRef({}); // {predId: lastCheckTimestamp} — no se persiste
+    const monitorCheckRef = useRef({}); // {predId: lastCheckTimestamp}
+    // Cargar checks previos desde localStorage para sobrevivir recargas
+    useEffect(function () {
+        try {
+            var saved = JSON.parse(localStorage.getItem("td-monitor-checks") || "{}");
+            monitorCheckRef.current = saved;
+        }
+        catch (e) { }
+    }, []);
     useEffect(function () {
         var iv = setInterval(async function () {
             var apiKey = localStorage.getItem("td-anthropic-key");
@@ -774,6 +782,10 @@ function App() {
                 if (Date.now() - lastCheck < minMs)
                     continue;
                 monitorCheckRef.current[pred.id] = Date.now();
+                try {
+                    localStorage.setItem("td-monitor-checks", JSON.stringify(monitorCheckRef.current));
+                }
+                catch (e) { }
                 try {
                     // Detectar si es crypto (Binance) o acción (skip sin Finnhub)
                     var sym = pred.asset.replace("/", "").toUpperCase();
@@ -3241,6 +3253,36 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                 var days = daysSince(p.timestamp);
                 var statusColor = p.status === "pending" ? "#88aaff" : p.status === "hit" ? "#00ff88" : "#ff4444";
                 var statusLabel = p.status === "pending" ? "pendiente" : p.status === "hit" ? "acertada" : "fallida";
+                // Estado de monitorización
+                var tfMs = { "1h": 3600000, "4h": 14400000, "1d": 28800000, "1w": 86400000 };
+                var monMs = tfMs[p.tf] || 14400000;
+                var lastChk = 0;
+                try {
+                    var mc = JSON.parse(localStorage.getItem("td-monitor-checks") || "{}");
+                    lastChk = mc[p.id] || 0;
+                }
+                catch (e) { }
+                var isCrypto = p.asset && (/USDT$/i.test(p.asset.replace("/", "")) || /BTC|ETH|SOL|LINK|BNB|XRP/i.test(p.asset));
+                var nextChk = lastChk ? lastChk + monMs : 0;
+                var minsToNext = nextChk ? Math.max(0, Math.round((nextChk - Date.now()) / 60000)) : null;
+                var monitorLine = null;
+                if (p.status === "pending") {
+                    if (!isCrypto) {
+                        monitorLine = React.createElement("span", { style: { fontSize: 7, color: "#555", marginLeft: 2 } }, "\u26AB solo crypto");
+                    }
+                    else if (!lastChk) {
+                        monitorLine = React.createElement("span", { style: { fontSize: 7, color: "#f0b429", marginLeft: 2 } }, "\uD83D\uDFE1 pendiente 1er check");
+                    }
+                    else if (minsToNext === 0) {
+                        monitorLine = React.createElement("span", { style: { fontSize: 7, color: "#00ff88", marginLeft: 2 } }, "\uD83D\uDFE2 check inminente");
+                    }
+                    else {
+                        monitorLine = React.createElement("span", { style: { fontSize: 7, color: "#555", marginLeft: 2 } },
+                            "\uD83D\uDD35 pr\u00F3ximo en ",
+                            minsToNext,
+                            "m");
+                    }
+                }
                 return (React.createElement("div", { key: p.id, style: { background: "#0d0d16", borderRadius: 6, padding: "8px 10px", marginBottom: 6, border: "1px solid rgba(136,170,255,.12)" } },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 } },
                         React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } },
@@ -3251,7 +3293,8 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                             React.createElement("span", { style: { fontSize: 8, color: "#444" } }, p.savedDate),
                             React.createElement("span", { style: { fontSize: 8, color: days > 7 ? "#ff4444" : days > 3 ? "#f0b429" : "#555" } },
                                 "hace ",
-                                days === 0 ? "hoy" : days + " dias")),
+                                days === 0 ? "hoy" : days + " dias"),
+                            monitorLine),
                         React.createElement("button", { onClick: function () { deletePrediction(p.id); }, style: { background: "transparent", border: "none", color: "#333", cursor: "pointer", fontSize: 12, lineHeight: 1 } }, "\u2715")),
                     React.createElement("div", { style: { fontSize: 9, color: "#888", lineHeight: 1.5, marginBottom: p.note ? 4 : 0, whiteSpace: "pre-wrap" } },
                         expandedPreds[p.id] ? p.content : p.content.slice(0, 200),
