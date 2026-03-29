@@ -2579,6 +2579,14 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
     savePredictions(predictions.filter(function(p){return p.id!==id;}));
   }
 
+  function resetAllPredictions(){
+    if(!window.confirm("¿Borrar todas las predicciones del BOT? Esta acción no se puede deshacer."))return;
+    savePredictions([]);
+    try{localStorage.removeItem("td-monitor-checks");}catch(e){}
+    try{localStorage.removeItem("td-pattern-fb");}catch(e){}
+    try{localStorage.removeItem("td-tg-answered");}catch(e){}
+  }
+
   function daysSince(timestamp){
     return Math.floor((Date.now()-timestamp)/(1000*60*60*24));
   }
@@ -3069,7 +3077,10 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       {/* Panel de predicciones guardadas */}
       {showPredictions&&(
         <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:10,marginBottom:8,maxHeight:240,overflowY:"auto"}}>
-          <div style={{fontSize:9,color:"#88aaff",fontWeight:700,marginBottom:8}}>PREDICCIONES GUARDADAS</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:9,color:"#88aaff",fontWeight:700}}>PREDICCIONES GUARDADAS</div>
+            {predictions.length>0&&<button onClick={resetAllPredictions} style={{background:"transparent",border:"1px solid #ff4444",color:"#ff4444",padding:"2px 7px",borderRadius:3,fontSize:8,cursor:"pointer"}}>🗑 Reiniciar todo</button>}
+          </div>
           {predictions.length>0&&(function(){
             var hit=predictions.filter(function(p){return p.status==="hit";}).length;
             var missed=predictions.filter(function(p){return p.status==="missed";}).length;
