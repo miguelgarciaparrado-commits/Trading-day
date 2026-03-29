@@ -1334,9 +1334,23 @@ export default function App(){
     <div style={S.app}>
       {/* HEADER */}
       <div style={S.hdr}>
-        <div>
-          <div style={{fontSize:22,fontWeight:700,color:"#f0b429",letterSpacing:3}}>TRADING DIARY</div>
-          <div style={{fontSize:9,color:"#444"}}>MIGUEL GARCIA PARRADO</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <svg width="28" height="28" viewBox="0 0 32 32" style={{flexShrink:0}} xmlns="http://www.w3.org/2000/svg">
+            <rect width="32" height="32" rx="5" fill="#0a0a0f"/>
+            <rect x="6" y="8" width="2" height="3" fill="#ff4444"/>
+            <rect x="4" y="11" width="6" height="8" fill="#ff4444" rx="1"/>
+            <rect x="6" y="19" width="2" height="5" fill="#ff4444"/>
+            <rect x="15" y="3" width="2" height="5" fill="#00cc66"/>
+            <rect x="13" y="8" width="6" height="16" fill="#00cc66" rx="1"/>
+            <rect x="15" y="24" width="2" height="5" fill="#00cc66"/>
+            <rect x="24" y="8" width="2" height="4" fill="#00cc66"/>
+            <rect x="22" y="12" width="6" height="9" fill="#00cc66" rx="1"/>
+            <rect x="24" y="21" width="2" height="4" fill="#00cc66"/>
+          </svg>
+          <div>
+            <div style={{fontSize:22,fontWeight:700,color:"#f0b429",letterSpacing:3}}>TRADING DIARY</div>
+            <div style={{fontSize:9,color:"#444"}}>MIGUEL GARCIA PARRADO</div>
+          </div>
         </div>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
           <div style={{fontSize:8,padding:"2px 7px",borderRadius:10,border:"1px solid "+svColor,color:svColor}}>{svText}</div>
