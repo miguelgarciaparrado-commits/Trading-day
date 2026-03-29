@@ -3728,7 +3728,7 @@ function AlertasTab({S,predictions}){
           alertsRef.current=loaded;
           setAlerts(loaded);
           // Auto-restart monitors que estaban activos antes de cerrar
-          setTimeout(function(){expanded.forEach(function(a){if(a.active)startAlert(a);});},700);
+          setTimeout(function(){loaded.forEach(function(a){if(a.active)startAlert(a);});},700);
           return;
         }
       }
@@ -5132,14 +5132,6 @@ function AlertasTab({S,predictions}){
                 {rsi!==null&&<span style={{fontSize:11,fontWeight:700,color:rsiColor,minWidth:34,textAlign:"right"}}>RSI {rsi.toFixed(0)}</span>}
                 {alert.currentPrice!=null&&<span style={{fontSize:9,color:"#555"}}>${parseFloat(alert.currentPrice).toLocaleString("es-ES",{maximumFractionDigits:2})}</span>}
                 {alert.error&&<button onClick={function(){reconnectCountRef.current[alert.id.toString()]=0;startAlert(alert);}} style={{fontSize:8,padding:"3px 8px",background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",borderRadius:4,cursor:"pointer"}}>▶ Reconectar</button>}
-                {(function(){
-                  var ALL_TF=["1h","4h","1d","1w"];
-                  var missingTf=ALL_TF.some(function(tf){return !alerts.some(function(a){return a.symbol===alert.symbol&&a.interval===tf;});});
-                  if(!missingTf)return null;
-                  return <button onClick={function(){addAllTimeframes(alert);}}
-                    style={{fontSize:8,padding:"3px 6px",background:"rgba(255,215,0,.08)",border:"1px solid rgba(255,215,0,.3)",color:"#f0b429",borderRadius:4,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}
-                    title="Añadir todas las temporalidades (1H, 4H, Diario, Semanal)">➕ TF</button>;
-                })()}
                 {!isBtc&&<button onClick={function(){removeAlert(alert);}}
                   style={{width:22,height:22,borderRadius:"50%",background:"rgba(255,68,68,.12)",border:"1px solid rgba(255,68,68,.3)",color:"#ff6666",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0}}
                   title="Dejar de monitorear">×</button>}
