@@ -2379,6 +2379,15 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   const[pendingReply,setPendingReply]=useState(null); // {content,asset,tf,savedDate,days,note}
   const listRef=useRef(null);
   const fileInputRef=useRef(null);
+  // ── Memoria de opiniones / debate ──
+  var chatMemoryRef=useRef(function(){
+    try{var s=localStorage.getItem("td-chat-memory");if(s)return JSON.parse(s);}catch(e){}
+    return[];
+  }());
+  function saveChatMemory(mem){
+    chatMemoryRef.current=mem;
+    try{localStorage.setItem("td-chat-memory",JSON.stringify(mem));}catch(e){}
+  }
 
   // ── Predicciones ──
   const[showPredictions,setShowPredictions]=useState(false);
@@ -2796,8 +2805,17 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       });
     }
 
-    return "Eres analista tecnico de trading. Tu mision es dar analisis puros de mercado.\n\n"+
-      mdContext+predContext+pinnedContext+"\n\n"+
+    var memOpinions=chatMemoryRef.current||[];
+    var memContext="";
+    if(memOpinions.length>0){
+      memContext="\n\n=== MEMORIA DE OPINIONES Y FILOSOFIA DEL TRADER (acumulada de conversaciones anteriores) ===\n";
+      memOpinions.slice(-20).forEach(function(op){
+        memContext+="["+op.date+"] "+op.opinion+"\n";
+      });
+      memContext+="Usa esta memoria para: (1) no repetirte explicando cosas que ya sabe, (2) referenciar sus propias palabras cuando sea util, (3) desafiar si contradice algo que antes afirmo, (4) reconocer cuando ha evolucionado su pensamiento.\n";
+    }
+    return "Eres analista tecnico de trading Y compañero intelectual de Miguel. Tu mision es doble: dar analisis puros de mercado Y debatir activamente sus ideas de trading.\n\n"+
+      mdContext+predContext+pinnedContext+memContext+"\n\n"+
       "=== REGLAS DE RESPUESTA ===\n"+
       "1. Tu analisis se basa EXCLUSIVAMENTE en los datos de mercado arriba (RSI, EMAs, soportes, resistencias, FVGs)\n"+
       "2. Si el usuario adjunta un grafico/imagen, analiza visualmente la estructura, patrones y niveles que ves\n"+
@@ -2807,6 +2825,13 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       "6. Responde en espanol, directo y tecnico, max 250 palabras\n"+
       "7. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
       "8. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n"+
+      "=== MODO DEBATE Y APRENDIZAJE (CRITICO) ===\n"+
+      "- Si Miguel expresa una opinion, creencia o filosofia de trading: no la aceptes ciegamente. Evalua si es correcta. Si tiene fallos, dilos directamente pero con respeto.\n"+
+      "- Usa frases como: 'Eso no siempre funciona asi porque...', 'Ojo — hay un matiz importante:', 'Discrepo en esto:', 'Eso tiene logica pero el riesgo es...'\n"+
+      "- Si Miguel dice algo que contradice su propia memoria de opiniones guardada arriba: señalalo. Ejemplo: 'Antes dijiste X, ahora dices Y — ¿has cambiado de vision?'\n"+
+      "- Cuando el debate aporte valor (nueva tesis, nueva creencia, nueva filosofia detectada), añade al final en linea aparte:\n"+
+      "OPINION_APRENDIDA:[resumen de la opinion o creencia del trader en max 20 palabras]\n"+
+      "(Esta etiqueta es invisible para Miguel. Solo cuando la conversacion tenga una opinion clara y concreta del trader.)\n\n"+
       "DIVERGENCIA vs CONVERGENCIA RSI:\n"+
       "- Divergencia alcista: precio hace LL, RSI hace HL → señal de giro al alza (momentum se recupera antes que el precio)\n"+
       "- Divergencia bajista: precio hace HH, RSI hace LH → señal de giro a la baja (momentum se agota)\n"+
@@ -2844,22 +2869,32 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
     }).join("\n")||"Sin entradas de diario";
     const slTotal=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
     const slRate=slTotal>0?Math.round(((ps.slOk||0)+(ps.slBreakeven||0)*0.5)/slTotal*100):100;
+    var memOpR=chatMemoryRef.current||[];
+    var memCtxR="";
+    if(memOpR.length>0){
+      memCtxR="\n=== MEMORIA DE OPINIONES Y FILOSOFIA DEL TRADER (sesiones anteriores) ===\n";
+      memOpR.slice(-20).forEach(function(op){memCtxR+="["+op.date+"] "+op.opinion+"\n";});
+      memCtxR+="Utiliza esta memoria para no repetir lecciones ya aprendidas y para detectar si Miguel contradice o evoluciona sus propias creencias.\n";
+    }
     return "Eres el coach psicológico personal de Miguel, un trader que busca convertirse en profesional.\n"+
-      "Tu rol en este modo es EXCLUSIVAMENTE el de apoyo emocional, reflexión y coaching mental.\n"+
+      "Tu rol en este modo es coaching mental — pero también debates activamente sus ideas cuando detectas patrones mentales limitantes o creencias erróneas.\n"+
       "NO hagas análisis técnico del mercado a menos que Miguel lo pida explícitamente.\n"+
-      "Responde siempre en español, de forma empática, directa y constructiva.\n\n"+
+      "Responde siempre en español, de forma empática pero directa — no solo valides, también reta.\n\n"+
       "PERFIL DEL TRADER:\n"+
       "Score psicológico: "+sc+"/100\n"+
       "SL respetados: "+ps.slOk+" / "+slTotal+" ("+slRate+"%)\n"+
       "Cierres prematuros: "+(ps.earlyClose||0)+" — principal área de mejora\n"+
       "Revenge trading: "+(ps.revenge||0)+" episodios\n\n"+
       "ÚLTIMAS OPERACIONES:\n"+recentTrades+"\n\n"+
-      "DIARIO PSICOLÓGICO RECIENTE:\n"+recentJournal+"\n\n"+
+      "DIARIO PSICOLÓGICO RECIENTE:\n"+recentJournal+"\n"+
+      memCtxR+"\n"+
       "INSTRUCCIONES:\n"+
       "- Reconoce los sentimientos que expresa Miguel. Valídalos.\n"+
       "- Si cometió un error, ayúdale a extraer el aprendizaje sin juzgar.\n"+
       "- Si hizo algo bien (confió en su estrategia, respetó el plan), refuérzalo positivamente.\n"+
       "- Conecta su relato con patrones de su historial cuando sea relevante.\n"+
+      "- DEBATE: si Miguel expresa una creencia psicológica o filosófica sobre trading que es limitante o incorrecta, cuestiónala directamente. Ejemplo: 'Eso que describes es sesgo de confirmación — ten cuidado porque...'\n"+
+      "- Si contradice algo de su memoria de opiniones: señálalo. 'Antes decías X, ahora sientes Y — ¿has cambiado de perspectiva?'\n"+
       "- Máximo 3-4 frases. Conciso, personal, sin listas largas.\n"+
       "- El objetivo final es construir su perfil psicológico como trader profesional.\n\n"+
       "=== ETIQUETAS OCULTAS (añadelas al final, el usuario NO las ve) ===\n"+
@@ -2868,7 +2903,9 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       "Si detectas rasgos psicológicos relevantes en su relato, añade también:\n"+
       "PERFIL_TRADER:[rasgo1,rasgo2,...]\n"+
       "Ejemplos de rasgos: impaciente,disciplinado_sl,miedo_perdidas,sobreconfiado,autocritico_excesivo,busca_validacion,resiliente,analítico,emocional_en_perdidas,respeta_plan\n"+
-      "Solo incluye rasgos que hayas observado claramente en esta conversación.";
+      "Solo incluye rasgos que hayas observado claramente en esta conversación.\n"+
+      "Si detectas una opinion o creencia clara del trader sobre trading o psicologia, añade:\n"+
+      "OPINION_APRENDIDA:[resumen de la opinion en max 20 palabras]";
   }
 
   async function sendMessage(){
@@ -3003,8 +3040,21 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
         }
       }
 
+      // Extract OPINION_APRENDIDA and save to memory
+      var opinionMatches=raw.match(/OPINION_APRENDIDA:([^\n]+)/g);
+      if(opinionMatches&&opinionMatches.length>0){
+        var todayStr=new Date().toLocaleDateString("es-ES");
+        var currentMem=chatMemoryRef.current||[];
+        opinionMatches.forEach(function(tag){
+          var opText=tag.replace("OPINION_APRENDIDA:","").trim();
+          if(opText&&opText.length>3){
+            currentMem=currentMem.concat([{date:todayStr,opinion:opText}]);
+          }
+        });
+        saveChatMemory(currentMem.slice(-50));
+      }
       // Clean response (remove hidden tags from display)
-      const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").replace(/PERFIL_TRADER:[^\n]+/g,"").trim();
+      const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").replace(/PERFIL_TRADER:[^\n]+/g,"").replace(/OPINION_APRENDIDA:[^\n]+/g,"").trim();
       const assistantMsg={role:"assistant",content:clean,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),isReflexion:isReflexion};
       if(isReflexion){
         // Modo reflexión: solo mostramos el intercambio en UI, NO se guarda en localStorage
