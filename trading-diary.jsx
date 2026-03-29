@@ -5478,18 +5478,22 @@ function AlertasTab({S,predictions}){
 
 // - GOAL TRACKER -
 function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
-  // Net P&L de los cierres hechos via app (xhist)
-  const recovered=parseFloat(xhist.reduce((a,h)=>a+(h.result||0),0).toFixed(2));
-  // GOAL = perdida historica INICIAL (Quantfury base), fija e independiente de nuevos cierres
-  // h0Total = QUANTFURY_BASE + recovered  →  QUANTFURY_BASE = h0Total - recovered
-  const GOAL=parseFloat(Math.abs(h0Total-recovered).toFixed(2));
-  const potentialExtra=actPnl>0?actPnl:0;
-  const pct=GOAL>0?Math.min(100,Math.round(Math.max(0,recovered)/GOAL*100)):0;
-  const remaining=parseFloat(Math.max(0,GOAL-recovered).toFixed(2));
+  // GOAL: perdida historica fija de Quantfury (246 ops hasta 23/03/2026)
+  var GOAL=7471.73;
+  // Net P&L de los cierres hechos via app desde el 23/03/2026
+  var recovered=parseFloat(xhist.reduce(function(a,h){return a+(h.result||0);},0).toFixed(2));
+  var potentialExtra=actPnl>0?actPnl:0;
+  // Porcentaje: solo cuenta lo recuperado (recovered>0); si hay regresion, queda en 0%
+  var pct=Math.min(100,Math.round(Math.max(0,recovered)/GOAL*100));
+  // Deficit actual = objetivo original + perdidas nuevas (si recovered<0)
+  var currentDeficit=parseFloat((GOAL-recovered).toFixed(2));
+  var remaining=parseFloat(Math.max(0,currentDeficit).toFixed(2));
 
   // Milestone messages
-  let milestone="";
-  if(pct>=100)milestone="OBJETIVO COMPLETADO";
+  var milestone="";
+  if(xhist.length===0)milestone="Sin operaciones cerradas via app. Los cierres aqui actualizaran el progreso.";
+  else if(recovered<0)milestone="Perdidas recientes. Mantén el plan y recupera el ritmo.";
+  else if(pct>=100)milestone="OBJETIVO COMPLETADO";
   else if(pct>=75)milestone="Casi ahi. Ultimo tramo.";
   else if(pct>=50)milestone="Mas de la mitad del camino.";
   else if(pct>=25)milestone="Buen progreso. Sigue el plan.";
@@ -5503,8 +5507,9 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
     <div style={{...S.card,border:"1px solid rgba(240,180,41,.4)",marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
         <div>
-          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,letterSpacing:1}}>RECUPERACION — PERDIDA INICIAL: ${GOAL.toLocaleString()}</div>
-          <div style={{fontSize:9,color:"#555",marginTop:2}}>Perdida Quantfury historica (fija) · Cierres via app: {recovered>=0?"+":""}{recovered.toFixed(2)}</div>
+          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,letterSpacing:1}}>RECUPERACION — OBJETIVO: ${GOAL.toLocaleString()}</div>
+          <div style={{fontSize:9,color:"#555",marginTop:2}}>Perdida Quantfury historica (fija) · P&L via app: <span style={{color:recovered>=0?"#00ff88":"#ff4444",fontWeight:700}}>{recovered>=0?"+":""}{recovered.toFixed(2)}</span></div>
+          {recovered<0&&<div style={{fontSize:8,color:"#ff4444",marginTop:2}}>⚠️ Deficit actual: ${remaining.toLocaleString()} (objetivo + nuevas perdidas)</div>}
         </div>
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:28,fontWeight:700,color:pct>=100?"#00ff88":pct>=50?"#f0b429":"#e0e0e0"}}>{pct}%</div>
@@ -5527,8 +5532,8 @@ function GoalTracker({h0Total,ethT,actPnl,xhist,S}){
           </div>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:"#444",marginTop:3}}>
-          <span style={{color:recovered>=0?"#00ff88":"#ff4444"}}>Recuperado: {recovered>=0?"+":""}{recovered.toFixed(2)}</span>
-          <span style={{color:"#ff4444"}}>Restante: ${remaining.toLocaleString()}</span>
+          <span style={{color:recovered>=0?"#00ff88":"#ff4444"}}>{recovered>=0?"Recuperado: +":"Regresion: "}{Math.abs(recovered).toFixed(2)}</span>
+          <span style={{color:"#ff4444"}}>Restante: ${remaining.toLocaleString()}{recovered<0?" (objetivo + "+Math.abs(recovered).toFixed(0)+" perdidas)":""}</span>
         </div>
       </div>
 
