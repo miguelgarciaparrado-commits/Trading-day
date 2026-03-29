@@ -433,6 +433,7 @@ export default function App(){
     try{const s=localStorage.getItem("td-ai-profile");return s?JSON.parse(s):null;}catch(e){return null;}
   });
   const[aiProfileLoading,setAiProfileLoading]=useState(false);
+  const[aiProfileExpanded,setAiProfileExpanded]=useState(false);
   // fotos eliminadas - se usan URLs externas
   const[tab,setTab]=useState("Resumen");
   const[modal,setModal]=useState({});
@@ -887,7 +888,7 @@ export default function App(){
       if(!r.ok){const e=await r.json().catch(function(){return{};});throw new Error("API "+r.status+(e.error?" — "+e.error.message:""));}
       const d=await r.json();
       const analysis={text:d.content[0].text,date:new Date().toLocaleDateString("es-ES"),score:sc};
-      setAiProfile(analysis);
+      setAiProfile(analysis);setAiProfileExpanded(true);
       localStorage.setItem("td-ai-profile",JSON.stringify(analysis));
     }catch(e){
       alert("Error generando analisis: "+e.message);
@@ -2039,24 +2040,32 @@ export default function App(){
             <ProfileAnalysis ps={ps} pats={pats} jnl={jnl} hist={hist} xhist={xhist} sc={sc} S={S} predictions={predictions}/>
             {/* ── ANALISIS IA ── */}
             <div style={{...S.card,marginBottom:10,border:"1px solid rgba(136,170,255,.25)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div>
-                  <div style={{fontSize:10,color:"#88aaff",fontWeight:700}}>ANALISIS IA DEL TRADER</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:aiProfile&&!aiProfileExpanded?0:10}}>
+                <div style={{flex:1,cursor:aiProfile?"pointer":"default"}} onClick={function(){if(aiProfile)setAiProfileExpanded(function(v){return !v;});}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{fontSize:10,color:"#88aaff",fontWeight:700}}>ANALISIS IA DEL TRADER</div>
+                    {aiProfile&&<span style={{fontSize:9,color:"#444"}}>{aiProfileExpanded?"▲":"▼"}</span>}
+                  </div>
                   <div style={{fontSize:8,color:"#555",marginTop:2}}>
-                    {aiProfile?"Generado el "+aiProfile.date+" (Nivel "+aiProfile.score+")":"Genera un informe completo con IA sobre tu perfil"}
+                    {aiProfile?"Generado el "+aiProfile.date+" (Nivel "+aiProfile.score+")"+(aiProfileExpanded?"":" — pulsa para ver"):"Genera un informe completo con IA sobre tu perfil"}
                   </div>
                 </div>
                 <button
                   onClick={generateAIProfile}
                   disabled={aiProfileLoading}
-                  style={{background:aiProfileLoading?"#1e1e2e":"rgba(136,170,255,.15)",border:"1px solid #88aaff",color:aiProfileLoading?"#444":"#88aaff",padding:"7px 12px",borderRadius:6,fontSize:9,fontWeight:700,cursor:aiProfileLoading?"wait":"pointer"}}
+                  style={{background:aiProfileLoading?"#1e1e2e":"rgba(136,170,255,.15)",border:"1px solid #88aaff",color:aiProfileLoading?"#444":"#88aaff",padding:"7px 12px",borderRadius:6,fontSize:9,fontWeight:700,cursor:aiProfileLoading?"wait":"pointer",flexShrink:0}}
                 >
                   {aiProfileLoading?"Analizando...":aiProfile?"Regenerar":"Generar Analisis"}
                 </button>
               </div>
-              {aiProfile&&(
-                <div style={{fontSize:10,color:"#aaa",lineHeight:1.8,whiteSpace:"pre-wrap"}}>
-                  {aiProfile.text}
+              {aiProfile&&aiProfileExpanded&&(
+                <div>
+                  <div style={{fontSize:10,color:"#aaa",lineHeight:1.8,whiteSpace:"pre-wrap"}}>
+                    {aiProfile.text}
+                  </div>
+                  <button onClick={function(){setAiProfileExpanded(false);}} style={{marginTop:8,background:"transparent",border:"1px solid #333",color:"#555",padding:"5px 12px",borderRadius:4,fontSize:8,cursor:"pointer",width:"100%"}}>
+                    ▲ Ver menos
+                  </button>
                 </div>
               )}
               {!aiProfile&&!aiProfileLoading&&(
