@@ -4235,105 +4235,219 @@ function AlertasTab({ S, predictions }) {
             var activeSignals = alignedTypes.filter(function (t) { return confMap[t] && (confNow - confMap[t]) < confWindow; });
             var confluenceCount = activeSignals.length;
             var sugDir = isLong ? "Long" : "Short";
+            // ─── HELPER: buscar FVG más cercano dentro de maxPct del precio ───
+            var findNearFVG = function (ohlcArr, refPrice, bullish, maxPct) {
+                var best = null, scanStart = Math.max(2, ohlcArr.length - 80);
+                for (var ii = scanStart; ii < ohlcArr.length; ii++) {
+                    var f0 = ohlcArr[ii - 2], f2 = ohlcArr[ii];
+                    if (bullish && f2.l > f0.h) {
+                        var gap = f2.l - f0.h;
+                        if (gap / refPrice < 0.0005)
+                            continue;
+                        var mid = (f2.l + f0.h) / 2, dist = Math.abs(mid - refPrice) / refPrice;
+                        if (dist <= maxPct && (!best || dist < Math.abs(best.mid - refPrice) / refPrice))
+                            best = { mid: mid, top: f2.l, bot: f0.h, note: "FVG alcista $" + f0.h.toFixed(2) + "–$" + f2.l.toFixed(2) };
+                    }
+                    if (!bullish && f2.h < f0.l) {
+                        var gap2 = f0.l - f2.h;
+                        if (gap2 / refPrice < 0.0005)
+                            continue;
+                        var mid2 = (f2.h + f0.l) / 2, dist2 = Math.abs(mid2 - refPrice) / refPrice;
+                        if (dist2 <= maxPct && (!best || dist2 < Math.abs(best.mid - refPrice) / refPrice))
+                            best = { mid: mid2, top: f0.l, bot: f2.h, note: "FVG bajista $" + f2.h.toFixed(2) + "–$" + f0.l.toFixed(2) };
+                    }
+                }
+                return best;
+            };
+            var findFVGforTP = function (ohlcArr, refPrice, bullish, minRatio, riskA) {
+                var cands = [];
+                var scanStart2 = Math.max(2, ohlcArr.length - 80);
+                for (var fi = scanStart2; fi < ohlcArr.length; fi++) {
+                    var fc0 = ohlcArr[fi - 2], fc2 = ohlcArr[fi];
+                    if (bullish && fc2.l > fc0.h) {
+                        var gS = fc2.l - fc0.h;
+                        if (gS / refPrice < 0.0005)
+                            continue;
+                        var fM = (fc2.l + fc0.h) / 2;
+                        if (fM > refPrice)
+                            cands.push({ price: fM, note: "FVG alcista $" + fc0.h.toFixed(2) + "–$" + fc2.l.toFixed(2) });
+                    }
+                    if (!bullish && fc2.h < fc0.l) {
+                        var gS2 = fc0.l - fc2.h;
+                        if (gS2 / refPrice < 0.0005)
+                            continue;
+                        var fM2 = (fc2.h + fc0.l) / 2;
+                        if (fM2 < refPrice)
+                            cands.push({ price: fM2, note: "FVG bajista $" + fc2.h.toFixed(2) + "–$" + fc0.l.toFixed(2) });
+                    }
+                }
+                cands.sort(function (a, b) { return Math.abs(a.price - refPrice) - Math.abs(b.price - refPrice); });
+                for (var ci2 = 0; ci2 < cands.length; ci2++) {
+                    if (riskA > 0 && Math.abs(cands[ci2].price - refPrice) / riskA >= minRatio)
+                        return cands[ci2];
+                }
+                return null;
+            };
             // ─── PRECIO DE ENTRADA según estrategia ───
             var entryPrice = price || 0;
-            var entryNote = ""; // explicación del nivel de entrada
+            var entryNote = "";
             if ((type === "golden" || type === "death") && e1 && e1 > 0) {
-                // Cruce EMA 7/25: entrar en EMA7 (línea dinámica que acaba de cruzar)
                 entryPrice = parseFloat(parseFloat(e1).toFixed(2));
                 entryNote = "EMA7";
             }
             else if ((type === "ema200_golden" || type === "ema200_death") && e1 && e1 > 0) {
-                // Cruce EMA 50/200: entrar en EMA50
                 entryPrice = parseFloat(parseFloat(e1).toFixed(2));
                 entryNote = "EMA50";
             }
             else if (type === "canal_alcista_soporte" && extra.channelResult && extra.channelResult.botLine) {
-                // Rebote en soporte del canal alcista: entrada en la línea de soporte
                 entryPrice = parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
                 entryNote = "Soporte canal";
             }
             else if (type === "canal_bajista_resistencia" && extra.channelResult && extra.channelResult.topLine) {
-                // Rebote en resistencia del canal bajista: entrada en la línea de resistencia
                 entryPrice = parseFloat(parseFloat(extra.channelResult.topLine).toFixed(2));
                 entryNote = "Resistencia canal";
             }
             else if ((type === "canal_bajista_ruptura_alcista" || type === "canal_alcista_ruptura_alcista") && extra.channelResult && extra.channelResult.topLine) {
-                // Ruptura alcista: entrada en la resistencia rota (posible retest)
                 entryPrice = parseFloat(parseFloat(extra.channelResult.topLine).toFixed(2));
                 entryNote = "Resistencia rota (retest)";
             }
             else if ((type === "canal_alcista_ruptura_bajista" || type === "canal_bajista_ruptura_bajista") && extra.channelResult && extra.channelResult.botLine) {
-                // Ruptura bajista: entrada en el soporte roto (posible retest)
                 entryPrice = parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
                 entryNote = "Soporte roto (retest)";
             }
             else if ((type === "pennant_bull" || type === "pennant_fake") && extra.pennantResult && extra.pennantResult.upperLine) {
-                // Banderín alcista: entrada en la línea de resistencia del banderín (punto de ruptura)
                 entryPrice = parseFloat(extra.pennantResult.upperLine.toFixed(2));
                 entryNote = "Ruptura banderín";
             }
             else if ((type === "pennant_bear" || type === "pennant_bear_fake") && extra.pennantResult && extra.pennantResult.lowerLine) {
-                // Banderín bajista: entrada en el soporte del banderín roto
                 entryPrice = parseFloat(extra.pennantResult.lowerLine.toFixed(2));
                 entryNote = "Ruptura bajista banderín";
             }
-            // RSI, divergencias, FVG: precio de mercado actual (no hay nivel técnico derivado)
-            var slPct = 0.02;
-            var slPrice = isLong ? entryPrice * (1 - slPct) : entryPrice * (1 + slPct);
-            // Buscar siguiente FVG (ineficiencia) en dirección del trade — solo últimas 80 velas
+            else if ((type === "rsi_div_bull" || type === "rsi_conv_bull" || type === "rsi_oversold") && ohlcData.length > 4) {
+                // Divergencia/RSI alcista: buscar FVG alcista cercano (±3%) para entrada de precisión ICT
+                var fvgE = findNearFVG(ohlcData, price || 0, true, 0.03);
+                if (fvgE) {
+                    entryPrice = parseFloat(fvgE.bot.toFixed(2));
+                    entryNote = "FVG alcista cercano";
+                }
+            }
+            else if ((type === "rsi_div_bear" || type === "rsi_conv_bear" || type === "rsi_overbought") && ohlcData.length > 4) {
+                // Divergencia/RSI bajista: buscar FVG bajista cercano (±3%) para entrada de precisión ICT
+                var fvgE2 = findNearFVG(ohlcData, price || 0, false, 0.03);
+                if (fvgE2) {
+                    entryPrice = parseFloat(fvgE2.top.toFixed(2));
+                    entryNote = "FVG bajista cercano";
+                }
+            }
+            // ─── SL según estrategia ───
+            var slPrice = 0;
+            if (type === "golden" && e2 && e2 > 0) {
+                // Golden cross 7/25: SL 0.5% debajo de EMA25 (soporte dinámico del pullback)
+                slPrice = parseFloat((parseFloat(e2) * 0.995).toFixed(2));
+            }
+            else if (type === "ema200_golden" && e2 && e2 > 0) {
+                // Golden cross 50/200: SL 0.5% debajo de EMA200
+                slPrice = parseFloat((parseFloat(e2) * 0.995).toFixed(2));
+            }
+            else if (type === "death") {
+                // Death cross 7/25: short desde EMA7 (ahora resistencia), SL 1.2% encima
+                slPrice = parseFloat((entryPrice * 1.012).toFixed(2));
+            }
+            else if (type === "ema200_death") {
+                // Death cross 50/200: short desde EMA50, SL 1.5% encima del rebote
+                slPrice = parseFloat((entryPrice * 1.015).toFixed(2));
+            }
+            else if (type === "canal_alcista_soporte" && extra.channelResult && extra.channelResult.botLine) {
+                slPrice = parseFloat((parseFloat(extra.channelResult.botLine) * 0.995).toFixed(2));
+            }
+            else if (type === "canal_bajista_resistencia" && extra.channelResult && extra.channelResult.topLine) {
+                slPrice = parseFloat((parseFloat(extra.channelResult.topLine) * 1.005).toFixed(2));
+            }
+            else if ((type === "pennant_bull" || type === "pennant_fake") && extra.pennantResult && extra.pennantResult.lowerLine) {
+                slPrice = parseFloat((extra.pennantResult.lowerLine * 0.99).toFixed(2));
+            }
+            else if ((type === "pennant_bear" || type === "pennant_bear_fake") && extra.pennantResult && extra.pennantResult.upperLine) {
+                slPrice = parseFloat((extra.pennantResult.upperLine * 1.01).toFixed(2));
+            }
+            else if ((type === "rsi_div_bull" || type === "rsi_oversold") && ohlcData.length >= 5) {
+                var rLows = ohlcData.slice(-5).map(function (c) { return c.l; });
+                slPrice = parseFloat((Math.min.apply(null, rLows) * 0.99).toFixed(2));
+            }
+            else if ((type === "rsi_div_bear" || type === "rsi_overbought") && ohlcData.length >= 5) {
+                var rHighs = ohlcData.slice(-5).map(function (c) { return c.h; });
+                slPrice = parseFloat((Math.max.apply(null, rHighs) * 1.01).toFixed(2));
+            }
+            else {
+                slPrice = isLong ? parseFloat((entryPrice * 0.98).toFixed(2)) : parseFloat((entryPrice * 1.02).toFixed(2));
+            }
+            // Validar lado correcto
+            if (isLong && slPrice >= entryPrice)
+                slPrice = parseFloat((entryPrice * 0.98).toFixed(2));
+            if (!isLong && slPrice <= entryPrice)
+                slPrice = parseFloat((entryPrice * 1.02).toFixed(2));
+            // ─── TP según estrategia ───
             var tpPrice = null;
             var tpNote = "1:2 mínimo";
             var riskAmt = Math.abs(entryPrice - slPrice);
-            if (ohlcData.length > 4 && riskAmt > 0) {
-                var fvgCands = [];
-                var fvgScanStart = Math.max(2, ohlcData.length - 80);
-                for (var fi = fvgScanStart; fi < ohlcData.length; fi++) {
-                    var fc0 = ohlcData[fi - 2], fc2 = ohlcData[fi];
-                    var gapSize = 0;
-                    if (isLong && fc2.l > fc0.h) {
-                        gapSize = fc2.l - fc0.h;
-                        // Solo FVGs con gap mínimo de 0.05% del precio para evitar micro-gaps
-                        if (gapSize / entryPrice < 0.0005)
-                            continue;
-                        var fvgMid = (fc2.l + fc0.h) / 2;
-                        if (fvgMid > entryPrice) {
-                            fvgCands.push({ price: fvgMid, top: fc2.l, bot: fc0.h, note: "FVG alcista $" + fc0.h.toFixed(2) + "–$" + fc2.l.toFixed(2) });
-                        }
-                    }
-                    if (!isLong && fc2.h < fc0.l) {
-                        gapSize = fc0.l - fc2.h;
-                        if (gapSize / entryPrice < 0.0005)
-                            continue;
-                        var fvgMid2 = (fc2.h + fc0.l) / 2;
-                        if (fvgMid2 < entryPrice) {
-                            fvgCands.push({ price: fvgMid2, top: fc0.l, bot: fc2.h, note: "FVG bajista $" + fc2.h.toFixed(2) + "–$" + fc0.l.toFixed(2) });
-                        }
-                    }
+            // Death cross 7/25: TP primario = EMA50
+            if (type === "death" && extra.ema50 && extra.ema50 > 0 && extra.ema50 < entryPrice) {
+                var e50r = entryPrice - extra.ema50;
+                if (riskAmt > 0 && e50r / riskAmt >= 1.5) {
+                    tpPrice = parseFloat(extra.ema50.toFixed(2));
+                    tpNote = "EMA50 (soporte primario)";
                 }
-                // Ordenar por proximidad al precio de entrada
-                fvgCands.sort(function (a, b) { return Math.abs(a.price - entryPrice) - Math.abs(b.price - entryPrice); });
-                // Usar el FVG más cercano que dé ratio ≥1:2
-                for (var ci = 0; ci < fvgCands.length; ci++) {
-                    var cand = fvgCands[ci];
-                    var candReward = Math.abs(cand.price - entryPrice);
-                    if (candReward / riskAmt >= 2.0) {
-                        tpPrice = cand.price;
-                        tpNote = cand.note;
+            }
+            // Death cross 50/200: TP en soporte reciente (swing low últimas 20 velas)
+            if (!tpPrice && type === "ema200_death" && ohlcData.length >= 20) {
+                var recLows = ohlcData.slice(-20).map(function (c) { return c.l; }).filter(function (l) { return l < entryPrice; }).sort(function (a, b) { return b - a; });
+                for (var rli = 0; rli < recLows.length; rli++) {
+                    if (riskAmt > 0 && (entryPrice - recLows[rli]) / riskAmt >= 1.5) {
+                        tpPrice = parseFloat(recLows[rli].toFixed(2));
+                        tpNote = "Soporte estructura reciente";
                         break;
                     }
                 }
             }
-            // Banderín: TP = altura del asta proyectada (si da ≥1:2)
+            // Canal soporte/resistencia: TP en la línea opuesta del canal
+            if (!tpPrice && type === "canal_alcista_soporte" && extra.channelResult && extra.channelResult.topLine) {
+                var chT = parseFloat(extra.channelResult.topLine);
+                if (riskAmt > 0 && Math.abs(chT - entryPrice) / riskAmt >= 1.5) {
+                    tpPrice = chT;
+                    tpNote = "Resistencia canal";
+                }
+            }
+            if (!tpPrice && type === "canal_bajista_resistencia" && extra.channelResult && extra.channelResult.botLine) {
+                var chB = parseFloat(extra.channelResult.botLine);
+                if (riskAmt > 0 && Math.abs(chB - entryPrice) / riskAmt >= 1.5) {
+                    tpPrice = chB;
+                    tpNote = "Soporte canal";
+                }
+            }
+            // Señales bajistas RSI/divergencias: TP primario = EMA50
+            if (!tpPrice && (type === "rsi_overbought" || type === "rsi_div_bear" || type === "rsi_conv_bear") && extra.ema50 && extra.ema50 > 0 && extra.ema50 < entryPrice) {
+                var e50r2 = entryPrice - extra.ema50;
+                if (riskAmt > 0 && e50r2 / riskAmt >= 1.5) {
+                    tpPrice = parseFloat(extra.ema50.toFixed(2));
+                    tpNote = "EMA50";
+                }
+            }
+            // Banderín: TP = proyección del mástil
             if (!tpPrice && extra.pennantResult && extra.pennantResult.targetPrice) {
                 var pennTP = extra.pennantResult.targetPrice;
-                var pennReward = Math.abs(pennTP - entryPrice);
-                if (riskAmt <= 0 || pennReward / riskAmt >= 2.0) {
+                if (riskAmt <= 0 || Math.abs(pennTP - entryPrice) / riskAmt >= 1.5) {
                     tpPrice = pennTP;
                     tpNote = (type === "pennant_bear" || type === "pennant_bear_fake") ? "Objetivo banderín bajista" : "Objetivo banderín alcista";
                 }
             }
-            // Fallback: 1:2 mínimo
+            // Fallback: buscar FVG en dirección del trade (mínimo 1:1.5)
+            if (!tpPrice && ohlcData.length > 4 && riskAmt > 0) {
+                var fvgTP = findFVGforTP(ohlcData, entryPrice, isLong, 1.5, riskAmt);
+                if (fvgTP) {
+                    tpPrice = fvgTP.price;
+                    tpNote = fvgTP.note;
+                }
+            }
+            // Último fallback: 1:2
             if (!tpPrice) {
                 tpPrice = isLong ? entryPrice + riskAmt * 2 : entryPrice - riskAmt * 2;
             }
@@ -4848,9 +4962,9 @@ function AlertasTab({ S, predictions }) {
                             }
                             catch (e) { }
                             if (rsiZone === "oversold" && (alert.rsiOversoldEnabled !== false))
-                                sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200 });
                             else if (rsiZone === "overbought" && (alert.rsiOverboughtEnabled !== false))
-                                sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200 });
                         }
                         // RSI personalizado (nivel configurado por el usuario)
                         if (alert.rsiCustomEnabled && alert.rsiCustomTarget) {
@@ -4893,7 +5007,7 @@ function AlertasTab({ S, predictions }) {
                                 var divKey = ak + divKind + "_" + divResult.type + "_" + Math.round(closePrice / 50);
                                 if (!lastTrigRef.current[divKey]) {
                                     lastTrigRef.current[divKey] = true;
-                                    sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult });
+                                    sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200 });
                                 }
                             }
                             else {
@@ -5071,7 +5185,7 @@ function AlertasTab({ S, predictions }) {
                             if (cross7_25 === "golden") {
                                 if (!lastTrigRef.current[ak + "g725"]) {
                                     lastTrigRef.current[ak + "g725"] = true;
-                                    sendAlert(alert.label, alert.interval, rsi, "golden", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                    sendAlert(alert.label, alert.interval, rsi, "golden", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, ema50: ema50, ema200: ema200 });
                                 }
                             }
                             else {
@@ -5080,7 +5194,7 @@ function AlertasTab({ S, predictions }) {
                             if (cross7_25 === "death") {
                                 if (!lastTrigRef.current[ak + "d725"]) {
                                     lastTrigRef.current[ak + "d725"] = true;
-                                    sendAlert(alert.label, alert.interval, rsi, "death", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                    sendAlert(alert.label, alert.interval, rsi, "death", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, ema50: ema50, ema200: ema200 });
                                 }
                             }
                             else {
