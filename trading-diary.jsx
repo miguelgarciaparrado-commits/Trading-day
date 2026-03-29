@@ -2588,8 +2588,22 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
     savePredictions(predictions.filter(function(p){return p.id!==id;}));
   }
 
+  function resetOldPredictions(){
+    var todayStart=new Date();todayStart.setHours(0,0,0,0);
+    var kept=predictions.filter(function(p){return p.timestamp&&p.timestamp>=todayStart.getTime();});
+    if(!window.confirm("¿Borrar "+( predictions.length-kept.length)+" señales anteriores a hoy? Se conservan las de hoy ("+kept.length+")."))return;
+    savePredictions(kept);
+    // Limpiar checks de monitorización solo de las predicciones borradas
+    try{
+      var mc=JSON.parse(localStorage.getItem("td-monitor-checks")||"{}");
+      var keptIds={};kept.forEach(function(p){keptIds[p.id]=true;});
+      Object.keys(mc).forEach(function(k){if(!keptIds[k])delete mc[k];});
+      localStorage.setItem("td-monitor-checks",JSON.stringify(mc));
+    }catch(e){}
+  }
+
   function resetAllPredictions(){
-    if(!window.confirm("¿Borrar todas las predicciones del BOT? Esta acción no se puede deshacer."))return;
+    if(!window.confirm("¿Borrar TODAS las predicciones del BOT? Esta acción no se puede deshacer."))return;
     savePredictions([]);
     try{localStorage.removeItem("td-monitor-checks");}catch(e){}
     try{localStorage.removeItem("td-pattern-fb");}catch(e){}
@@ -3088,7 +3102,12 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
         <div style={{background:"#111118",border:"1px solid rgba(136,170,255,.3)",borderRadius:8,padding:10,marginBottom:8,maxHeight:240,overflowY:"auto"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <div style={{fontSize:9,color:"#88aaff",fontWeight:700}}>PREDICCIONES GUARDADAS</div>
-            {predictions.length>0&&<button onClick={resetAllPredictions} style={{background:"transparent",border:"1px solid #ff4444",color:"#ff4444",padding:"2px 7px",borderRadius:3,fontSize:8,cursor:"pointer"}}>🗑 Reiniciar todo</button>}
+            {predictions.length>0&&(
+              <div style={{display:"flex",gap:4}}>
+                <button onClick={resetOldPredictions} style={{background:"transparent",border:"1px solid #f0b429",color:"#f0b429",padding:"2px 7px",borderRadius:3,fontSize:8,cursor:"pointer"}}>🗑 Borrar anteriores</button>
+                <button onClick={resetAllPredictions} style={{background:"transparent",border:"1px solid #ff4444",color:"#ff4444",padding:"2px 7px",borderRadius:3,fontSize:8,cursor:"pointer"}}>✕ Todo</button>
+              </div>
+            )}
           </div>
           {predictions.length>0&&(function(){
             var hit=predictions.filter(function(p){return p.status==="hit";}).length;
