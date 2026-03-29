@@ -3343,11 +3343,17 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
             style={{background:isRecording?"rgba(255,68,68,.15)":"rgba(0,255,136,.08)",border:"1px solid "+(isRecording?"#ff4444":"rgba(0,255,136,.3)"),color:isRecording?"#ff4444":"#00ff88",padding:"10px 12px",borderRadius:6,fontSize:16,cursor:"pointer"}}
           >{isRecording?"⏹":"🎙️"}</button>
         )}
-        <input
-          style={{...S.inp,flex:1,fontSize:12,padding:"10px 12px",borderColor:pendingVoice?"rgba(0,255,136,.4)":""}}
+        <textarea
+          style={{...S.inp,flex:1,fontSize:12,padding:"10px 12px",borderColor:pendingVoice?"rgba(0,255,136,.4)":"",resize:"none",overflowY:"hidden",lineHeight:1.5,minHeight:42,maxHeight:160}}
           placeholder={chatMode==="reflexion"?"Cuéntame cómo te has sentido en este trade...":speechSupported?"Escribe o usa 🎙️ para hablar · Nombra activo y temporalidad":"Ej: en 4H en LINK veo una ineficiencia FVG, puedo entrar?"}
           value={input}
-          onChange={function(e){setInput(e.target.value);if(isRecording)setPendingVoice(false);}}
+          rows={1}
+          onChange={function(e){
+            setInput(e.target.value);
+            if(isRecording)setPendingVoice(false);
+            e.target.style.height="auto";
+            e.target.style.height=Math.min(e.target.scrollHeight,160)+"px";
+          }}
           onKeyDown={function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
         />
         <button
