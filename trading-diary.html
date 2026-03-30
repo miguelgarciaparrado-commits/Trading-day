@@ -3241,6 +3241,23 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                 D.current.jnl = newJnl;
                 SJ(newJnl);
             }
+            else if (evalMatch) {
+                // Modo análisis: también actualiza el perfil psicológico cuando la IA detecta algo relevante
+                var aEvalType = evalMatch[1];
+                var aEvalDesc = evalMatch[2].trim();
+                var aEntry = {
+                    id: Date.now(),
+                    date: new Date().toLocaleDateString("es-ES"),
+                    text: "[Chat análisis] " + aEvalDesc,
+                    emoji: aEvalType === "positivo" ? "📈" : aEvalType === "negativo" ? "⚠️" : "🔍",
+                    type: aEvalType === "positivo" ? "win" : aEvalType === "negativo" ? "lesson" : "analysis",
+                    linkedClose: null,
+                    fromAnalysis: true
+                };
+                var newJnlA = [aEntry, ...D.current.jnl];
+                D.current.jnl = newJnlA;
+                SJ(newJnlA);
+            }
             // Extract profile traits and save
             const perfilMatch = raw.match(/PERFIL_TRADER:([^\n]+)/);
             if (perfilMatch) {
@@ -3462,19 +3479,6 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                         m.isVoice && React.createElement("span", { style: { fontSize: 8, color: "#00cc66", display: "block", marginBottom: 4 } }, "\uD83C\uDF99\uFE0F Mensaje de voz"),
                         m.isReflexion && m.role === "user" && React.createElement("span", { style: { fontSize: 8, color: "#f0b429", display: "block", marginBottom: 4 } }, "\uD83D\uDCAD Reflexi\u00F3n \u00B7 no guardado en historial"),
                         m.content),
-                    m.role === "user" && !voiceSaved[String(i)] && (!m.isReflexion || !(messages[i - 1] && messages[i - 1].role === "assistant" && messages[i - 1].isReflexion)) && (React.createElement("div", { style: { marginTop: 4, padding: "6px 8px", background: "rgba(0,255,136,.04)", border: "1px solid rgba(0,255,136,.12)", borderRadius: 6, maxWidth: "88%", alignSelf: "flex-end" } }, voiceSaveIdx === i ? (React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 8, color: "#888", marginBottom: 5 } }, "\u00BFC\u00F3mo clasificas este momento psicol\u00F3gico?"),
-                        React.createElement("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" } },
-                            [["win", "🏆 Victoria", "#00ff88"], ["lesson", "📚 Lección", "#f0b429"], ["mistake", "⚠️ Error", "#ff4444"], ["analysis", "🔍 Análisis", "#88aaff"]].map(function (row) {
-                                var t = row[0], lbl = row[1], col = row[2];
-                                return (React.createElement("button", { key: t, onClick: function () { saveChatToDiary(m.content, m.isVoice || false, t, i); }, style: { background: "rgba(255,255,255,.05)", border: "1px solid " + col + "55", color: col, padding: "4px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, lbl));
-                            }),
-                            React.createElement("button", { onClick: function () { setVoiceSaveIdx(null); }, style: { background: "transparent", border: "none", color: "#444", fontSize: 10, cursor: "pointer" } }, "\u2715")))) : (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                        React.createElement("span", { style: { fontSize: 8, color: "#444" } }, m.isVoice ? "🎙️ Audio" : "💬 Mensaje"),
-                        React.createElement("button", { onClick: function () { setVoiceSaveIdx(i); }, style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "\uD83D\uDCD3 Guardar en diario"))))),
-                    m.role === "user" && voiceSaved[String(i)] && (React.createElement("div", { style: { marginTop: 3, fontSize: 8, color: "#00ff88", alignSelf: "flex-end" } },
-                        "\u2713 Guardado en diario como ",
-                        voiceSaved[String(i)])),
                     React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 2, marginLeft: m.role === "user" ? 0 : 4, marginRight: m.role === "user" ? 4 : 0 } },
                         React.createElement("span", { style: { fontSize: 8, color: "#333" } },
                             m.role === "user" ? "Tu" : "Claude",

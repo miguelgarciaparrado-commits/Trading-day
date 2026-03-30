@@ -3020,6 +3020,22 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
         const newJnl=[jEntry,...D.current.jnl];
         D.current.jnl=newJnl;
         SJ(newJnl);
+      }else if(evalMatch){
+        // Modo análisis: también actualiza el perfil psicológico cuando la IA detecta algo relevante
+        var aEvalType=evalMatch[1];
+        var aEvalDesc=evalMatch[2].trim();
+        var aEntry={
+          id:Date.now(),
+          date:new Date().toLocaleDateString("es-ES"),
+          text:"[Chat análisis] "+aEvalDesc,
+          emoji:aEvalType==="positivo"?"📈":aEvalType==="negativo"?"⚠️":"🔍",
+          type:aEvalType==="positivo"?"win":aEvalType==="negativo"?"lesson":"analysis",
+          linkedClose:null,
+          fromAnalysis:true
+        };
+        var newJnlA=[aEntry,...D.current.jnl];
+        D.current.jnl=newJnlA;
+        SJ(newJnlA);
       }
 
       // Extract profile traits and save
@@ -3289,38 +3305,6 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
               {m.isReflexion&&m.role==="user"&&<span style={{fontSize:8,color:"#f0b429",display:"block",marginBottom:4}}>💭 Reflexión · no guardado en historial</span>}
               {m.content}
             </div>
-            {/* Diary save bar — only for non-reflexion OR first message of reflexion chain */}
-            {m.role==="user"&&!voiceSaved[String(i)]&&(!m.isReflexion||!(messages[i-1]&&messages[i-1].role==="assistant"&&messages[i-1].isReflexion))&&(
-              <div style={{marginTop:4,padding:"6px 8px",background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.12)",borderRadius:6,maxWidth:"88%",alignSelf:"flex-end"}}>
-                {voiceSaveIdx===i?(
-                  <div>
-                    <div style={{fontSize:8,color:"#888",marginBottom:5}}>¿Cómo clasificas este momento psicológico?</div>
-                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                      {[["win","🏆 Victoria","#00ff88"],["lesson","📚 Lección","#f0b429"],["mistake","⚠️ Error","#ff4444"],["analysis","🔍 Análisis","#88aaff"]].map(function(row){
-                        var t=row[0],lbl=row[1],col=row[2];
-                        return(
-                          <button key={t} onClick={function(){saveChatToDiary(m.content,m.isVoice||false,t,i);}}
-                            style={{background:"rgba(255,255,255,.05)",border:"1px solid "+col+"55",color:col,padding:"4px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
-                            {lbl}
-                          </button>
-                        );
-                      })}
-                      <button onClick={function(){setVoiceSaveIdx(null);}} style={{background:"transparent",border:"none",color:"#444",fontSize:10,cursor:"pointer"}}>✕</button>
-                    </div>
-                  </div>
-                ):(
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{fontSize:8,color:"#444"}}>{m.isVoice?"🎙️ Audio":"💬 Mensaje"}</span>
-                    <button onClick={function(){setVoiceSaveIdx(i);}} style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>📓 Guardar en diario</button>
-                  </div>
-                )}
-              </div>
-            )}
-            {m.role==="user"&&voiceSaved[String(i)]&&(
-              <div style={{marginTop:3,fontSize:8,color:"#00ff88",alignSelf:"flex-end"}}>
-                ✓ Guardado en diario como {voiceSaved[String(i)]}
-              </div>
-            )}
             <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
               <span style={{fontSize:8,color:"#333"}}>{m.role==="user"?"Tu":"Claude"} · {m.time}{m.isVoice?" · 🎙️":""}</span>
               {i>0&&(function(){
