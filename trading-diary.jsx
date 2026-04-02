@@ -1098,6 +1098,13 @@ export default function App(){
     }
   }
 
+  function clearPosProximityKeys(posId){
+    var prefix="prox_"+posId+"_";
+    Object.keys(proximityRef.current).forEach(function(k){
+      if(k.indexOf(prefix)===0)delete proximityRef.current[k];
+    });
+  }
+
   function autoCheckPositions(newPr){
     if(!D.current.pos||!D.current.pos.length)return;
     var changed=false;
@@ -1142,6 +1149,7 @@ export default function App(){
           changed=true;
           if(p.patternId&&!isBE)applyPatternResult(p.patternId,false);
           notifyAutoClose(p.asset,p.dir,"SL ejecutado",price,slResult);
+          clearPosProximityKeys(p.id);
           kept=false;
         }
       }
@@ -1172,6 +1180,7 @@ export default function App(){
           var tpPrices=updLevels.map(function(l){return "$"+parseFloat(l.price).toLocaleString();}).join("/");
           entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(totalResult.toFixed(2)),date:today(),note:"🎯 TPs completados "+tpPrices,autoClose:true,...(fullRatio!==null?{ratio:fullRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})});
           if(p.patternId)applyPatternResult(p.patternId,true);
+          clearPosProximityKeys(p.id);
           changed=true;continue;
         }
         var someNew=updLevels.some(function(l,i){return l.hit&&!p.tpLevels[i].hit;});
@@ -1193,6 +1202,7 @@ export default function App(){
           psU.tpStreak=(psU.tpStreak||0)+1;
           if(psU.tpStreak>(psU.bestTpStreak||0))psU.bestTpStreak=psU.tpStreak;
           if(p.patternId)applyPatternResult(p.patternId,true);
+          clearPosProximityKeys(p.id);
           changed=true;
           notifyAutoClose(p.asset,p.dir,"TP alcanzado",price,tpResult);
           continue;
@@ -1210,32 +1220,42 @@ export default function App(){
 
   function checkProximityAlerts(newPr){
     if(!D.current.pos||!D.current.pos.length)return;
-    var PROX=0.01; // notificar si el precio está a ≤1% del nivel
-    var RESET=0.025; // resetear alerta cuando se aleja ≥2.5%
+    var PROX=0.001; // notificar si el precio está a ≤0.1% del nivel
+    var RESET=0.005; // resetear alerta cuando se aleja ≥0.5%
+    var COOLDOWN_MS=15*60*1000; // 15 minutos entre alertas del mismo nivel
+    var now=Date.now();
     D.current.pos.forEach(function(p){
       var base=p.asset.replace(/\/.*$/,"").toUpperCase();
       var price=newPr[base];
       if(!price||price<=0)return;
+      function shouldFire(key){
+        var last=proximityRef.current[key];
+        if(!last)return true;
+        if(typeof last==="number")return (now-last)>=COOLDOWN_MS;
+        return false; // legacy boolean true = fired, treat as fired forever until reset
+      }
+      function markFired(key){proximityRef.current[key]=now;}
+      function clearKey(key){delete proximityRef.current[key];}
       if(p.status==="pending"){
         // ── Posición en espera: avisar cuando el precio se acerca a la entrada ──
         var distEntry=Math.abs(price-p.entry)/p.entry;
         var eKey="prox_"+p.id+"_entry";
-        if(distEntry<=PROX&&!proximityRef.current[eKey]){
-          proximityRef.current[eKey]=true;
+        if(distEntry<=PROX&&shouldFire(eKey)){
+          markFired(eKey);
           notifyProximity(p.asset,p.dir,"ENTRADA",p.entry,price);
         }else if(distEntry>RESET){
-          proximityRef.current[eKey]=false;
+          clearKey(eKey);
         }
       }else{
         // ── Posición abierta: avisar cuando el precio se acerca al SL o TP ──
         if(p.sl){
           var distSL=Math.abs(price-p.sl)/p.entry;
           var slKey="prox_"+p.id+"_sl";
-          if(distSL<=PROX&&!proximityRef.current[slKey]){
-            proximityRef.current[slKey]=true;
+          if(distSL<=PROX&&shouldFire(slKey)){
+            markFired(slKey);
             notifyProximity(p.asset,p.dir,"SL",p.sl,price);
           }else if(distSL>RESET){
-            proximityRef.current[slKey]=false;
+            clearKey(slKey);
           }
         }
         if(p.tpLevels&&p.tpLevels.length){
@@ -1243,21 +1263,21 @@ export default function App(){
             if(lvl.hit)return;
             var distTPL=Math.abs(price-lvl.price)/p.entry;
             var tplKey="prox_"+p.id+"_tpl"+idx;
-            if(distTPL<=PROX&&!proximityRef.current[tplKey]){
-              proximityRef.current[tplKey]=true;
+            if(distTPL<=PROX&&shouldFire(tplKey)){
+              markFired(tplKey);
               notifyProximity(p.asset,p.dir,"TP "+lvl.pct+"%",lvl.price,price);
             }else if(distTPL>RESET){
-              proximityRef.current[tplKey]=false;
+              clearKey(tplKey);
             }
           });
         }else if(p.tp){
           var distTP=Math.abs(price-p.tp)/p.entry;
           var tpKey="prox_"+p.id+"_tp";
-          if(distTP<=PROX&&!proximityRef.current[tpKey]){
-            proximityRef.current[tpKey]=true;
+          if(distTP<=PROX&&shouldFire(tpKey)){
+            markFired(tpKey);
             notifyProximity(p.asset,p.dir,"TP",p.tp,price);
           }else if(distTP>RESET){
-            proximityRef.current[tpKey]=false;
+            clearKey(tpKey);
           }
         }
       }
@@ -1785,7 +1805,22 @@ export default function App(){
                         <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                           <span style={{fontSize:9,color:"#444"}}>${h.cap>=1000?h.cap.toLocaleString():h.cap}</span>
                           <span style={{fontWeight:700,color:result>0?"#00ff88":result<0?"#ff4444":"#666",minWidth:68,textAlign:"right"}}>{result===0?"$0.00":fmtNum(result)}</span>
-                          {isAppEntry&&<button title="Eliminar entrada" onClick={function(){var nX=xhist.filter(function(x){return x.id!==h.id;});D.current.xhist=nX;setXhist(nX);save();}} style={{background:"transparent",border:"none",color:"#3a1a1a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>}
+                          {isAppEntry&&<button title="Eliminar entrada" onClick={function(){
+                            var nX=xhist.filter(function(x){return x.id!==h.id;});
+                            D.current.xhist=nX;setXhist(nX);
+                            // Revertir stats de ps si era un cierre TP auto con resultado positivo
+                            if(h.autoClose&&h.result>0&&(h.note||"").indexOf("🎯")===0){
+                              var psRev={...D.current.ps};
+                              if((psRev.tpAuto||0)>0)psRev.tpAuto=(psRev.tpAuto||0)-1;
+                              if(h.ratio!=null&&(psRev.ratioCount||0)>0){
+                                psRev.ratioSum=(psRev.ratioSum||0)-h.ratio;
+                                psRev.ratioCount=(psRev.ratioCount||0)-1;
+                                if(psRev.ratioCount<=0){psRev.ratioSum=0;psRev.ratioCount=0;}
+                              }
+                              D.current.ps=psRev;setPs(psRev);
+                            }
+                            save();
+                          }} style={{background:"transparent",border:"none",color:"#3a1a1a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>}
                         </div>
                       </div>
                     );
@@ -2671,7 +2706,10 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   }
 
   useEffect(function(){
-    if(listRef.current)listRef.current.scrollTop=listRef.current.scrollHeight;
+    var el=listRef.current;
+    if(!el)return;
+    var distFromBottom=el.scrollHeight-el.scrollTop-el.clientHeight;
+    if(distFromBottom<=120)el.scrollTop=el.scrollHeight;
   },[messages]);
 
   useEffect(function(){
@@ -6418,7 +6456,17 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
     var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
     var posId=editId||Date.now();
     var reflText=preReflection?preReflection.trim():"";
-    const obj={...f,id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:f.status||"open"};
+    var finalStatus=f.status||"open";
+    // Auto-pending: si se guarda como "open" pero el precio actual está >0.5% de la entrada, guardar como EN ESPERA
+    if(finalStatus==="open"&&!editId){
+      var entryPx=+f.entry;
+      var base2=f.asset.replace(/\/.*$/,"").toUpperCase();
+      var mktPx=(D.current.pr&&D.current.pr[base2])||0;
+      if(mktPx>0&&entryPx>0&&Math.abs(mktPx-entryPx)/entryPx>0.005){
+        finalStatus="pending";
+      }
+    }
+    const obj={...f,id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus};
     const nv=editId?currentPos.map(x=>x.id===editId?obj:x):[...currentPos,obj];
     SPos(nv);
     if(reflText&&SJ&&!editId){
