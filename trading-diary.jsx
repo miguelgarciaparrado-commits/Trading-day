@@ -1098,6 +1098,13 @@ export default function App(){
     }
   }
 
+  function clearPosProximityKeys(posId){
+    var prefix="prox_"+posId+"_";
+    Object.keys(proximityRef.current).forEach(function(k){
+      if(k.indexOf(prefix)===0)delete proximityRef.current[k];
+    });
+  }
+
   function autoCheckPositions(newPr){
     if(!D.current.pos||!D.current.pos.length)return;
     var changed=false;
@@ -1142,6 +1149,7 @@ export default function App(){
           changed=true;
           if(p.patternId&&!isBE)applyPatternResult(p.patternId,false);
           notifyAutoClose(p.asset,p.dir,"SL ejecutado",price,slResult);
+          clearPosProximityKeys(p.id);
           kept=false;
         }
       }
@@ -1172,6 +1180,7 @@ export default function App(){
           var tpPrices=updLevels.map(function(l){return "$"+parseFloat(l.price).toLocaleString();}).join("/");
           entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(totalResult.toFixed(2)),date:today(),note:"🎯 TPs completados "+tpPrices,autoClose:true,...(fullRatio!==null?{ratio:fullRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})});
           if(p.patternId)applyPatternResult(p.patternId,true);
+          clearPosProximityKeys(p.id);
           changed=true;continue;
         }
         var someNew=updLevels.some(function(l,i){return l.hit&&!p.tpLevels[i].hit;});
@@ -1193,6 +1202,7 @@ export default function App(){
           psU.tpStreak=(psU.tpStreak||0)+1;
           if(psU.tpStreak>(psU.bestTpStreak||0))psU.bestTpStreak=psU.tpStreak;
           if(p.patternId)applyPatternResult(p.patternId,true);
+          clearPosProximityKeys(p.id);
           changed=true;
           notifyAutoClose(p.asset,p.dir,"TP alcanzado",price,tpResult);
           continue;
@@ -1210,32 +1220,42 @@ export default function App(){
 
   function checkProximityAlerts(newPr){
     if(!D.current.pos||!D.current.pos.length)return;
-    var PROX=0.01; // notificar si el precio está a ≤1% del nivel
-    var RESET=0.025; // resetear alerta cuando se aleja ≥2.5%
+    var PROX=0.001; // notificar si el precio está a ≤0.1% del nivel
+    var RESET=0.005; // resetear alerta cuando se aleja ≥0.5%
+    var COOLDOWN_MS=15*60*1000; // 15 minutos entre alertas del mismo nivel
+    var now=Date.now();
     D.current.pos.forEach(function(p){
       var base=p.asset.replace(/\/.*$/,"").toUpperCase();
       var price=newPr[base];
       if(!price||price<=0)return;
+      function shouldFire(key){
+        var last=proximityRef.current[key];
+        if(!last)return true;
+        if(typeof last==="number")return (now-last)>=COOLDOWN_MS;
+        return false; // legacy boolean true = fired, treat as fired forever until reset
+      }
+      function markFired(key){proximityRef.current[key]=now;}
+      function clearKey(key){delete proximityRef.current[key];}
       if(p.status==="pending"){
         // ── Posición en espera: avisar cuando el precio se acerca a la entrada ──
         var distEntry=Math.abs(price-p.entry)/p.entry;
         var eKey="prox_"+p.id+"_entry";
-        if(distEntry<=PROX&&!proximityRef.current[eKey]){
-          proximityRef.current[eKey]=true;
+        if(distEntry<=PROX&&shouldFire(eKey)){
+          markFired(eKey);
           notifyProximity(p.asset,p.dir,"ENTRADA",p.entry,price);
         }else if(distEntry>RESET){
-          proximityRef.current[eKey]=false;
+          clearKey(eKey);
         }
       }else{
         // ── Posición abierta: avisar cuando el precio se acerca al SL o TP ──
         if(p.sl){
           var distSL=Math.abs(price-p.sl)/p.entry;
           var slKey="prox_"+p.id+"_sl";
-          if(distSL<=PROX&&!proximityRef.current[slKey]){
-            proximityRef.current[slKey]=true;
+          if(distSL<=PROX&&shouldFire(slKey)){
+            markFired(slKey);
             notifyProximity(p.asset,p.dir,"SL",p.sl,price);
           }else if(distSL>RESET){
-            proximityRef.current[slKey]=false;
+            clearKey(slKey);
           }
         }
         if(p.tpLevels&&p.tpLevels.length){
@@ -1243,21 +1263,21 @@ export default function App(){
             if(lvl.hit)return;
             var distTPL=Math.abs(price-lvl.price)/p.entry;
             var tplKey="prox_"+p.id+"_tpl"+idx;
-            if(distTPL<=PROX&&!proximityRef.current[tplKey]){
-              proximityRef.current[tplKey]=true;
+            if(distTPL<=PROX&&shouldFire(tplKey)){
+              markFired(tplKey);
               notifyProximity(p.asset,p.dir,"TP "+lvl.pct+"%",lvl.price,price);
             }else if(distTPL>RESET){
-              proximityRef.current[tplKey]=false;
+              clearKey(tplKey);
             }
           });
         }else if(p.tp){
           var distTP=Math.abs(price-p.tp)/p.entry;
           var tpKey="prox_"+p.id+"_tp";
-          if(distTP<=PROX&&!proximityRef.current[tpKey]){
-            proximityRef.current[tpKey]=true;
+          if(distTP<=PROX&&shouldFire(tpKey)){
+            markFired(tpKey);
             notifyProximity(p.asset,p.dir,"TP",p.tp,price);
           }else if(distTP>RESET){
-            proximityRef.current[tpKey]=false;
+            clearKey(tpKey);
           }
         }
       }
@@ -1785,7 +1805,22 @@ export default function App(){
                         <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                           <span style={{fontSize:9,color:"#444"}}>${h.cap>=1000?h.cap.toLocaleString():h.cap}</span>
                           <span style={{fontWeight:700,color:result>0?"#00ff88":result<0?"#ff4444":"#666",minWidth:68,textAlign:"right"}}>{result===0?"$0.00":fmtNum(result)}</span>
-                          {isAppEntry&&<button title="Eliminar entrada" onClick={function(){var nX=xhist.filter(function(x){return x.id!==h.id;});D.current.xhist=nX;setXhist(nX);save();}} style={{background:"transparent",border:"none",color:"#3a1a1a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>}
+                          {isAppEntry&&<button title="Eliminar entrada" onClick={function(){
+                            var nX=xhist.filter(function(x){return x.id!==h.id;});
+                            D.current.xhist=nX;setXhist(nX);
+                            // Revertir stats de ps si era un cierre TP auto con resultado positivo
+                            if(h.autoClose&&h.result>0&&(h.note||"").indexOf("🎯")===0){
+                              var psRev={...D.current.ps};
+                              if((psRev.tpAuto||0)>0)psRev.tpAuto=(psRev.tpAuto||0)-1;
+                              if(h.ratio!=null&&(psRev.ratioCount||0)>0){
+                                psRev.ratioSum=(psRev.ratioSum||0)-h.ratio;
+                                psRev.ratioCount=(psRev.ratioCount||0)-1;
+                                if(psRev.ratioCount<=0){psRev.ratioSum=0;psRev.ratioCount=0;}
+                              }
+                              D.current.ps=psRev;setPs(psRev);
+                            }
+                            save();
+                          }} style={{background:"transparent",border:"none",color:"#3a1a1a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>}
                         </div>
                       </div>
                     );
@@ -2379,6 +2414,15 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   const[pendingReply,setPendingReply]=useState(null); // {content,asset,tf,savedDate,days,note}
   const listRef=useRef(null);
   const fileInputRef=useRef(null);
+  // ── Memoria de opiniones / debate ──
+  var chatMemoryRef=useRef(function(){
+    try{var s=localStorage.getItem("td-chat-memory");if(s)return JSON.parse(s);}catch(e){}
+    return[];
+  }());
+  function saveChatMemory(mem){
+    chatMemoryRef.current=mem;
+    try{localStorage.setItem("td-chat-memory",JSON.stringify(mem));}catch(e){}
+  }
 
   // ── Predicciones ──
   const[showPredictions,setShowPredictions]=useState(false);
@@ -2662,7 +2706,10 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
   }
 
   useEffect(function(){
-    if(listRef.current)listRef.current.scrollTop=listRef.current.scrollHeight;
+    var el=listRef.current;
+    if(!el)return;
+    var distFromBottom=el.scrollHeight-el.scrollTop-el.clientHeight;
+    if(distFromBottom<=120)el.scrollTop=el.scrollHeight;
   },[messages]);
 
   useEffect(function(){
@@ -2796,8 +2843,17 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       });
     }
 
-    return "Eres analista tecnico de trading. Tu mision es dar analisis puros de mercado.\n\n"+
-      mdContext+predContext+pinnedContext+"\n\n"+
+    var memOpinions=chatMemoryRef.current||[];
+    var memContext="";
+    if(memOpinions.length>0){
+      memContext="\n\n=== MEMORIA DE OPINIONES Y FILOSOFIA DEL TRADER (acumulada de conversaciones anteriores) ===\n";
+      memOpinions.slice(-20).forEach(function(op){
+        memContext+="["+op.date+"] "+op.opinion+"\n";
+      });
+      memContext+="Usa esta memoria para: (1) no repetirte explicando cosas que ya sabe, (2) referenciar sus propias palabras cuando sea util, (3) desafiar si contradice algo que antes afirmo, (4) reconocer cuando ha evolucionado su pensamiento.\n";
+    }
+    return "Eres analista tecnico de trading Y compañero intelectual de Miguel. Tu mision es doble: dar analisis puros de mercado Y debatir activamente sus ideas de trading.\n\n"+
+      mdContext+predContext+pinnedContext+memContext+"\n\n"+
       "=== REGLAS DE RESPUESTA ===\n"+
       "1. Tu analisis se basa EXCLUSIVAMENTE en los datos de mercado arriba (RSI, EMAs, soportes, resistencias, FVGs)\n"+
       "2. Si el usuario adjunta un grafico/imagen, analiza visualmente la estructura, patrones y niveles que ves\n"+
@@ -2807,6 +2863,13 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       "6. Responde en espanol, directo y tecnico, max 250 palabras\n"+
       "7. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
       "8. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n"+
+      "=== MODO DEBATE Y APRENDIZAJE (CRITICO) ===\n"+
+      "- Si Miguel expresa una opinion, creencia o filosofia de trading: no la aceptes ciegamente. Evalua si es correcta. Si tiene fallos, dilos directamente pero con respeto.\n"+
+      "- Usa frases como: 'Eso no siempre funciona asi porque...', 'Ojo — hay un matiz importante:', 'Discrepo en esto:', 'Eso tiene logica pero el riesgo es...'\n"+
+      "- Si Miguel dice algo que contradice su propia memoria de opiniones guardada arriba: señalalo. Ejemplo: 'Antes dijiste X, ahora dices Y — ¿has cambiado de vision?'\n"+
+      "- Cuando el debate aporte valor (nueva tesis, nueva creencia, nueva filosofia detectada), añade al final en linea aparte:\n"+
+      "OPINION_APRENDIDA:[resumen de la opinion o creencia del trader en max 20 palabras]\n"+
+      "(Esta etiqueta es invisible para Miguel. Solo cuando la conversacion tenga una opinion clara y concreta del trader.)\n\n"+
       "DIVERGENCIA vs CONVERGENCIA RSI:\n"+
       "- Divergencia alcista: precio hace LL, RSI hace HL → señal de giro al alza (momentum se recupera antes que el precio)\n"+
       "- Divergencia bajista: precio hace HH, RSI hace LH → señal de giro a la baja (momentum se agota)\n"+
@@ -2844,22 +2907,32 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
     }).join("\n")||"Sin entradas de diario";
     const slTotal=(ps.slOk||0)+(ps.slBroken||0)+(ps.slBreakeven||0);
     const slRate=slTotal>0?Math.round(((ps.slOk||0)+(ps.slBreakeven||0)*0.5)/slTotal*100):100;
+    var memOpR=chatMemoryRef.current||[];
+    var memCtxR="";
+    if(memOpR.length>0){
+      memCtxR="\n=== MEMORIA DE OPINIONES Y FILOSOFIA DEL TRADER (sesiones anteriores) ===\n";
+      memOpR.slice(-20).forEach(function(op){memCtxR+="["+op.date+"] "+op.opinion+"\n";});
+      memCtxR+="Utiliza esta memoria para no repetir lecciones ya aprendidas y para detectar si Miguel contradice o evoluciona sus propias creencias.\n";
+    }
     return "Eres el coach psicológico personal de Miguel, un trader que busca convertirse en profesional.\n"+
-      "Tu rol en este modo es EXCLUSIVAMENTE el de apoyo emocional, reflexión y coaching mental.\n"+
+      "Tu rol en este modo es coaching mental — pero también debates activamente sus ideas cuando detectas patrones mentales limitantes o creencias erróneas.\n"+
       "NO hagas análisis técnico del mercado a menos que Miguel lo pida explícitamente.\n"+
-      "Responde siempre en español, de forma empática, directa y constructiva.\n\n"+
+      "Responde siempre en español, de forma empática pero directa — no solo valides, también reta.\n\n"+
       "PERFIL DEL TRADER:\n"+
       "Score psicológico: "+sc+"/100\n"+
       "SL respetados: "+ps.slOk+" / "+slTotal+" ("+slRate+"%)\n"+
       "Cierres prematuros: "+(ps.earlyClose||0)+" — principal área de mejora\n"+
       "Revenge trading: "+(ps.revenge||0)+" episodios\n\n"+
       "ÚLTIMAS OPERACIONES:\n"+recentTrades+"\n\n"+
-      "DIARIO PSICOLÓGICO RECIENTE:\n"+recentJournal+"\n\n"+
+      "DIARIO PSICOLÓGICO RECIENTE:\n"+recentJournal+"\n"+
+      memCtxR+"\n"+
       "INSTRUCCIONES:\n"+
       "- Reconoce los sentimientos que expresa Miguel. Valídalos.\n"+
       "- Si cometió un error, ayúdale a extraer el aprendizaje sin juzgar.\n"+
       "- Si hizo algo bien (confió en su estrategia, respetó el plan), refuérzalo positivamente.\n"+
       "- Conecta su relato con patrones de su historial cuando sea relevante.\n"+
+      "- DEBATE: si Miguel expresa una creencia psicológica o filosófica sobre trading que es limitante o incorrecta, cuestiónala directamente. Ejemplo: 'Eso que describes es sesgo de confirmación — ten cuidado porque...'\n"+
+      "- Si contradice algo de su memoria de opiniones: señálalo. 'Antes decías X, ahora sientes Y — ¿has cambiado de perspectiva?'\n"+
       "- Máximo 3-4 frases. Conciso, personal, sin listas largas.\n"+
       "- El objetivo final es construir su perfil psicológico como trader profesional.\n\n"+
       "=== ETIQUETAS OCULTAS (añadelas al final, el usuario NO las ve) ===\n"+
@@ -2868,7 +2941,9 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       "Si detectas rasgos psicológicos relevantes en su relato, añade también:\n"+
       "PERFIL_TRADER:[rasgo1,rasgo2,...]\n"+
       "Ejemplos de rasgos: impaciente,disciplinado_sl,miedo_perdidas,sobreconfiado,autocritico_excesivo,busca_validacion,resiliente,analítico,emocional_en_perdidas,respeta_plan\n"+
-      "Solo incluye rasgos que hayas observado claramente en esta conversación.";
+      "Solo incluye rasgos que hayas observado claramente en esta conversación.\n"+
+      "Si detectas una opinion o creencia clara del trader sobre trading o psicologia, añade:\n"+
+      "OPINION_APRENDIDA:[resumen de la opinion en max 20 palabras]";
   }
 
   async function sendMessage(){
@@ -2983,6 +3058,22 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
         const newJnl=[jEntry,...D.current.jnl];
         D.current.jnl=newJnl;
         SJ(newJnl);
+      }else if(evalMatch){
+        // Modo análisis: también actualiza el perfil psicológico cuando la IA detecta algo relevante
+        var aEvalType=evalMatch[1];
+        var aEvalDesc=evalMatch[2].trim();
+        var aEntry={
+          id:Date.now(),
+          date:new Date().toLocaleDateString("es-ES"),
+          text:"[Chat análisis] "+aEvalDesc,
+          emoji:aEvalType==="positivo"?"📈":aEvalType==="negativo"?"⚠️":"🔍",
+          type:aEvalType==="positivo"?"win":aEvalType==="negativo"?"lesson":"analysis",
+          linkedClose:null,
+          fromAnalysis:true
+        };
+        var newJnlA=[aEntry,...D.current.jnl];
+        D.current.jnl=newJnlA;
+        SJ(newJnlA);
       }
 
       // Extract profile traits and save
@@ -3003,8 +3094,21 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
         }
       }
 
+      // Extract OPINION_APRENDIDA and save to memory
+      var opinionMatches=raw.match(/OPINION_APRENDIDA:([^\n]+)/g);
+      if(opinionMatches&&opinionMatches.length>0){
+        var todayStr=new Date().toLocaleDateString("es-ES");
+        var currentMem=chatMemoryRef.current||[];
+        opinionMatches.forEach(function(tag){
+          var opText=tag.replace("OPINION_APRENDIDA:","").trim();
+          if(opText&&opText.length>3){
+            currentMem=currentMem.concat([{date:todayStr,opinion:opText}]);
+          }
+        });
+        saveChatMemory(currentMem.slice(-50));
+      }
       // Clean response (remove hidden tags from display)
-      const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").replace(/PERFIL_TRADER:[^\n]+/g,"").trim();
+      const clean=raw.replace(/EVALUACION_TRADER:[^\n]+/g,"").replace(/PERFIL_TRADER:[^\n]+/g,"").replace(/OPINION_APRENDIDA:[^\n]+/g,"").trim();
       const assistantMsg={role:"assistant",content:clean,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),isReflexion:isReflexion};
       if(isReflexion){
         // Modo reflexión: solo mostramos el intercambio en UI, NO se guarda en localStorage
@@ -3208,7 +3312,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
 
 
       {/* Messages */}
-      <div ref={listRef} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,paddingBottom:8}}>
+      <div ref={listRef} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",justifyContent:"flex-end",gap:8,paddingBottom:8}}>
         {chatMode==="reflexion"&&messages.filter(function(m){return m.isReflexion;}).length===0&&(
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,opacity:.4}}>
             <div style={{fontSize:28}}>💭</div>
@@ -3239,38 +3343,6 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
               {m.isReflexion&&m.role==="user"&&<span style={{fontSize:8,color:"#f0b429",display:"block",marginBottom:4}}>💭 Reflexión · no guardado en historial</span>}
               {m.content}
             </div>
-            {/* Diary save bar — only for non-reflexion OR first message of reflexion chain */}
-            {m.role==="user"&&!voiceSaved[String(i)]&&(!m.isReflexion||!(messages[i-1]&&messages[i-1].role==="assistant"&&messages[i-1].isReflexion))&&(
-              <div style={{marginTop:4,padding:"6px 8px",background:"rgba(0,255,136,.04)",border:"1px solid rgba(0,255,136,.12)",borderRadius:6,maxWidth:"88%",alignSelf:"flex-end"}}>
-                {voiceSaveIdx===i?(
-                  <div>
-                    <div style={{fontSize:8,color:"#888",marginBottom:5}}>¿Cómo clasificas este momento psicológico?</div>
-                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                      {[["win","🏆 Victoria","#00ff88"],["lesson","📚 Lección","#f0b429"],["mistake","⚠️ Error","#ff4444"],["analysis","🔍 Análisis","#88aaff"]].map(function(row){
-                        var t=row[0],lbl=row[1],col=row[2];
-                        return(
-                          <button key={t} onClick={function(){saveChatToDiary(m.content,m.isVoice||false,t,i);}}
-                            style={{background:"rgba(255,255,255,.05)",border:"1px solid "+col+"55",color:col,padding:"4px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
-                            {lbl}
-                          </button>
-                        );
-                      })}
-                      <button onClick={function(){setVoiceSaveIdx(null);}} style={{background:"transparent",border:"none",color:"#444",fontSize:10,cursor:"pointer"}}>✕</button>
-                    </div>
-                  </div>
-                ):(
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{fontSize:8,color:"#444"}}>{m.isVoice?"🎙️ Audio":"💬 Mensaje"}</span>
-                    <button onClick={function(){setVoiceSaveIdx(i);}} style={{background:"rgba(0,255,136,.1)",border:"1px solid rgba(0,255,136,.3)",color:"#00ff88",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}}>📓 Guardar en diario</button>
-                  </div>
-                )}
-              </div>
-            )}
-            {m.role==="user"&&voiceSaved[String(i)]&&(
-              <div style={{marginTop:3,fontSize:8,color:"#00ff88",alignSelf:"flex-end"}}>
-                ✓ Guardado en diario como {voiceSaved[String(i)]}
-              </div>
-            )}
             <div style={{display:"flex",gap:6,alignItems:"center",marginTop:2,marginLeft:m.role==="user"?0:4,marginRight:m.role==="user"?4:0}}>
               <span style={{fontSize:8,color:"#333"}}>{m.role==="user"?"Tu":"Claude"} · {m.time}{m.isVoice?" · 🎙️":""}</span>
               {i>0&&(function(){
@@ -3286,45 +3358,6 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
                 title="Borrar mensaje"
                 style={{background:"transparent",border:"none",color:"#2a2a3a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>
             </div>
-            {/* Botón guardar predicción — visible en mensajes del asistente */}
-            {m.role==="assistant"&&i>0&&!m.isReminder&&!m.isReflexion&&(
-              <div style={{marginTop:4,alignSelf:"flex-start",marginLeft:4}}>
-                {savingMsgIdx===i?(
-                  <div style={{background:"#0d0d16",border:"1px solid rgba(136,170,255,.4)",borderRadius:6,padding:"8px 10px",minWidth:220}}>
-                    <div style={{fontSize:8,color:"#88aaff",fontWeight:700,marginBottom:6}}>GUARDAR COMO PREDICCIÓN</div>
-                    <input style={{...S.inp,width:"100%",fontSize:9,padding:"5px 8px",marginBottom:6,boxSizing:"border-box"}}
-                      placeholder="Nota: ej. BTC objetivo 74500 en 4H..."
-                      value={predNote}
-                      onChange={function(e){setPredNote(e.target.value);}}
-                      onKeyDown={function(e){if(e.key==="Enter")saveMessageAsPrediction(messages[savingMsgIdx],predNote,messages[savingMsgIdx-1]);}}
-                      autoFocus/>
-                    <div style={{display:"flex",gap:5}}>
-                      <button onClick={function(){saveMessageAsPrediction(messages[savingMsgIdx],predNote,messages[savingMsgIdx-1]);}}
-                        style={{flex:2,padding:"5px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar</button>
-                      <button onClick={function(){setSavingMsgIdx(null);setPredNote("");}}
-                        style={{flex:1,padding:"5px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
-                    </div>
-                  </div>
-                ):(
-                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                    <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);setPredNote("");}}
-                      style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #222",color:"#444",cursor:"pointer"}}>
-                      💾 Guardar predicción
-                    </button>
-                    {monitoredMsgs[i]?(
-                      <span style={{fontSize:8,color:"#0088cc",padding:"3px 8px",borderRadius:4,border:"1px solid rgba(0,136,204,.4)",background:"rgba(0,136,204,.08)"}}>✈️ Monitoreando</span>
-                    ):(
-                      <button title="Guardar y monitorizar — recibirás updates en Telegram" onClick={function(){
-                        var userMsg=messages[i-1]&&messages[i-1].role==="user"?messages[i-1]:null;
-                        saveMessageAsPrediction(m,"",userMsg);
-                      }} style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #1a2a3a",color:"#0088cc",cursor:"pointer"}}>
-                        ✈️ Monitorizar
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         );})}
         {loading&&(
@@ -6384,7 +6417,17 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
     var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
     var posId=editId||Date.now();
     var reflText=preReflection?preReflection.trim():"";
-    const obj={...f,id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:f.status||"open"};
+    var finalStatus=f.status||"open";
+    // Auto-pending: si se guarda como "open" pero el precio actual está >0.5% de la entrada, guardar como EN ESPERA
+    if(finalStatus==="open"&&!editId){
+      var entryPx=+f.entry;
+      var base2=f.asset.replace(/\/.*$/,"").toUpperCase();
+      var mktPx=(D.current.pr&&D.current.pr[base2])||0;
+      if(mktPx>0&&entryPx>0&&Math.abs(mktPx-entryPx)/entryPx>0.005){
+        finalStatus="pending";
+      }
+    }
+    const obj={...f,id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus};
     const nv=editId?currentPos.map(x=>x.id===editId?obj:x):[...currentPos,obj];
     SPos(nv);
     if(reflText&&SJ&&!editId){
