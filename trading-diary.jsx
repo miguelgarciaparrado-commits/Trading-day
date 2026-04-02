@@ -3358,45 +3358,6 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
                 title="Borrar mensaje"
                 style={{background:"transparent",border:"none",color:"#2a2a3a",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>✕</button>
             </div>
-            {/* Botón guardar predicción — visible en mensajes del asistente */}
-            {m.role==="assistant"&&i>0&&!m.isReminder&&!m.isReflexion&&(
-              <div style={{marginTop:4,alignSelf:"flex-start",marginLeft:4}}>
-                {savingMsgIdx===i?(
-                  <div style={{background:"#0d0d16",border:"1px solid rgba(136,170,255,.4)",borderRadius:6,padding:"8px 10px",minWidth:220}}>
-                    <div style={{fontSize:8,color:"#88aaff",fontWeight:700,marginBottom:6}}>GUARDAR COMO PREDICCIÓN</div>
-                    <input style={{...S.inp,width:"100%",fontSize:9,padding:"5px 8px",marginBottom:6,boxSizing:"border-box"}}
-                      placeholder="Nota: ej. BTC objetivo 74500 en 4H..."
-                      value={predNote}
-                      onChange={function(e){setPredNote(e.target.value);}}
-                      onKeyDown={function(e){if(e.key==="Enter")saveMessageAsPrediction(messages[savingMsgIdx],predNote,messages[savingMsgIdx-1]);}}
-                      autoFocus/>
-                    <div style={{display:"flex",gap:5}}>
-                      <button onClick={function(){saveMessageAsPrediction(messages[savingMsgIdx],predNote,messages[savingMsgIdx-1]);}}
-                        style={{flex:2,padding:"5px",background:"#88aaff",color:"#0a0a0f",border:"none",borderRadius:4,fontSize:9,fontWeight:700,cursor:"pointer"}}>Guardar</button>
-                      <button onClick={function(){setSavingMsgIdx(null);setPredNote("");}}
-                        style={{flex:1,padding:"5px",background:"transparent",border:"1px solid #333",color:"#555",borderRadius:4,fontSize:9,cursor:"pointer"}}>Cancelar</button>
-                    </div>
-                  </div>
-                ):(
-                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                    <button onClick={function(){setSavingMsgIdx(i);setShowPredictions(false);setPredNote("");}}
-                      style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #222",color:"#444",cursor:"pointer"}}>
-                      💾 Guardar predicción
-                    </button>
-                    {monitoredMsgs[i]?(
-                      <span style={{fontSize:8,color:"#0088cc",padding:"3px 8px",borderRadius:4,border:"1px solid rgba(0,136,204,.4)",background:"rgba(0,136,204,.08)"}}>✈️ Monitoreando</span>
-                    ):(
-                      <button title="Guardar y monitorizar — recibirás updates en Telegram" onClick={function(){
-                        var userMsg=messages[i-1]&&messages[i-1].role==="user"?messages[i-1]:null;
-                        saveMessageAsPrediction(m,"",userMsg);
-                      }} style={{fontSize:8,padding:"3px 8px",borderRadius:4,background:"transparent",border:"1px solid #1a2a3a",color:"#0088cc",cursor:"pointer"}}>
-                        ✈️ Monitorizar
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         );})}
         {loading&&(
