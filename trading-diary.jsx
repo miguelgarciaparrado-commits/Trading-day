@@ -5056,7 +5056,7 @@ function AlertasTab({S,predictions}){
               "  • Breakeven ejecutado\n\n"+
               "🧠 SEGUIMIENTO PREDICCIONES\n"+predLines+"\n\n"+
               "✅ Telegram funcionando correctamente.";
-            fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+encodeURIComponent(cid)+"&text="+encodeURIComponent(msg)).catch(function(){});
+            fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:cid,text:msg})}).catch(function(){});
           }} style={{background:"rgba(0,136,204,.1)",border:"1px solid #0088cc",color:"#0088cc",padding:"7px 8px",borderRadius:6,fontSize:9,cursor:"pointer",fontWeight:700}}>📋</button>}
         </div>
       </div>
@@ -5115,8 +5115,7 @@ function AlertasTab({S,predictions}){
               if(!tk||!cid){setTgStatus("error");return;}
               localStorage.setItem("td-tg-token",tk);
               localStorage.setItem("td-tg-chatid",cid);
-              var txt=encodeURIComponent("✅ Trading Diary conectado!\n\nRecibirás alertas aquí cuando se disparen.");
-              fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+txt)
+              fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:cid,text:"✅ Trading Diary conectado!\n\nRecibirás alertas aquí cuando se disparen."})})
                 .then(function(r){return r.json();})
                 .then(function(d){
                   setTgStatus(d.ok?"ok":"error");
