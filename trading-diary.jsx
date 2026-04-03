@@ -1112,8 +1112,7 @@ export default function App(){
     var tk=localStorage.getItem("td-tg-token");
     var cid=localStorage.getItem("td-tg-chatid");
     if(tk&&cid){
-      var txt=encodeURIComponent(title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES"));
-      fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+txt).catch(function(){});
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:cid,text:title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES")})}).catch(function(){});
     }
   }
 
@@ -1127,8 +1126,7 @@ export default function App(){
     var tk=localStorage.getItem("td-tg-token");
     var cid=localStorage.getItem("td-tg-chatid");
     if(tk&&cid){
-      var txt=encodeURIComponent(title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES"));
-      fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+txt).catch(function(){});
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:cid,text:title+"\n"+body+"\n⏰ "+new Date().toLocaleTimeString("es-ES")})}).catch(function(){});
     }
   }
 
@@ -4430,20 +4428,19 @@ function AlertasTab({S,predictions}){
         }
       }
       var tgFullText=tgLines.join("\n");
+      // Siempre POST — GET falla silenciosamente cuando el mensaje es largo (límite de URL)
+      var tgBody={chat_id:cid,text:tgFullText};
       if(hasConfluence){
-        // Con confluencia: siempre enviar con botones de feedback para mejorar la probabilidad
-        fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({chat_id:cid,text:tgFullText,reply_markup:{inline_keyboard:[[
-            {text:"✅ Se cumplió",callback_data:"fb_correct_"+type},
-            {text:"❌ No se cumplió",callback_data:"fb_wrong_"+type}
-          ]]}})
-        }).catch(function(){});
-      }else{
-        var tgText=encodeURIComponent(tgFullText);
-        fetch("https://api.telegram.org/bot"+tk+"/sendMessage?chat_id="+cid+"&text="+tgText).catch(function(){});
+        tgBody.reply_markup={inline_keyboard:[[
+          {text:"✅ Se cumplió",callback_data:"fb_correct_"+type},
+          {text:"❌ No se cumplió",callback_data:"fb_wrong_"+type}
+        ]]};
       }
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(tgBody)
+      }).catch(function(){});
     }
     if(Notification.permission==="granted"){
       const notifOpts={body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",requireInteraction:true,silent:false};
