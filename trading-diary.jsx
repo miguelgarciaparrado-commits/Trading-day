@@ -1817,6 +1817,19 @@ export default function App(){
                                 psRev.ratioCount=(psRev.ratioCount||0)-1;
                                 if(psRev.ratioCount<=0){psRev.ratioSum=0;psRev.ratioCount=0;}
                               }
+                              // Recalcular racha desde las entradas restantes (más reciente = índice 0)
+                              var newStreak=0;
+                              for(var si=0;si<nX.length;si++){
+                                var se=nX[si];
+                                if(se.autoClose&&se.result>0&&(se.note||"").indexOf("🎯")===0){
+                                  newStreak++;
+                                }else{
+                                  break;
+                                }
+                              }
+                              psRev.tpStreak=newStreak;
+                              // bestTpStreak se mantiene como récord histórico, solo actualizar si la racha actual lo supera
+                              if(newStreak>(psRev.bestTpStreak||0))psRev.bestTpStreak=newStreak;
                               D.current.ps=psRev;setPs(psRev);
                             }
                             save();
