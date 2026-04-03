@@ -337,9 +337,13 @@ export default function App(){
 
     openAssets.forEach(function(a){
       const base=a.replace(/\/.*$/,"").toUpperCase();
-      if(CRYPTO_BASE[base]){
-        if(!cryptoPairs.some(function(p){return p.key===base;}))
-          cryptoPairs.push({symbol:CRYPTO_BASE[base],key:base});
+      // Es crypto si: está en CRYPTO_BASE, o si el activo tiene '/' (formato BASE/QUOTE), o termina en USDT/BTC/ETH
+      var isCrypto=CRYPTO_BASE[base]||(a.indexOf("/")!==-1)||(/USDT$|BTC$|ETH$/i.test(a));
+      if(isCrypto){
+        if(!cryptoPairs.some(function(p){return p.key===base;})){
+          var sym=CRYPTO_BASE[base]||(base+"USDT");
+          cryptoPairs.push({symbol:sym,key:base});
+        }
       }else{
         stockSymbols.add(base);
       }
@@ -1134,9 +1138,9 @@ export default function App(){
         var rwd=Math.abs(effTp-pos.entry);
         return rsk>0?parseFloat((rwd/rsk).toFixed(2)):null;
       }
-      // SL check
-      if(p.sl){
-        var slHit=isShort?(price>=p.sl):(price<=p.sl);
+      // SL check — tolerancia 0.01% para evitar cierre prematuro cuando SL≈entrada
+      if(p.sl&&p.sl>0){
+        var slHit=isShort?(price>=p.sl*1.0001):(price<=p.sl*0.9999);
         if(slHit){
           var isBE=p.be||p.sl===p.entry;
           var slResult=isBE?0:-(p.capital*Math.abs(p.entry-p.sl)/p.entry);
