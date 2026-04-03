@@ -444,6 +444,8 @@ export default function App(){
   const[hSearch,setHSearch]=useState("");
   const[hFilter,setHFilter]=useState("all");
   const[hSort,setHSort]=useState("desc");
+  const[showManualTrade,setShowManualTrade]=useState(false);
+  const[manualForm,setManualForm]=useState({asset:"",dir:"Long",capital:"",entry:"",close:"",note:"",date:""});
   const[predictions,setPredictions]=useState(function(){
     try{var s=localStorage.getItem("td-predictions");if(s)return JSON.parse(s);}catch(e){}
     return[];
@@ -1791,7 +1793,84 @@ export default function App(){
               {["all","long","short"].map(f=><button key={f} onClick={()=>setHFilter(f)} style={{padding:"5px 10px",borderRadius:4,fontSize:9,fontWeight:700,border:"none",cursor:"pointer",background:hFilter===f?"#f0b429":"#1e1e2e",color:hFilter===f?"#0a0a0f":"#666"}}>{f.toUpperCase()}</button>)}
               <button onClick={()=>setHSort(s=>s==="desc"?"asc":"desc")} style={{padding:"5px 10px",borderRadius:4,fontSize:9,border:"1px solid #2a2a3a",background:"transparent",color:"#888",cursor:"pointer"}}>{hSort==="desc"?"reciente primero":"antigua primero"}</button>
               <span style={{fontSize:9,color:"#444"}}>{fH.length} resultados</span>
+              <button onClick={()=>setShowManualTrade(function(v){return !v;})} style={{marginLeft:"auto",padding:"5px 10px",borderRadius:4,fontSize:9,fontWeight:700,border:"1px solid rgba(240,180,41,.4)",background:"rgba(240,180,41,.1)",color:"#f0b429",cursor:"pointer"}}>+ Añadir trade</button>
             </div>
+            {showManualTrade&&(
+              <div style={{...S.card,marginBottom:10,border:"1px solid rgba(240,180,41,.3)"}}>
+                <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:10}}>AÑADIR TRADE CERRADO MANUALMENTE</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                  <div>
+                    <div style={S.lbl}>ACTIVO</div>
+                    <input style={S.inp} placeholder="BTC, SOL, PEPE..." value={manualForm.asset} onChange={function(e){setManualForm(function(f){return Object.assign({},f,{asset:e.target.value.toUpperCase()});});}}/>
+                  </div>
+                  <div>
+                    <div style={S.lbl}>DIRECCIÓN</div>
+                    <div style={{display:"flex",gap:5}}>
+                      {["Long","Short"].map(function(d){return(
+                        <button key={d} onClick={function(){setManualForm(function(f){return Object.assign({},f,{dir:d});});}}
+                          style={{flex:1,padding:"6px",borderRadius:4,fontSize:9,fontWeight:700,border:"none",cursor:"pointer",background:manualForm.dir===d?(d==="Long"?"#00ff88":"#ff4444"):"#1e1e2e",color:manualForm.dir===d?"#0a0a0f":"#666"}}>
+                          {d}
+                        </button>
+                      );})
+                      }
+                    </div>
+                  </div>
+                  <div>
+                    <div style={S.lbl}>CAPITAL ($)</div>
+                    <input type="number" style={S.inp} placeholder="1000" value={manualForm.capital} onChange={function(e){setManualForm(function(f){return Object.assign({},f,{capital:e.target.value});});}}/>
+                  </div>
+                  <div>
+                    <div style={S.lbl}>PRECIO ENTRADA</div>
+                    <input type="number" style={S.inp} placeholder="84000" value={manualForm.entry} onChange={function(e){setManualForm(function(f){return Object.assign({},f,{entry:e.target.value});});}}/>
+                  </div>
+                  <div>
+                    <div style={S.lbl}>PRECIO CIERRE</div>
+                    <input type="number" style={S.inp} placeholder="= entrada para BE" value={manualForm.close} onChange={function(e){setManualForm(function(f){return Object.assign({},f,{close:e.target.value});});}}/>
+                    {manualForm.entry&&manualForm.close&&manualForm.capital&&(function(){
+                      var cap=parseFloat(manualForm.capital);
+                      var en=parseFloat(manualForm.entry);
+                      var cl=parseFloat(manualForm.close);
+                      if(!cap||!en||!cl)return null;
+                      var res=manualForm.dir==="Long"?cap*(cl-en)/en:cap*(en-cl)/en;
+                      return <div style={{fontSize:9,marginTop:3,color:res>0?"#00ff88":res<0?"#ff4444":"#888",fontWeight:700}}>Resultado: {res>=0?"+":""}{res.toFixed(2)}$</div>;
+                    })()}
+                  </div>
+                  <div>
+                    <div style={S.lbl}>FECHA (opcional)</div>
+                    <input style={S.inp} placeholder="dd/mm/aaaa" value={manualForm.date} onChange={function(e){setManualForm(function(f){return Object.assign({},f,{date:e.target.value});});}}/>
+                  </div>
+                </div>
+                <div style={{marginBottom:8}}>
+                  <div style={S.lbl}>NOTA (opcional)</div>
+                  <input style={S.inp} placeholder="ej: BE por breakeven prematuro, error técnico..." value={manualForm.note} onChange={function(e){setManualForm(function(f){return Object.assign({},f,{note:e.target.value});});}}/>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={function(){
+                    var cap=parseFloat(manualForm.capital);
+                    var en=parseFloat(manualForm.entry);
+                    var cl=parseFloat(manualForm.close);
+                    if(!manualForm.asset||!cap||!en||isNaN(cl))return;
+                    var res=manualForm.dir==="Long"?cap*(cl-en)/en:cap*(en-cl)/en;
+                    var isBE=Math.abs(cl-en)<0.0001;
+                    var dateStr=manualForm.date||new Date().toLocaleDateString("es-ES");
+                    var note=manualForm.note||(isBE?"⚖️ BE manual":"Trade manual");
+                    var entry={id:Date.now(),asset:manualForm.asset,dir:manualForm.dir,cap:cap,result:parseFloat(res.toFixed(2)),date:dateStr,note:note,manualEntry:true};
+                    var newX=[entry,...(D.current.xhist||[])];
+                    D.current.xhist=newX;setXhist(newX);
+                    // Actualizar ps si fue un SL/BE
+                    var psU=Object.assign({},D.current.ps);
+                    if(isBE){psU.slBreakeven=(psU.slBreakeven||0)+1;}
+                    else if(res<0){psU.slOk=(psU.slOk||0)+1;}
+                    else{psU.tpManual=(psU.tpManual||0)+1;}
+                    D.current.ps=psU;setPs(psU);
+                    save();
+                    setManualForm({asset:"",dir:"Long",capital:"",entry:"",close:"",note:"",date:""});
+                    setShowManualTrade(false);
+                  }} style={{...S.btn(true),flex:2,padding:8}}>AÑADIR AL HISTORIAL</button>
+                  <button onClick={function(){setShowManualTrade(false);setManualForm({asset:"",dir:"Long",capital:"",entry:"",close:"",note:"",date:""});}} style={{...S.btn(false),flex:1,padding:8}}>CANCELAR</button>
+                </div>
+              </div>
+            )}
             <div style={S.card}>
               <div style={{maxHeight:500,overflowY:"auto"}}>
                 {(function(){
