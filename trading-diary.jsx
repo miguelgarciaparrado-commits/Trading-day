@@ -108,6 +108,8 @@ const J0=[
   {id:4,date:"20/03/2026",text:"BTC/USDT 70800 salio en BE. El SL hizo su trabajo.",emoji:"🧘",type:"lesson",linkedClose:"sl"},
 ];
 const PS0={slOk:14,slBroken:2,slBreakeven:0,earlyClose:8,tpAuto:0,tpManual:2,revenge:1,manualClose:4,tpStreak:0,bestTpStreak:0};
+// Umbral BE: si el resultado es menor al 0.2% del capital, se considera breakeven
+function isNearBE(result,capital){return Math.abs(result)<Math.max(1,Math.abs(capital||0)*0.002);}
 // Precios eliminados - se actualizan manualmente en la app
 
 // - HELPERS -
@@ -949,7 +951,7 @@ export default function App(){
   const ethU=(pr.ETH-3621.58)*1.95209253;
   const ethT=ethU-796.09;
   const actPnl=pos.reduce((a,p)=>a+getPnL(p),0)+(!ethClosed?ethU:0);
-  const wins=hist.filter(h=>h.result>0).length;
+  const wins=hist.filter(function(h){return h.result>0&&!isNearBE(h.result,h.cap);}).length;
   const sc=calcScore(ps,pats,jnl,xhist,predictions);
   const lvColor=sc<0?"#ff2222":sc<30?"#ff5533":sc<50?"#ff8844":sc<65?"#f0b429":sc<80?"#88cc44":"#00ff88";
   const lvLabel=sc<0?"⚠️ AUTODESTRUCTIVO":sc<30?"APOSTADOR":sc<50?"PRINCIPIANTE":sc<65?"EN TRANSICION":sc<80?"AVANZADO":"PROFESIONAL";
@@ -962,11 +964,11 @@ export default function App(){
       const db=b.date.split("/").reverse().join("");
       return hSort==="desc"?db.localeCompare(da):da.localeCompare(db);
     });
-  const lWin=hist.filter(h=>h.dir==="Long"&&h.result>0).length;
-  const lLoss=hist.filter(h=>h.dir==="Long"&&h.result<0).length;
-  const lBE=hist.filter(h=>h.dir==="Long"&&h.result===0).length;
-  const sWin=hist.filter(h=>h.dir==="Short"&&h.result>0).length;
-  const sLoss=hist.filter(h=>h.dir==="Short"&&h.result<0).length;
+  const lWin=hist.filter(function(h){return h.dir==="Long"&&h.result>0&&!isNearBE(h.result,h.cap);}).length;
+  const lLoss=hist.filter(function(h){return h.dir==="Long"&&h.result<0;}).length;
+  const lBE=hist.filter(function(h){return h.dir==="Long"&&(h.result===0||isNearBE(h.result,h.cap));}).length;
+  const sWin=hist.filter(function(h){return h.dir==="Short"&&h.result>0&&!isNearBE(h.result,h.cap);}).length;
+  const sLoss=hist.filter(function(h){return h.dir==="Short"&&h.result<0;}).length;
   const sBE=hist.filter(h=>h.dir==="Short"&&h.result===0).length;
   const lTot=hist.filter(h=>h.dir==="Long").length;
   const sTot=hist.filter(h=>h.dir==="Short").length;
@@ -1055,8 +1057,10 @@ export default function App(){
         result=parseFloat((closeCap*r2).toFixed(2));
         note="Cierre manual"+(hasPartials?" (+ parciales cerradas)":"");
       }
-      if(result+accPartial>0)newPs.tpManual=(newPs.tpManual||0)+1;
-      else if(result+accPartial<0)newPs.earlyClose=(newPs.earlyClose||0)+1;
+      var finalResult=result+accPartial;
+      if(isNearBE(finalResult,closeCap)){newPs.slBreakeven=(newPs.slBreakeven||0)+1;if(!note.includes("manual"))note=note+" (≈BE)";}
+      else if(finalResult>0)newPs.tpManual=(newPs.tpManual||0)+1;
+      else if(finalResult<0)newPs.earlyClose=(newPs.earlyClose||0)+1;
       else newPs.manualClose=(newPs.manualClose||0)+1;
     }
     // Combine remaining close result with any accumulated partial results
@@ -1226,9 +1230,10 @@ export default function App(){
         if(tpHit){
           var tpResult=p.capital*Math.abs(p.tp-p.entry)/p.entry;
           var tpRatio=calcPosRatio(p);
-          if(tpRatio!==null){psU.ratioSum=(psU.ratioSum||0)+tpRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
-          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(tpResult.toFixed(2)),date:today(),note:"🎯 TP auto @ $"+price.toLocaleString(),autoClose:true,...(tpRatio!==null?{ratio:tpRatio}:{})});
-          psU.tpAuto=(psU.tpAuto||0)+1;
+          var tpNote=isNearBE(tpResult,p.capital)?"⚖️ TP≈BE auto @ $"+price.toLocaleString():"🎯 TP auto @ $"+price.toLocaleString();
+          if(!isNearBE(tpResult,p.capital)&&tpRatio!==null){psU.ratioSum=(psU.ratioSum||0)+tpRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
+          entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(tpResult.toFixed(2)),date:today(),note:tpNote,autoClose:true,...(tpRatio!==null?{ratio:tpRatio}:{})});
+          if(isNearBE(tpResult,p.capital)){psU.slBreakeven=(psU.slBreakeven||0)+1;}else{psU.tpAuto=(psU.tpAuto||0)+1;}
           psU.tpStreak=(psU.tpStreak||0)+1;
           if(psU.tpStreak>(psU.bestTpStreak||0))psU.bestTpStreak=psU.tpStreak;
           if(p.patternId)applyPatternResult(p.patternId,true);
@@ -1851,13 +1856,12 @@ export default function App(){
                     var cl=parseFloat(manualForm.close);
                     if(!manualForm.asset||!cap||!en||isNaN(cl))return;
                     var res=manualForm.dir==="Long"?cap*(cl-en)/en:cap*(en-cl)/en;
-                    var isBE=Math.abs(cl-en)<0.0001;
+                    var isBE=isNearBE(res,cap)||Math.abs(cl-en)<0.0001;
                     var dateStr=manualForm.date||new Date().toLocaleDateString("es-ES");
                     var note=manualForm.note||(isBE?"⚖️ BE manual":"Trade manual");
                     var entry={id:Date.now(),asset:manualForm.asset,dir:manualForm.dir,cap:cap,result:parseFloat(res.toFixed(2)),date:dateStr,note:note,manualEntry:true};
                     var newX=[entry,...(D.current.xhist||[])];
                     D.current.xhist=newX;setXhist(newX);
-                    // Actualizar ps si fue un SL/BE
                     var psU=Object.assign({},D.current.ps);
                     if(isBE){psU.slBreakeven=(psU.slBreakeven||0)+1;}
                     else if(res<0){psU.slOk=(psU.slOk||0)+1;}
