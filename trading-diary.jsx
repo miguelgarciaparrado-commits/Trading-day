@@ -481,7 +481,31 @@ export default function App(){
           if(d.pos&&d.pos.length){D.current.pos=d.pos;setPos(d.pos);}
           if(d.pats&&d.pats.length){D.current.pats=d.pats;setPats(d.pats);}
           if(d.jnl&&d.jnl.length){D.current.jnl=d.jnl;setJnl(d.jnl);}
-          if(d.ps){D.current.ps=d.ps;setPs(d.ps);}
+          if(d.ps){
+            var psLoaded=d.ps;
+            // Recalcular ratioSum/ratioCount/tpStreak/tpAuto desde xhist para garantizar consistencia
+            if(d.xhist&&d.xhist.length){
+              var xh=d.xhist;
+              var rSum=0,rCnt=0,tpA=0,streak=0,bestStreak=psLoaded.bestTpStreak||0;
+              for(var xi=0;xi<xh.length;xi++){
+                var xe=xh[xi];
+                if(xe.autoClose&&xe.result>0&&(xe.note||"").indexOf("🎯")===0){
+                  tpA++;
+                  if(xe.ratio!=null){rSum+=xe.ratio;rCnt++;}
+                  if(xi===streak)streak++;
+                }
+              }
+              // Recalcular racha (consecutivos desde el más reciente)
+              var computedStreak=0;
+              for(var si2=0;si2<xh.length;si2++){
+                var se2=xh[si2];
+                if(se2.autoClose&&se2.result>0&&(se2.note||"").indexOf("🎯")===0){computedStreak++;}else{break;}
+              }
+              if(computedStreak>bestStreak)bestStreak=computedStreak;
+              psLoaded=Object.assign({},psLoaded,{ratioSum:parseFloat(rSum.toFixed(4)),ratioCount:rCnt,tpAuto:tpA,tpStreak:computedStreak,bestTpStreak:bestStreak});
+            }
+            D.current.ps=psLoaded;setPs(psLoaded);
+          }
 
           if(d.xhist){D.current.xhist=d.xhist;setXhist(d.xhist);}
           if(d.predictions){
@@ -6460,7 +6484,7 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
   const hasCalc=f.entry&&f.sl&&f.tp&&f.capital;
   const isShort=f.dir==="Short";
   // Direction-aware validation: for SHORT, SL must be above entry and TP below; for LONG, reversed
-  const slValid=(!f.sl||!f.entry)||(isShort?(sl>e2):(sl<e2));
+  const slValid=(!f.sl||!f.entry)||(isShort?(sl>e2):(sl<e2))&&(sl!==e2);
   const tpValid=(!f.tp||!f.entry)||(isShort?(tp2<e2):(tp2>e2));
   const hasTpLvls=(f.tpLevels&&f.tpLevels.length>0&&f.tpLevels.some(function(l){return l.price&&(l.pct||l.capInput);}));
   const hasCalcFull=f.entry&&f.sl&&f.capital&&(f.tp||hasTpLvls);
