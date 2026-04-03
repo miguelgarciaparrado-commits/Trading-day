@@ -1370,7 +1370,7 @@ export default function App(){
           </svg>
           <div>
             <div style={{fontSize:22,fontWeight:700,color:"#f0b429",letterSpacing:3}}>TRADING DIARY</div>
-            <div style={{fontSize:9,color:"#444"}}>MIGUEL GARCIA PARRADO</div>
+            <div style={{fontSize:9,color:"#444"}}>CAMBIOS</div>
           </div>
         </div>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
