@@ -1703,8 +1703,33 @@ function App() {
                     { l: "PERDIDA TOTAL", v: fmtNum(h0Total + ethT), c: h0Total + ethT >= 0 ? "#00ff88" : "#ff4444" },
                     { l: "OPS TOTALES", v: hist.length, c: "#e0e0e0" },
                     { l: "TASA GANADORA", v: Math.round(wins / hist.length * 100) + "%", c: "#f0b429" },
-                    { l: "RATIO R:R MEDIO", v: (() => { const cnt = ps.ratioCount || 0; const sum = ps.ratioSum || 0; return cnt > 0 ? "1 : " + (sum / cnt).toFixed(2) + " (" + cnt + "ops)" : "--"; })(), c: "#88aaff" },
-                    { l: "🔥 RACHA TP AUTO", v: (() => { const s = ps.tpStreak || 0; const b = ps.bestTpStreak || 0; return s > 0 ? s + " consecutivos (récord: " + b + ")" : b > 0 ? "0 (récord: " + b + ")" : "--"; })(), c: (ps.tpStreak || 0) >= 3 ? "#00ff88" : (ps.tpStreak || 0) > 0 ? "#f0b429" : "#555" },
+                    { l: "RATIO R:R MEDIO", v: (() => { var xR = xhist.filter(function (h) { return h.ratio != null; }); var cnt = xR.length; var sum = xR.reduce(function (a, h) { return a + (h.ratio || 0); }, 0); return cnt > 0 ? "1 : " + (sum / cnt).toFixed(2) + " (" + cnt + "ops)" : "--"; })(), c: "#88aaff" },
+                    { l: "🔥 RACHA TP AUTO", v: (() => { var streak = 0; for (var i = 0; i < xhist.length; i++) {
+                            var e = xhist[i];
+                            if (e.autoClose && e.result > 0 && (e.note || "").indexOf("🎯") === 0) {
+                                streak++;
+                            }
+                            else {
+                                break;
+                            }
+                        } var best = ps.bestTpStreak || 0; if (streak > best)
+                            best = streak; return streak > 0 ? streak + " consecutivos (récord: " + best + ")" : best > 0 ? "0 (récord: " + best + ")" : "--"; })(), c: (function () { var s = 0; for (var i = 0; i < xhist.length; i++) {
+                            var e = xhist[i];
+                            if (e.autoClose && e.result > 0 && (e.note || "").indexOf("🎯") === 0) {
+                                s++;
+                            }
+                            else {
+                                break;
+                            }
+                        } return s; })() >= 3 ? "#00ff88" : (function () { var s = 0; for (var i = 0; i < xhist.length; i++) {
+                            var e = xhist[i];
+                            if (e.autoClose && e.result > 0 && (e.note || "").indexOf("🎯") === 0) {
+                                s++;
+                            }
+                            else {
+                                break;
+                            }
+                        } return s; })() > 0 ? "#f0b429" : "#555" },
                     { l: "ROI HISTORICO", v: (() => { const inv = hist.reduce((a, h) => a + (h.cap || 0), 0); return inv > 0 ? (h0Total / inv * 100).toFixed(1) + "%" : "--"; })(), c: h0Total >= 0 ? "#00ff88" : "#ff4444" },
                     { l: "ROI ETH LEGADO", v: ((pr.ETH - 3621.58) / 3621.58 * 100).toFixed(1) + "%", c: pr.ETH >= 3621.58 ? "#00ff88" : "#ff4444" },
                 ].map(k => React.createElement("div", { key: k.l, style: S.card },
