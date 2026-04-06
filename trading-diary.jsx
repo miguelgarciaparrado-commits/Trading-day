@@ -2864,7 +2864,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
     }
   },[messages]);
 
-  function buildSystemPrompt(md){
+  function buildSystemPrompt(md,withImage){
     const allHist=[...xhist,...hist];
     const wins=allHist.filter(function(h){return h.result>0;}).length;
     const losses=allHist.filter(function(h){return h.result<0;}).length;
@@ -2979,17 +2979,52 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
       });
       memContext+="Usa esta memoria para: (1) no repetirte explicando cosas que ya sabe, (2) referenciar sus propias palabras cuando sea util, (3) desafiar si contradice algo que antes afirmo, (4) reconocer cuando ha evolucionado su pensamiento.\n";
     }
+    var imageSection=withImage?
+      "=== ANALISIS DE GRAFICO (IMAGEN ADJUNTA) ===\n"+
+      "El usuario ha enviado una imagen de grafico. Tu primera tarea es identificar TODOS los patrones chartistas visibles.\n\n"+
+      "PASO 1 — CONTEXTO DEL GRAFICO:\n"+
+      "- Identifica el activo y temporalidad si son visibles\n"+
+      "- Describe la estructura general: tendencia (alcista/bajista/lateral), fase (impulso, consolidacion, distribucion)\n\n"+
+      "PASO 2 — PATRONES CHARTISTAS (busca activamente cada uno):\n"+
+      "• Banderín alcista/bajista (Pennant): asta fuerte + consolidacion triangular + ruptura\n"+
+      "• Bandera (Flag): impulso fuerte + canal contra-tendencia de 5-15 velas\n"+
+      "• Cuña alcista/bajista (Rising/Falling Wedge): dos lineas convergentes con misma direccion\n"+
+      "• Triangulo simetrico/ascendente/descendente: convergencia horizontal o inclinada\n"+
+      "• Doble techo (M) / Doble suelo (W): dos maximos o minimos al mismo nivel con vallee entre ellos\n"+
+      "• Hombro-Cabeza-Hombro (HCH) / HCH invertido: tres picos, el central mas alto/bajo\n"+
+      "• Canal alcista/bajista: precio rebotando entre dos lineas paralelas\n"+
+      "• Copa con asa (Cup & Handle): fondo redondeado + pequena consolidacion lateral\n"+
+      "• Rectangulo/Rango: soporte y resistencia horizontales bien definidos\n\n"+
+      "PASO 3 — NIVELES CLAVE VISIBLES:\n"+
+      "- Soportes: niveles donde el precio ha rebotado al alza\n"+
+      "- Resistencias: niveles donde el precio ha rebotado a la baja\n"+
+      "- Linea de cuello (si HCH)\n"+
+      "- Punto de ruptura del patron (si aplica)\n\n"+
+      "PASO 4 — PROYECCION:\n"+
+      "- Si hay patron con ruptura: calcula objetivo = altura del patron proyectada desde ruptura\n"+
+      "- Indica si la ruptura ya ocurrio o esta pendiente\n"+
+      "- Señal de entrada, stop loss sugerido, y objetivo\n\n"+
+      "PASO 5 — CONFIRMACION CON DATOS EN TIEMPO REAL:\n"+
+      "- Combina lo que ves en la imagen con los datos de RSI/EMA/FVG disponibles arriba\n\n"+
+      "FORMATO DE RESPUESTA cuando hay imagen:\n"+
+      "📊 PATRON(ES) DETECTADO(S): [lista de patrones]\n"+
+      "📍 NIVELES CLAVE: S: [soporte] / R: [resistencia]\n"+
+      "🎯 PROYECCION: [objetivo si hay ruptura]\n"+
+      "📈 SEÑAL: [LONG/SHORT/ESPERAR] con SL en [precio] y TP en [precio]\n"+
+      "⚡ CONTEXTO INDICADORES: [RSI + EMAs del tiempo real]\n\n"
+      :"";
     return "Eres analista tecnico de trading Y compañero intelectual de Miguel. Tu mision es doble: dar analisis puros de mercado Y debatir activamente sus ideas de trading.\n\n"+
       mdContext+predContext+pinnedContext+memContext+"\n\n"+
+      imageSection+
       "=== REGLAS DE RESPUESTA ===\n"+
       "1. Tu analisis se basa EXCLUSIVAMENTE en los datos de mercado arriba (RSI, EMAs, soportes, resistencias, FVGs)\n"+
-      "2. Si el usuario adjunta un grafico/imagen, analiza visualmente la estructura, patrones y niveles que ves\n"+
+      "2. Si el usuario adjunta un grafico/imagen, sigue el formato de ANALISIS DE GRAFICO definido arriba\n"+
       "3. Combina el grafico (si hay) con los datos en tiempo real\n"+
       "4. Si hay PREDICCIONES PENDIENTES y el usuario hace referencia a una conversacion anterior, compara lo que dijiste con los datos ACTUALES y recalcula tiempos y precios\n"+
       "5. NO menciones el historial de operaciones del trader ni sus patrones en el analisis tecnico\n"+
-      "6. Responde en espanol, directo y tecnico, max 250 palabras\n"+
-      "7. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
-      "8. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n"+
+      "6. Responde en espanol, directo y tecnico, max 350 palabras si hay imagen (mas espacio para el analisis)\n"+
+      "7. Sin imagen: Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n"+
+      "8. Con imagen: usa el formato de 5 pasos definido arriba\n\n"+
       "=== MODO DEBATE Y APRENDIZAJE (CRITICO) ===\n"+
       "- Si Miguel expresa una opinion, creencia o filosofia de trading: no la aceptes ciegamente. Evalua si es correcta. Si tiene fallos, dilos directamente pero con respeto.\n"+
       "- Usa frases como: 'Eso no siempre funciona asi porque...', 'Ojo — hay un matiz importante:', 'Discrepo en esto:', 'Eso tiene logica pero el riesgo es...'\n"+
@@ -3124,7 +3159,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
         }else if(marketData){
           md=marketData;
         }
-        systemPrompt=buildSystemPrompt(md);
+        systemPrompt=buildSystemPrompt(md,!!img);
       }
       // Only include messages from the current chat mode in API context
       var contextMessages=newMessages.filter(function(m){return isReflexion?m.isReflexion:!m.isReflexion;});
@@ -3154,7 +3189,7 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
         },
         body:JSON.stringify({
           model:hasImage?"claude-sonnet-4-6":"claude-haiku-4-5-20251001",
-          max_tokens:1024,
+          max_tokens:hasImage?1800:1024,
           system:systemPrompt,
           messages:apiMessages,
         })
