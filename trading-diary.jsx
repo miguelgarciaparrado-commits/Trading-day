@@ -340,6 +340,7 @@ export default function App(){
     openAssets.forEach(function(a){
       const base=a.replace(/\/.*$/,"").toUpperCase();
       // Es crypto si: está en CRYPTO_BASE, o si el activo tiene '/' (formato BASE/QUOTE), o termina en USDT/BTC/ETH
+      // Para tickers ambiguos (sin '/'), se intentará Binance primero en el paso de resolución dinámica
       var isCrypto=CRYPTO_BASE[base]||(a.indexOf("/")!==-1)||(/USDT$|BTC$|ETH$/i.test(a));
       if(isCrypto){
         if(!cryptoPairs.some(function(p){return p.key===base;})){
@@ -347,16 +348,20 @@ export default function App(){
           cryptoPairs.push({symbol:sym,key:base});
         }
       }else{
+        // Para tickers ambiguos (ej: BCH, DOGE sin '/'), intentar Binance primero
         stockSymbols.add(base);
+        if(!cryptoPairs.some(function(p){return p.key===base;})){
+          cryptoPairs.push({symbol:base+"USDT",key:base,tryOnly:true});
+        }
       }
     });
 
     await Promise.all([
-      // Crypto via Binance (sin CORS, sin API key)
+      // Crypto via Binance — tryOnly=true significa que si falla lo manejará el flujo de acciones
       ...cryptoPairs.map(async function(pair){
         try{
           const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+pair.symbol);
-          if(r.ok){const d=await r.json();newPr[pair.key]=parseFloat(parseFloat(d.price).toFixed(2));}
+          if(r.ok){const d=await r.json();if(d.price){newPr[pair.key]=parseFloat(parseFloat(d.price).toFixed(2));if(pair.tryOnly)stockSymbols.delete(pair.key);}}
         }catch(e){}
       }),
       // Acciones y ETFs: Finnhub primero (si hay key), luego Stooq, fallback Yahoo
@@ -6494,24 +6499,31 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
     if(!base){setLiveCheck("error");return;}
     setLiveCheck("loading");
     setF(function(prev){return{...prev,asset:base};});
+    // Helper: aplica precio encontrado, guarda en mapa global y auto-rellena entrada si está vacía
+    function applyFoundPrice(ticker,priceStr,name){
+      var p=parseFloat(priceStr);
+      if(SPr&&pr)SPr({...pr,[ticker]:p});
+      setLiveCheck({ticker:ticker,price:priceStr,name:name});
+      setF(function(prev){return{...prev,entry:prev.entry?prev.entry:priceStr};});
+    }
     // 1. Binance para crypto conocida
     if(CRYPTO_BINANCE[base]){
       try{
         const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+CRYPTO_BINANCE[base]);
-        if(r.ok){const d=await r.json();setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}
+        if(r.ok){const d=await r.json();if(d.price){applyFoundPrice(base,parseFloat(d.price).toFixed(2),base+" (Binance)");return;}}
       }catch(e){}
     }
-    // 2. Binance con USDT dinamico (otras cryptos)
+    // 2. Binance con USDT dinamico (otras cryptos — BCH, DOGE, etc.)
     try{
       const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+base+"USDT");
-      if(r.ok){const d=await r.json();if(d.price){setLiveCheck({ticker:base,price:parseFloat(d.price).toFixed(2),name:base+" (Binance)"});return;}}
+      if(r.ok){const d=await r.json();if(d.price){applyFoundPrice(base,parseFloat(d.price).toFixed(2),base+" (Binance)");return;}}
     }catch(e){}
     // 3. Stooq + Yahoo + proxy CORS para acciones y ETFs
     const result=await fetchStockPrice(base);
     if(result){
       const p=parseFloat(result.price);
-      if(SPr&&pr)SPr({...pr,[base]:p}); // actualizar precio en mapa global
-      setLiveCheck({ticker:base,price:result.price,name:result.name});
+      if(SPr&&pr)SPr({...pr,[base]:p});
+      applyFoundPrice(base,result.price,result.name);
       return;
     }
     // 4. Proxy CORS allorigins.win como último recurso
@@ -6525,7 +6537,7 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
         if(meta&&meta.regularMarketPrice){
           var p2=parseFloat(meta.regularMarketPrice.toFixed(2));
           if(SPr&&pr)SPr({...pr,[base]:p2});
-          setLiveCheck({ticker:base,price:p2.toFixed(2),name:(meta.shortName||base)+" (Yahoo)"});
+          applyFoundPrice(base,p2.toFixed(2),(meta.shortName||base)+" (Yahoo)");
           return;
         }
       }
