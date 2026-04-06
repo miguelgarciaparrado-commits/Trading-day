@@ -6765,6 +6765,7 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
         return form;
     });
     const [liveCheck, setLiveCheck] = useState(null); // null | "loading" | {ticker,price,name} | "error"
+    const [formError, setFormError] = useState("");
     const [preReflection, setPreReflection] = useState(form.preReflection || "");
     function addTpLevel() { setF(function (prev) { return { ...prev, tpLevels: [...(prev.tpLevels || []), { id: Date.now(), price: "", pct: "", capInput: "" }] }; }); }
     function removeTpLevel(id) { setF(function (prev) { return { ...prev, tpLevels: (prev.tpLevels || []).filter(function (l) { return l.id !== id; }) }; }); }
@@ -6854,6 +6855,18 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
             }
         }
         catch (e) { }
+        // 4. corsproxy.io — segundo proxy como respaldo
+        try {
+            var cp2Url = "https://corsproxy.io/?url=" + encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/" + base + "?interval=1d&range=1d");
+            var rcp2 = await fetch(cp2Url);
+            if (rcp2.ok) {
+                var dcp2 = await rcp2.json();
+                var pmeta2 = dcp2.chart && dcp2.chart.result && dcp2.chart.result[0] && dcp2.chart.result[0].meta;
+                if (pmeta2 && pmeta2.regularMarketPrice)
+                    return { price: pmeta2.regularMarketPrice.toFixed(2), name: (pmeta2.shortName || base) + " (Yahoo)", source: "yahoo" };
+            }
+        }
+        catch (e) { }
         return null;
     }
     async function checkLivePrice() {
@@ -6931,8 +6944,19 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
         setLiveCheck("error");
     }
     function doSavePosForm() {
-        if (!f.asset || !f.capital || !f.entry)
+        if (!f.asset) {
+            setFormError("Introduce el ticker del activo (ej: BTC, AAPL)");
             return;
+        }
+        if (!f.entry) {
+            setFormError("Introduce el precio de entrada. Si el check falla, usa el campo manual o escríbelo directamente en el campo Entrada");
+            return;
+        }
+        if (!f.capital) {
+            setFormError("Introduce el capital de la operación");
+            return;
+        }
+        setFormError("");
         var tpLvls = (f.tpLevels || []).filter(function (l) { return l.price && l.pct; }).map(function (l) { return { id: l.id, price: +l.price, pct: +l.pct, hit: l.hit || false }; });
         var posId = editId || Date.now();
         var reflText = preReflection ? preReflection.trim() : "";
@@ -7027,6 +7051,7 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
                                 if (SPr && pr)
                                     SPr({ ...pr, [base]: val }); // guardar en mapa global
                                 setLiveCheck({ ticker: base, price: val.toFixed(2), name: base + " (Manual)" });
+                                setF(function (prev) { return { ...prev, entry: prev.entry ? prev.entry : val.toFixed(2) }; });
                             }, style: { background: "rgba(255,136,68,.2)", border: "1px solid #ff8844", color: "#ff8844", padding: "5px 10px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "Usar")),
                     React.createElement("div", { style: { marginTop: 5, color: "#555", fontSize: 8 } }, "Tickers v\u00E1lidos: TLT \u00B7 AAPL \u00B7 MSFT \u00B7 SPY \u00B7 NVDA \u00B7 cualquier s\u00EDmbolo de bolsa")))),
             React.createElement("div", { style: { marginBottom: 9 } },
@@ -7156,7 +7181,8 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
                     React.createElement("span", { style: { color: "#555" } }, "(opcional)")),
                 React.createElement("textarea", { value: preReflection, onChange: function (e) { setPreReflection(e.target.value); }, placeholder: "Que te dice el mercado? Como te sientes respecto a esta operacion? Por que crees que funcionara esta tesis?...", style: { ...S.inp, width: "100%", minHeight: 72, padding: "8px", fontSize: 9, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", color: "#e0e0e0" } }),
                 preReflection.trim() && (React.createElement("div", { style: { fontSize: 7, color: "#555", marginTop: 3 } }, "Se guardara en el diario vinculado a esta operacion")))),
-            React.createElement("div", { style: { display: "flex", gap: 7, marginTop: 12 } },
+            formError && React.createElement("div", { style: { marginBottom: 8, padding: "7px 10px", background: "rgba(255,68,68,.1)", border: "1px solid rgba(255,68,68,.35)", borderRadius: 4, color: "#ff6666", fontSize: 9 } }, formError),
+            React.createElement("div", { style: { display: "flex", gap: 7, marginTop: 4 } },
                 React.createElement("button", { onClick: doSavePosForm, style: { ...S.btn(true), flex: 1, padding: 8 } }, editId ? "GUARDAR CAMBIOS" : "ANADIR"),
                 React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: false, posForm: null, editPosId: null })), style: { ...S.btn(false), flex: 1 } }, "CANCELAR")))));
 }

@@ -6427,6 +6427,7 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
     return form;
   });
   const[liveCheck,setLiveCheck]=useState(null); // null | "loading" | {ticker,price,name} | "error"
+  const[formError,setFormError]=useState("");
   const[preReflection,setPreReflection]=useState(form.preReflection||"");
   function addTpLevel(){setF(function(prev){return{...prev,tpLevels:[...(prev.tpLevels||[]),{id:Date.now(),price:"",pct:"",capInput:""}]};});}
   function removeTpLevel(id){setF(function(prev){return{...prev,tpLevels:(prev.tpLevels||[]).filter(function(l){return l.id!==id;})};});}
@@ -6501,6 +6502,17 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
           return{price:pmeta.regularMarketPrice.toFixed(2),name:(pmeta.shortName||base)+" (proxy)",source:"proxy"};
       }
     }catch(e){}
+    // 4. corsproxy.io — segundo proxy como respaldo
+    try{
+      var cp2Url="https://corsproxy.io/?url="+encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/"+base+"?interval=1d&range=1d");
+      var rcp2=await fetch(cp2Url);
+      if(rcp2.ok){
+        var dcp2=await rcp2.json();
+        var pmeta2=dcp2.chart&&dcp2.chart.result&&dcp2.chart.result[0]&&dcp2.chart.result[0].meta;
+        if(pmeta2&&pmeta2.regularMarketPrice)
+          return{price:pmeta2.regularMarketPrice.toFixed(2),name:(pmeta2.shortName||base)+" (Yahoo)",source:"yahoo"};
+      }
+    }catch(e){}
     return null;
   }
 
@@ -6557,7 +6569,10 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
     setLiveCheck("error");
   }
   function doSavePosForm(){
-    if(!f.asset||!f.capital||!f.entry)return;
+    if(!f.asset){setFormError("Introduce el ticker del activo (ej: BTC, AAPL)");return;}
+    if(!f.entry){setFormError("Introduce el precio de entrada. Si el check falla, usa el campo manual o escríbelo directamente en el campo Entrada");return;}
+    if(!f.capital){setFormError("Introduce el capital de la operación");return;}
+    setFormError("");
     var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
     var posId=editId||Date.now();
     var reflText=preReflection?preReflection.trim():"";
@@ -6640,6 +6655,7 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
                 var base=f.asset.replace(/\/.*$/,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,10)||f.asset;
                 if(SPr&&pr)SPr({...pr,[base]:val}); // guardar en mapa global
                 setLiveCheck({ticker:base,price:val.toFixed(2),name:base+" (Manual)"});
+                setF(function(prev){return{...prev,entry:prev.entry?prev.entry:val.toFixed(2)};});
               }} style={{background:"rgba(255,136,68,.2)",border:"1px solid #ff8844",color:"#ff8844",padding:"5px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>Usar</button>
             </div>
             <div style={{marginTop:5,color:"#555",fontSize:8}}>Tickers válidos: TLT · AAPL · MSFT · SPY · NVDA · cualquier símbolo de bolsa</div>
@@ -6793,7 +6809,8 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
           )}
         </div>
       )}
-      <div style={{display:"flex",gap:7,marginTop:12}}>
+      {formError&&<div style={{marginBottom:8,padding:"7px 10px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.35)",borderRadius:4,color:"#ff6666",fontSize:9}}>{formError}</div>}
+      <div style={{display:"flex",gap:7,marginTop:4}}>
         <button onClick={doSavePosForm} style={{...S.btn(true),flex:1,padding:8}}>{editId?"GUARDAR CAMBIOS":"ANADIR"}</button>
         <button onClick={()=>setModal(m=>({...m,pos:false,posForm:null,editPosId:null}))} style={{...S.btn(false),flex:1}}>CANCELAR</button>
       </div>
