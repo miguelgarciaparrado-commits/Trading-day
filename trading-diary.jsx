@@ -5630,18 +5630,16 @@ function AlertasTab({S,predictions}){
                   var ops=JSON.parse(localStorage.getItem("td-bot-ops")||"[]");
                   ops=ops.map(function(op){return op.id===b.id?Object.assign({},op,{hit:hitVal}):op;});
                   localStorage.setItem("td-bot-ops",JSON.stringify(ops));
-                  // También actualizar td-pattern-fb
-                  var fb2={};try{fb2=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
-                  if(!fb2[b.signal])fb2[b.signal]={total:0,correct:0,wrong:0};
-                  // Solo contar si no tenía resultado previo
                   if(!b.hit){
+                    var fb2={};try{fb2=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
+                    if(!fb2[b.signal])fb2[b.signal]={total:0,correct:0,wrong:0};
                     fb2[b.signal].total=(fb2[b.signal].total||0)+1;
                     if(hitVal==="tp")fb2[b.signal].correct=(fb2[b.signal].correct||0)+1;
                     else fb2[b.signal].wrong=(fb2[b.signal].wrong||0)+1;
                     localStorage.setItem("td-pattern-fb",JSON.stringify(fb2));
+                    setPatternFb(fb2);
                   }
                 }catch(e){}
-                // Forzar re-render leyendo de nuevo
                 setAlerts(function(prev){return prev.slice();});
               }
               var hitColor=b.hit==="tp"?"#00ff88":b.hit==="sl"?"#ff4444":"#555";
