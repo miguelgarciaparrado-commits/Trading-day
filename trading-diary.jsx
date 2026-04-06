@@ -6625,7 +6625,8 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
   }
   const ratio=risk>0&&rewardValid?reward/risk:0;
   return(
-    <div style={S.modal}><div style={S.mc}>
+    <div style={S.modal}><div style={{...S.mc,display:"flex",flexDirection:"column",padding:0}}>
+      <div style={{flex:1,overflowY:"auto",padding:20,paddingBottom:8}}>
       <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>{editId?"EDITAR OPERACION":"NUEVA OPERACION"}</div>
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>ACTIVO</div>
@@ -6809,10 +6810,13 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
           )}
         </div>
       )}
-      {formError&&<div style={{marginBottom:8,padding:"7px 10px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.35)",borderRadius:4,color:"#ff6666",fontSize:9}}>{formError}</div>}
-      <div style={{display:"flex",gap:7,marginTop:4}}>
-        <button onClick={doSavePosForm} style={{...S.btn(true),flex:1,padding:8}}>{editId?"GUARDAR CAMBIOS":"ANADIR"}</button>
-        <button onClick={()=>setModal(m=>({...m,pos:false,posForm:null,editPosId:null}))} style={{...S.btn(false),flex:1}}>CANCELAR</button>
+      </div>
+      <div style={{padding:"8px 20px 16px",borderTop:"1px solid #1e1e2e",background:"#111118",borderRadius:"0 0 12px 12px",flexShrink:0}}>
+        {formError&&<div style={{marginBottom:8,padding:"7px 10px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.35)",borderRadius:4,color:"#ff6666",fontSize:9}}>{formError}</div>}
+        <div style={{display:"flex",gap:7}}>
+          <button onClick={doSavePosForm} style={{...S.btn(true),flex:1,padding:10,fontSize:11}}>{editId?"GUARDAR CAMBIOS":"ANADIR"}</button>
+          <button onClick={()=>setModal(m=>({...m,pos:false,posForm:null,editPosId:null}))} style={{...S.btn(false),flex:1,padding:10}}>CANCELAR</button>
+        </div>
       </div>
     </div></div>
   );

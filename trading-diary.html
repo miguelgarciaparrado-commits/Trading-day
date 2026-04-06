@@ -7019,172 +7019,174 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
     }
     const ratio = risk > 0 && rewardValid ? reward / risk : 0;
     return (React.createElement("div", { style: S.modal },
-        React.createElement("div", { style: S.mc },
-            React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, editId ? "EDITAR OPERACION" : "NUEVA OPERACION"),
-            React.createElement("div", { style: { marginBottom: 9 } },
-                React.createElement("div", { style: S.lbl }, "ACTIVO"),
-                React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
-                    React.createElement("input", { style: { ...S.inp, flex: 1 }, placeholder: "Ticker: TLT \u00B7 AAPL \u00B7 BTC \u00B7 SOL...", value: f.asset, onChange: function (e) { setF({ ...f, asset: e.target.value.toUpperCase() }); setLiveCheck(null); } }),
-                    React.createElement("button", { onClick: checkLivePrice, disabled: !f.asset || liveCheck === "loading", style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "6px 10px", borderRadius: 5, fontSize: 9, cursor: "pointer", whiteSpace: "nowrap" } }, liveCheck === "loading" ? "⏳" : "⚡ Check")),
-                React.createElement("div", { style: { fontSize: 8, color: "#444", marginTop: 3 } }, "Escribe el ticker del activo (TLT, AAPL, MSFT\u2026), no el nombre completo"),
-                liveCheck && liveCheck !== "loading" && liveCheck !== "error" && (React.createElement("div", { style: { marginTop: 5, padding: "6px 8px", background: "rgba(0,255,136,.08)", border: "1px solid rgba(0,255,136,.3)", borderRadius: 4, fontSize: 9, color: "#00ff88" } },
-                    React.createElement("div", null,
-                        "\u2713 ",
-                        React.createElement("strong", null, liveCheck.name)),
-                    React.createElement("div", { style: { marginTop: 2 } },
-                        "Ticker: ",
-                        React.createElement("strong", null, liveCheck.ticker),
-                        " \u00B7 Precio actual: ",
-                        React.createElement("strong", null,
-                            "$",
-                            liveCheck.price)))),
-                liveCheck === "error" && (React.createElement("div", { style: { marginTop: 5, padding: "8px", background: "rgba(255,136,68,.08)", border: "1px solid rgba(255,136,68,.3)", borderRadius: 4, fontSize: 9 } },
-                    React.createElement("div", { style: { color: "#ff8844", marginBottom: 6 } }, "\u26A0 No se pudo obtener precio autom\u00E1ticamente."),
-                    React.createElement("div", { style: { color: "#888", marginBottom: 6 } }, "Introduce el precio actual manualmente para calcular el P&L:"),
-                    React.createElement("div", { style: { display: "flex", gap: 6 } },
-                        React.createElement("input", { type: "number", id: "manualPriceInput", placeholder: "ej: 88.45", style: { ...S.inp, flex: 1, fontSize: 10, padding: "5px 8px" } }),
-                        React.createElement("button", { onClick: function () {
-                                var val = parseFloat(document.getElementById("manualPriceInput").value);
-                                if (isNaN(val) || val <= 0)
-                                    return;
-                                var base = f.asset.replace(/\/.*$/, "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10) || f.asset;
-                                if (SPr && pr)
-                                    SPr({ ...pr, [base]: val }); // guardar en mapa global
-                                setLiveCheck({ ticker: base, price: val.toFixed(2), name: base + " (Manual)" });
-                                setF(function (prev) { return { ...prev, entry: prev.entry ? prev.entry : val.toFixed(2) }; });
-                            }, style: { background: "rgba(255,136,68,.2)", border: "1px solid #ff8844", color: "#ff8844", padding: "5px 10px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "Usar")),
-                    React.createElement("div", { style: { marginTop: 5, color: "#555", fontSize: 8 } }, "Tickers v\u00E1lidos: TLT \u00B7 AAPL \u00B7 MSFT \u00B7 SPY \u00B7 NVDA \u00B7 cualquier s\u00EDmbolo de bolsa")))),
-            React.createElement("div", { style: { marginBottom: 9 } },
-                React.createElement("div", { style: S.lbl }, "ESTADO"),
-                React.createElement("div", { style: { display: "flex", gap: 7 } }, [{ v: "open", l: "Abrir ahora", c: "#00ff88" }, { v: "pending", l: "En espera", c: "#f0b429" }].map(function (opt) {
-                    var sel = (f.status || "open") === opt.v;
-                    return React.createElement("button", { key: opt.v, onClick: function () { setF({ ...f, status: opt.v }); }, style: { flex: 1, padding: "7px", borderRadius: 4, fontSize: 9, fontWeight: 700,
-                            border: "1px solid " + (sel ? opt.c : "#333"),
-                            background: sel ? "rgba(" + (opt.v === "open" ? "0,255,136" : "240,180,41") + ", .12)" : "transparent",
-                            color: sel ? opt.c : "#555", cursor: "pointer" } }, opt.l);
-                })),
-                (f.status || "open") === "pending" && React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 3 } }, "No contabilizada hasta que la actives manualmente.")),
-            React.createElement("div", { style: { marginBottom: 9 } },
-                React.createElement("div", { style: S.lbl }, "DIRECCION"),
-                React.createElement("div", { style: { display: "flex", gap: 7 } }, ["Short", "Long"].map(d => (React.createElement("button", { key: d, onClick: () => setF({ ...f, dir: d }), style: { flex: 1, padding: "7px", borderRadius: 4, fontSize: 10, fontWeight: 700, border: "1px solid " + (d === "Short" ? "#ff4444" : "#00ff88"), background: f.dir === d ? (d === "Short" ? "rgba(255,68,68,.15)" : "rgba(0,255,136,.15)") : "transparent", color: d === "Short" ? "#ff4444" : "#00ff88", cursor: "pointer" } }, d.toUpperCase()))))),
-            React.createElement("div", { style: { marginBottom: 9 } },
-                React.createElement("div", { style: S.lbl }, "PATR\u00D3N CHARTISTA"),
-                React.createElement("select", { value: f.patternId || "", onChange: function (e) { setF({ ...f, patternId: e.target.value }); }, style: { ...S.inp, width: "100%", cursor: "pointer" } },
-                    React.createElement("option", { value: "" }, "\u2014 Ninguno / Tesis propia \u2014"),
-                    (pats || []).map(function (p) {
-                        var rate = p.obs > 0 ? Math.round(p.conf / p.obs * 100) : 0;
-                        return React.createElement("option", { key: p.id, value: p.id },
-                            p.name,
-                            p.obs > 0 ? " (" + rate + "% · " + p.obs + " tests)" : "");
+        React.createElement("div", { style: { ...S.mc, display: "flex", flexDirection: "column", padding: 0 } },
+            React.createElement("div", { style: { flex: 1, overflowY: "auto", padding: 20, paddingBottom: 8 } },
+                React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, editId ? "EDITAR OPERACION" : "NUEVA OPERACION"),
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: S.lbl }, "ACTIVO"),
+                    React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+                        React.createElement("input", { style: { ...S.inp, flex: 1 }, placeholder: "Ticker: TLT \u00B7 AAPL \u00B7 BTC \u00B7 SOL...", value: f.asset, onChange: function (e) { setF({ ...f, asset: e.target.value.toUpperCase() }); setLiveCheck(null); } }),
+                        React.createElement("button", { onClick: checkLivePrice, disabled: !f.asset || liveCheck === "loading", style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "6px 10px", borderRadius: 5, fontSize: 9, cursor: "pointer", whiteSpace: "nowrap" } }, liveCheck === "loading" ? "⏳" : "⚡ Check")),
+                    React.createElement("div", { style: { fontSize: 8, color: "#444", marginTop: 3 } }, "Escribe el ticker del activo (TLT, AAPL, MSFT\u2026), no el nombre completo"),
+                    liveCheck && liveCheck !== "loading" && liveCheck !== "error" && (React.createElement("div", { style: { marginTop: 5, padding: "6px 8px", background: "rgba(0,255,136,.08)", border: "1px solid rgba(0,255,136,.3)", borderRadius: 4, fontSize: 9, color: "#00ff88" } },
+                        React.createElement("div", null,
+                            "\u2713 ",
+                            React.createElement("strong", null, liveCheck.name)),
+                        React.createElement("div", { style: { marginTop: 2 } },
+                            "Ticker: ",
+                            React.createElement("strong", null, liveCheck.ticker),
+                            " \u00B7 Precio actual: ",
+                            React.createElement("strong", null,
+                                "$",
+                                liveCheck.price)))),
+                    liveCheck === "error" && (React.createElement("div", { style: { marginTop: 5, padding: "8px", background: "rgba(255,136,68,.08)", border: "1px solid rgba(255,136,68,.3)", borderRadius: 4, fontSize: 9 } },
+                        React.createElement("div", { style: { color: "#ff8844", marginBottom: 6 } }, "\u26A0 No se pudo obtener precio autom\u00E1ticamente."),
+                        React.createElement("div", { style: { color: "#888", marginBottom: 6 } }, "Introduce el precio actual manualmente para calcular el P&L:"),
+                        React.createElement("div", { style: { display: "flex", gap: 6 } },
+                            React.createElement("input", { type: "number", id: "manualPriceInput", placeholder: "ej: 88.45", style: { ...S.inp, flex: 1, fontSize: 10, padding: "5px 8px" } }),
+                            React.createElement("button", { onClick: function () {
+                                    var val = parseFloat(document.getElementById("manualPriceInput").value);
+                                    if (isNaN(val) || val <= 0)
+                                        return;
+                                    var base = f.asset.replace(/\/.*$/, "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10) || f.asset;
+                                    if (SPr && pr)
+                                        SPr({ ...pr, [base]: val }); // guardar en mapa global
+                                    setLiveCheck({ ticker: base, price: val.toFixed(2), name: base + " (Manual)" });
+                                    setF(function (prev) { return { ...prev, entry: prev.entry ? prev.entry : val.toFixed(2) }; });
+                                }, style: { background: "rgba(255,136,68,.2)", border: "1px solid #ff8844", color: "#ff8844", padding: "5px 10px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "Usar")),
+                        React.createElement("div", { style: { marginTop: 5, color: "#555", fontSize: 8 } }, "Tickers v\u00E1lidos: TLT \u00B7 AAPL \u00B7 MSFT \u00B7 SPY \u00B7 NVDA \u00B7 cualquier s\u00EDmbolo de bolsa")))),
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: S.lbl }, "ESTADO"),
+                    React.createElement("div", { style: { display: "flex", gap: 7 } }, [{ v: "open", l: "Abrir ahora", c: "#00ff88" }, { v: "pending", l: "En espera", c: "#f0b429" }].map(function (opt) {
+                        var sel = (f.status || "open") === opt.v;
+                        return React.createElement("button", { key: opt.v, onClick: function () { setF({ ...f, status: opt.v }); }, style: { flex: 1, padding: "7px", borderRadius: 4, fontSize: 9, fontWeight: 700,
+                                border: "1px solid " + (sel ? opt.c : "#333"),
+                                background: sel ? "rgba(" + (opt.v === "open" ? "0,255,136" : "240,180,41") + ", .12)" : "transparent",
+                                color: sel ? opt.c : "#555", cursor: "pointer" } }, opt.l);
                     })),
-                f.patternId && (function () {
-                    var pat = (pats || []).find(function (p) { return String(p.id) === String(f.patternId); });
-                    if (!pat)
-                        return null;
-                    return React.createElement("div", { style: { fontSize: 8, color: "#f0b429", marginTop: 3 } },
-                        "\uD83D\uDCCA ",
-                        pat.name,
-                        " \u2014 ",
-                        pat.obs,
-                        " observaciones, ",
-                        pat.obs > 0 ? Math.round(pat.conf / pat.obs * 100) : 0,
-                        "% confirmado");
-                })()),
-            [["CAPITAL ($)", "capital", "2000"], ["PRECIO ENTRADA", "entry", "70800"], ["PRECIO STOP LOSS", "sl", "71775"], ["PRECIO TAKE PROFIT", "tp", "44000"]].map(function (row) {
-                var l = row[0], k = row[1], ph = row[2];
-                return (React.createElement("div", { key: k, style: { marginBottom: 9 } },
-                    React.createElement("div", { style: S.lbl }, l),
-                    React.createElement("input", { style: S.inp, type: "number", placeholder: ph, value: f[k] || "", onChange: function (e) {
-                            var val = e.target.value;
-                            if (k === "capital") {
-                                // Al cambiar capital: recalcular capInput de todos los niveles
-                                var newCap = parseFloat(val) || 0;
-                                setF(function (prev) {
-                                    var newLevels = (prev.tpLevels || []).map(function (lv) {
-                                        var pctN = parseFloat(lv.pct) || 0;
-                                        return { ...lv, capInput: pctN > 0 && newCap > 0 ? (newCap * pctN / 100).toFixed(2) : (lv.capInput || "") };
+                    (f.status || "open") === "pending" && React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 3 } }, "No contabilizada hasta que la actives manualmente.")),
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: S.lbl }, "DIRECCION"),
+                    React.createElement("div", { style: { display: "flex", gap: 7 } }, ["Short", "Long"].map(d => (React.createElement("button", { key: d, onClick: () => setF({ ...f, dir: d }), style: { flex: 1, padding: "7px", borderRadius: 4, fontSize: 10, fontWeight: 700, border: "1px solid " + (d === "Short" ? "#ff4444" : "#00ff88"), background: f.dir === d ? (d === "Short" ? "rgba(255,68,68,.15)" : "rgba(0,255,136,.15)") : "transparent", color: d === "Short" ? "#ff4444" : "#00ff88", cursor: "pointer" } }, d.toUpperCase()))))),
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: S.lbl }, "PATR\u00D3N CHARTISTA"),
+                    React.createElement("select", { value: f.patternId || "", onChange: function (e) { setF({ ...f, patternId: e.target.value }); }, style: { ...S.inp, width: "100%", cursor: "pointer" } },
+                        React.createElement("option", { value: "" }, "\u2014 Ninguno / Tesis propia \u2014"),
+                        (pats || []).map(function (p) {
+                            var rate = p.obs > 0 ? Math.round(p.conf / p.obs * 100) : 0;
+                            return React.createElement("option", { key: p.id, value: p.id },
+                                p.name,
+                                p.obs > 0 ? " (" + rate + "% · " + p.obs + " tests)" : "");
+                        })),
+                    f.patternId && (function () {
+                        var pat = (pats || []).find(function (p) { return String(p.id) === String(f.patternId); });
+                        if (!pat)
+                            return null;
+                        return React.createElement("div", { style: { fontSize: 8, color: "#f0b429", marginTop: 3 } },
+                            "\uD83D\uDCCA ",
+                            pat.name,
+                            " \u2014 ",
+                            pat.obs,
+                            " observaciones, ",
+                            pat.obs > 0 ? Math.round(pat.conf / pat.obs * 100) : 0,
+                            "% confirmado");
+                    })()),
+                [["CAPITAL ($)", "capital", "2000"], ["PRECIO ENTRADA", "entry", "70800"], ["PRECIO STOP LOSS", "sl", "71775"], ["PRECIO TAKE PROFIT", "tp", "44000"]].map(function (row) {
+                    var l = row[0], k = row[1], ph = row[2];
+                    return (React.createElement("div", { key: k, style: { marginBottom: 9 } },
+                        React.createElement("div", { style: S.lbl }, l),
+                        React.createElement("input", { style: S.inp, type: "number", placeholder: ph, value: f[k] || "", onChange: function (e) {
+                                var val = e.target.value;
+                                if (k === "capital") {
+                                    // Al cambiar capital: recalcular capInput de todos los niveles
+                                    var newCap = parseFloat(val) || 0;
+                                    setF(function (prev) {
+                                        var newLevels = (prev.tpLevels || []).map(function (lv) {
+                                            var pctN = parseFloat(lv.pct) || 0;
+                                            return { ...lv, capInput: pctN > 0 && newCap > 0 ? (newCap * pctN / 100).toFixed(2) : (lv.capInput || "") };
+                                        });
+                                        return { ...prev, capital: val, tpLevels: newLevels };
                                     });
-                                    return { ...prev, capital: val, tpLevels: newLevels };
-                                });
-                            }
-                            else {
-                                setF(function (prev) { return { ...prev, [k]: val }; });
-                            }
-                        } })));
-            }),
-            React.createElement("div", { style: { marginBottom: 9 } },
-                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
-                    React.createElement("div", { style: S.lbl }, "VENTAS PARCIALES"),
-                    React.createElement("button", { type: "button", onClick: addTpLevel, style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "+ A\u00F1adir nivel")),
-                (f.tpLevels || []).length === 0 && (React.createElement("div", { style: { fontSize: 8, color: "#333", padding: "4px 0" } }, "Sin ventas parciales \u2014 el TP \u00FAnico cierra toda la posici\u00F3n.")),
-                (f.tpLevels || []).map(function (lvl, i) {
-                    var totalPct = (f.tpLevels || []).reduce(function (a, l) { return a + (+l.pct || 0); }, 0);
-                    var pctOver = totalPct > 100;
-                    return (React.createElement("div", { key: lvl.id, style: { marginBottom: 8, padding: "8px", background: "rgba(0,255,136,.03)", border: "1px solid #1e1e2e", borderRadius: 4 } },
-                        React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 5 } },
-                            "NIVEL ",
-                            i + 1,
-                            " (",
-                            isShort ? "↓ por debajo entrada" : "↑ por encima entrada",
-                            ")"),
-                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 5, alignItems: "end" } },
-                            React.createElement("div", null,
-                                React.createElement("div", { style: { fontSize: 7, color: "#444", marginBottom: 2 } }, "PRECIO TP"),
-                                React.createElement("input", { type: "number", value: lvl.price || "", onChange: function (e) { updateTpLevel(lvl.id, "price", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10 }, placeholder: isShort ? "69000" : "72000" })),
-                            React.createElement("div", null,
-                                React.createElement("div", { style: { fontSize: 7, color: pctOver ? "#ff4444" : "#444", marginBottom: 2 } }, "% POSICI\u00D3N"),
-                                React.createElement("input", { type: "number", min: "1", max: "100", value: lvl.pct || "", onChange: function (e) { updateTpLevel(lvl.id, "pct", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10, color: pctOver ? "#ff4444" : "#e0e0e0" }, placeholder: "50" })),
-                            React.createElement("div", null,
-                                React.createElement("div", { style: { fontSize: 7, color: "#444", marginBottom: 2 } }, "CAPITAL ($)"),
-                                React.createElement("input", { type: "number", value: lvl.capInput || "", onChange: function (e) { updateTpLevel(lvl.id, "capInput", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10 }, placeholder: "1000" })),
-                            React.createElement("button", { type: "button", onClick: function () { removeTpLevel(lvl.id); }, style: { background: "transparent", border: "1px solid #333", color: "#555", padding: "7px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer", lineHeight: 1, alignSelf: "flex-end" } }, "\u00D7")),
-                        React.createElement("div", { style: { fontSize: 7, color: "#444", marginTop: 3 } }, "Introduce % o capital \u2014 el otro se calcula autom\u00E1ticamente")));
+                                }
+                                else {
+                                    setF(function (prev) { return { ...prev, [k]: val }; });
+                                }
+                            } })));
                 }),
-                (f.tpLevels || []).length > 0 && (function () {
-                    var tot = (f.tpLevels || []).reduce(function (a, l) { return a + (+l.pct || 0); }, 0);
-                    return React.createElement("div", { style: { fontSize: 8, color: tot > 100 ? "#ff4444" : tot === 100 ? "#00ff88" : "#f0b429", textAlign: "right", marginTop: 2 } },
-                        "Total: ",
-                        tot,
-                        "%",
-                        tot > 100 ? " ⚠ supera 100%" : tot === 100 ? " ✓" : "");
-                })()),
-            hasCalcFull && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
-                React.createElement("div", { style: { background: slValid ? "rgba(255,68,68,.06)" : "rgba(255,136,68,.1)", border: slValid ? "none" : "1px solid rgba(255,136,68,.4)", borderRadius: 4, padding: "8px 10px" } },
-                    React.createElement("div", { style: { fontSize: 8, color: slValid ? "#555" : "#ff8844", marginBottom: 2 } },
-                        "SL - P\u00C9RDIDA M\u00C1XIMA",
-                        !slValid && React.createElement("span", null,
-                            " \u26A0 ",
-                            isShort ? "debe ser MAYOR que entrada" : "debe ser MENOR que entrada")),
-                    risk === 0
-                        ? React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#00ff88" } },
-                            "RIESGO CERO",
-                            React.createElement("br", null),
-                            React.createElement("span", { style: { fontSize: 8, color: "#555", fontWeight: 400 } }, "SL en precio de entrada"))
-                        : React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#ff4444" } }, fmtNum(-risk))),
-                React.createElement("div", { style: { background: rewardValid ? "rgba(0,255,136,.06)" : "rgba(255,136,68,.1)", border: rewardValid ? "none" : "1px solid rgba(255,136,68,.4)", borderRadius: 4, padding: "8px 10px" } },
-                    React.createElement("div", { style: { fontSize: 8, color: rewardValid ? "#555" : "#ff8844", marginBottom: 2 } },
-                        "TP - GANANCIA M\u00C1XIMA",
-                        hasTpLvls && React.createElement("span", { style: { color: "#444" } }, " (parciales)"),
-                        !rewardValid && !hasTpLvls && React.createElement("span", null,
-                            " \u26A0 ",
-                            isShort ? "debe ser MENOR que entrada" : "debe ser MAYOR que entrada")),
-                    rewardValid
-                        ? React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#00ff88" } }, fmtNum(reward))
-                        : React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#ff8844" } }, "\u2014")),
-                risk > 0 && rewardValid && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: ratio >= 3 ? "#00ff88" : ratio >= 2 ? "#f0b429" : "#ff4444", fontWeight: 700 } }, "Ratio R:B 1:" + ratio.toFixed(1) + " " + (ratio >= 3 ? "Sólido" : ratio >= 2 ? "Aceptable" : "Insuficiente"))),
-                risk === 0 && reward > 0 && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: "#00ff88", fontWeight: 700 } },
-                    "Posici\u00F3n protegida \u2014 ganancia potencial ",
-                    fmtNum(reward))))),
-            !editId && (React.createElement("div", { style: { marginBottom: 12 } },
-                React.createElement("div", { style: { fontSize: 8, color: "#888", marginBottom: 4, letterSpacing: 1 } },
-                    "REFLEXION PREVIA AL TRADE ",
-                    React.createElement("span", { style: { color: "#555" } }, "(opcional)")),
-                React.createElement("textarea", { value: preReflection, onChange: function (e) { setPreReflection(e.target.value); }, placeholder: "Que te dice el mercado? Como te sientes respecto a esta operacion? Por que crees que funcionara esta tesis?...", style: { ...S.inp, width: "100%", minHeight: 72, padding: "8px", fontSize: 9, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", color: "#e0e0e0" } }),
-                preReflection.trim() && (React.createElement("div", { style: { fontSize: 7, color: "#555", marginTop: 3 } }, "Se guardara en el diario vinculado a esta operacion")))),
-            formError && React.createElement("div", { style: { marginBottom: 8, padding: "7px 10px", background: "rgba(255,68,68,.1)", border: "1px solid rgba(255,68,68,.35)", borderRadius: 4, color: "#ff6666", fontSize: 9 } }, formError),
-            React.createElement("div", { style: { display: "flex", gap: 7, marginTop: 4 } },
-                React.createElement("button", { onClick: doSavePosForm, style: { ...S.btn(true), flex: 1, padding: 8 } }, editId ? "GUARDAR CAMBIOS" : "ANADIR"),
-                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: false, posForm: null, editPosId: null })), style: { ...S.btn(false), flex: 1 } }, "CANCELAR")))));
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
+                        React.createElement("div", { style: S.lbl }, "VENTAS PARCIALES"),
+                        React.createElement("button", { type: "button", onClick: addTpLevel, style: { background: "rgba(0,255,136,.1)", border: "1px solid rgba(0,255,136,.3)", color: "#00ff88", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "+ A\u00F1adir nivel")),
+                    (f.tpLevels || []).length === 0 && (React.createElement("div", { style: { fontSize: 8, color: "#333", padding: "4px 0" } }, "Sin ventas parciales \u2014 el TP \u00FAnico cierra toda la posici\u00F3n.")),
+                    (f.tpLevels || []).map(function (lvl, i) {
+                        var totalPct = (f.tpLevels || []).reduce(function (a, l) { return a + (+l.pct || 0); }, 0);
+                        var pctOver = totalPct > 100;
+                        return (React.createElement("div", { key: lvl.id, style: { marginBottom: 8, padding: "8px", background: "rgba(0,255,136,.03)", border: "1px solid #1e1e2e", borderRadius: 4 } },
+                            React.createElement("div", { style: { fontSize: 8, color: "#555", marginBottom: 5 } },
+                                "NIVEL ",
+                                i + 1,
+                                " (",
+                                isShort ? "↓ por debajo entrada" : "↑ por encima entrada",
+                                ")"),
+                            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 5, alignItems: "end" } },
+                                React.createElement("div", null,
+                                    React.createElement("div", { style: { fontSize: 7, color: "#444", marginBottom: 2 } }, "PRECIO TP"),
+                                    React.createElement("input", { type: "number", value: lvl.price || "", onChange: function (e) { updateTpLevel(lvl.id, "price", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10 }, placeholder: isShort ? "69000" : "72000" })),
+                                React.createElement("div", null,
+                                    React.createElement("div", { style: { fontSize: 7, color: pctOver ? "#ff4444" : "#444", marginBottom: 2 } }, "% POSICI\u00D3N"),
+                                    React.createElement("input", { type: "number", min: "1", max: "100", value: lvl.pct || "", onChange: function (e) { updateTpLevel(lvl.id, "pct", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10, color: pctOver ? "#ff4444" : "#e0e0e0" }, placeholder: "50" })),
+                                React.createElement("div", null,
+                                    React.createElement("div", { style: { fontSize: 7, color: "#444", marginBottom: 2 } }, "CAPITAL ($)"),
+                                    React.createElement("input", { type: "number", value: lvl.capInput || "", onChange: function (e) { updateTpLevel(lvl.id, "capInput", e.target.value); }, style: { ...S.inp, padding: "5px 8px", fontSize: 10 }, placeholder: "1000" })),
+                                React.createElement("button", { type: "button", onClick: function () { removeTpLevel(lvl.id); }, style: { background: "transparent", border: "1px solid #333", color: "#555", padding: "7px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer", lineHeight: 1, alignSelf: "flex-end" } }, "\u00D7")),
+                            React.createElement("div", { style: { fontSize: 7, color: "#444", marginTop: 3 } }, "Introduce % o capital \u2014 el otro se calcula autom\u00E1ticamente")));
+                    }),
+                    (f.tpLevels || []).length > 0 && (function () {
+                        var tot = (f.tpLevels || []).reduce(function (a, l) { return a + (+l.pct || 0); }, 0);
+                        return React.createElement("div", { style: { fontSize: 8, color: tot > 100 ? "#ff4444" : tot === 100 ? "#00ff88" : "#f0b429", textAlign: "right", marginTop: 2 } },
+                            "Total: ",
+                            tot,
+                            "%",
+                            tot > 100 ? " ⚠ supera 100%" : tot === 100 ? " ✓" : "");
+                    })()),
+                hasCalcFull && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 } },
+                    React.createElement("div", { style: { background: slValid ? "rgba(255,68,68,.06)" : "rgba(255,136,68,.1)", border: slValid ? "none" : "1px solid rgba(255,136,68,.4)", borderRadius: 4, padding: "8px 10px" } },
+                        React.createElement("div", { style: { fontSize: 8, color: slValid ? "#555" : "#ff8844", marginBottom: 2 } },
+                            "SL - P\u00C9RDIDA M\u00C1XIMA",
+                            !slValid && React.createElement("span", null,
+                                " \u26A0 ",
+                                isShort ? "debe ser MAYOR que entrada" : "debe ser MENOR que entrada")),
+                        risk === 0
+                            ? React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#00ff88" } },
+                                "RIESGO CERO",
+                                React.createElement("br", null),
+                                React.createElement("span", { style: { fontSize: 8, color: "#555", fontWeight: 400 } }, "SL en precio de entrada"))
+                            : React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#ff4444" } }, fmtNum(-risk))),
+                    React.createElement("div", { style: { background: rewardValid ? "rgba(0,255,136,.06)" : "rgba(255,136,68,.1)", border: rewardValid ? "none" : "1px solid rgba(255,136,68,.4)", borderRadius: 4, padding: "8px 10px" } },
+                        React.createElement("div", { style: { fontSize: 8, color: rewardValid ? "#555" : "#ff8844", marginBottom: 2 } },
+                            "TP - GANANCIA M\u00C1XIMA",
+                            hasTpLvls && React.createElement("span", { style: { color: "#444" } }, " (parciales)"),
+                            !rewardValid && !hasTpLvls && React.createElement("span", null,
+                                " \u26A0 ",
+                                isShort ? "debe ser MENOR que entrada" : "debe ser MAYOR que entrada")),
+                        rewardValid
+                            ? React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#00ff88" } }, fmtNum(reward))
+                            : React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#ff8844" } }, "\u2014")),
+                    risk > 0 && rewardValid && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: ratio >= 3 ? "#00ff88" : ratio >= 2 ? "#f0b429" : "#ff4444", fontWeight: 700 } }, "Ratio R:B 1:" + ratio.toFixed(1) + " " + (ratio >= 3 ? "Sólido" : ratio >= 2 ? "Aceptable" : "Insuficiente"))),
+                    risk === 0 && reward > 0 && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: "#00ff88", fontWeight: 700 } },
+                        "Posici\u00F3n protegida \u2014 ganancia potencial ",
+                        fmtNum(reward))))),
+                !editId && (React.createElement("div", { style: { marginBottom: 12 } },
+                    React.createElement("div", { style: { fontSize: 8, color: "#888", marginBottom: 4, letterSpacing: 1 } },
+                        "REFLEXION PREVIA AL TRADE ",
+                        React.createElement("span", { style: { color: "#555" } }, "(opcional)")),
+                    React.createElement("textarea", { value: preReflection, onChange: function (e) { setPreReflection(e.target.value); }, placeholder: "Que te dice el mercado? Como te sientes respecto a esta operacion? Por que crees que funcionara esta tesis?...", style: { ...S.inp, width: "100%", minHeight: 72, padding: "8px", fontSize: 9, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", color: "#e0e0e0" } }),
+                    preReflection.trim() && (React.createElement("div", { style: { fontSize: 7, color: "#555", marginTop: 3 } }, "Se guardara en el diario vinculado a esta operacion"))))),
+            React.createElement("div", { style: { padding: "8px 20px 16px", borderTop: "1px solid #1e1e2e", background: "#111118", borderRadius: "0 0 12px 12px", flexShrink: 0 } },
+                formError && React.createElement("div", { style: { marginBottom: 8, padding: "7px 10px", background: "rgba(255,68,68,.1)", border: "1px solid rgba(255,68,68,.35)", borderRadius: 4, color: "#ff6666", fontSize: 9 } }, formError),
+                React.createElement("div", { style: { display: "flex", gap: 7 } },
+                    React.createElement("button", { onClick: doSavePosForm, style: { ...S.btn(true), flex: 1, padding: 10, fontSize: 11 } }, editId ? "GUARDAR CAMBIOS" : "ANADIR"),
+                    React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: false, posForm: null, editPosId: null })), style: { ...S.btn(false), flex: 1, padding: 10 } }, "CANCELAR"))))));
 }
 function PhotoBtn({ patId, hasPhoto, onFile }) {
     // Usar label visible con input visible pero muy pequeno - funciona en todos los moviles
