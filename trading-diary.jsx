@@ -4445,6 +4445,11 @@ function AlertasTab({S,predictions}){
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify(tgBody)
+      }).then(function(r){return r.json();}).then(function(data){
+        if(!data.ok){
+          var errMsg="Telegram error: "+(data.description||data.error_code||"desconocido");
+          setLogs(function(prev){return [{id:Date.now(),type:"tg_error",title:"⚠️ Telegram no enviado",body:errMsg,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}].concat(prev).slice(0,50);});
+        }
       }).catch(function(){});
     }
     if(Notification.permission==="granted"){
@@ -4587,11 +4592,12 @@ function AlertasTab({S,predictions}){
   }
 
   function startAlert(alert){
-    // NO restaurar zona RSI — siempre empezar en "neutral" para que el estado actual dispare en el primer candle
-    // (si ya estaba en overbought/oversold al cargar, queremos saberlo)
+    // Siempre empezar en "neutral" — así el primer candle dispara si RSI ya está en zona extrema
     var ak0Init=alert.id.toString()+"_";
     lastTrigRef.current[ak0Init+"rsizone"]="neutral";
     delete lastTrigRef.current[ak0Init+"rsicustom"];
+    // También limpiar localStorage para que un reinicio de página no restaure zona antigua
+    try{var szClr={};var szClrStr=localStorage.getItem("td-alert-zones");if(szClrStr)szClr=JSON.parse(szClrStr);szClr[ak0Init+"rsizone"]="neutral";localStorage.setItem("td-alert-zones",JSON.stringify(szClr));}catch(e){}
     // Acciones/ETFs (no Binance) → usar Finnhub polling
     var isBinancePair=/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
     if(!isBinancePair){startStockAlertFinnhub(alert);return;}
@@ -5031,6 +5037,18 @@ function AlertasTab({S,predictions}){
             style={{background:finnhubKey?"rgba(0,180,80,.15)":"transparent",border:"1px solid "+(finnhubKey?"#00b450":"#2a2a3a"),color:finnhubKey?"#00cc66":"#555",padding:"7px 10px",borderRadius:6,fontSize:10,cursor:"pointer"}}>📈</button>
           <button onClick={function(){setShowTgConfig(!showTgConfig);setShowFinnhubConfig(false);}} title="Notificaciones Telegram"
             style={{background:tgToken&&tgChatId?"rgba(0,136,204,.15)":"transparent",border:"1px solid "+(tgToken&&tgChatId?"#0088cc":"#2a2a3a"),color:tgToken&&tgChatId?"#0088cc":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>✈️</button>
+          {tgToken&&tgChatId&&<button title="Probar conexión Telegram" onClick={function(){
+            var tk=localStorage.getItem("td-tg-token")||"";
+            var cid=localStorage.getItem("td-tg-chatid")||"";
+            if(!tk||!cid)return;
+            var msg="✅ TEST — Trading Diary\n\nTelegram configurado correctamente.\nFecha: "+new Date().toLocaleString("es-ES")+"\nAlertas activas: "+(alertsRef.current||[]).filter(function(a){return a.active;}).length;
+            fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:cid,text:msg})})
+              .then(function(r){return r.json();})
+              .then(function(data){
+                if(data.ok){setLogs(function(prev){return [{id:Date.now(),type:"tg_test",title:"✅ Test Telegram enviado",body:"Comprueba tu Telegram.",time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}].concat(prev).slice(0,50);});}
+                else{setLogs(function(prev){return [{id:Date.now(),type:"tg_error",title:"❌ Test Telegram falló",body:"Error: "+(data.description||data.error_code||"desconocido"),time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}].concat(prev).slice(0,50);});}
+              }).catch(function(){setLogs(function(prev){return [{id:Date.now(),type:"tg_error",title:"❌ Test Telegram falló",body:"Sin conexión o token inválido",time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}].concat(prev).slice(0,50);});});
+          }} style={{background:"rgba(0,136,204,.1)",border:"1px solid #0088cc",color:"#0088cc",padding:"7px 8px",borderRadius:6,fontSize:9,cursor:"pointer",fontWeight:700}}>🔔</button>}
           {tgToken&&tgChatId&&<button title="Enviar lista de notificaciones a Telegram" onClick={function(){
             var tk=localStorage.getItem("td-tg-token")||"";
             var cid=localStorage.getItem("td-tg-chatid")||"";
@@ -5447,6 +5465,17 @@ function AlertasTab({S,predictions}){
                       <div style={{position:"absolute",right:0,width:"30%",height:"100%",background:"rgba(255,68,68,.08)"}}/>
                       <div style={{position:"absolute",left:"calc("+Math.min(99,Math.max(1,rsi))+"% - 3px)",top:0,width:6,height:"100%",background:rsiColor,borderRadius:2,transition:"left .5s"}}/>
                     </div>
+                    {(function(){
+                      var zoneKey=alert.id.toString()+"_rsizone";
+                      var zone=lastTrigRef.current[zoneKey]||"neutral";
+                      var obThr=alert.rsiOverboughtTarget!=null?alert.rsiOverboughtTarget:70;
+                      var ovThr=alert.rsiOversoldTarget!=null?alert.rsiOversoldTarget:30;
+                      if(zone==="overbought")return <span style={{fontSize:7,color:"#ff6666",marginTop:2,display:"block"}}>🔴 Zona sobrecompra — próxima alerta al salir y volver a entrar</span>;
+                      if(zone==="oversold")return <span style={{fontSize:7,color:"#00ff88",marginTop:2,display:"block"}}>🟢 Zona sobreventa — próxima alerta al salir y volver a entrar</span>;
+                      if(rsi>=obThr-2)return <span style={{fontSize:7,color:"#ff8844",marginTop:2,display:"block"}}>⚡ RSI {rsi.toFixed(1)} — cerca de sobrecompra (umbral: {obThr})</span>;
+                      if(rsi<=ovThr+2)return <span style={{fontSize:7,color:"#88ff88",marginTop:2,display:"block"}}>⚡ RSI {rsi.toFixed(1)} — cerca de sobreventa (umbral: {ovThr})</span>;
+                      return null;
+                    })()}
                   </div>
                 )}
                 {emaData[alert.id]&&<div style={{fontSize:7,color:"#333",marginTop:6,marginBottom:1,fontWeight:600,letterSpacing:.5}}>ESTADO ACTUAL DEL MERCADO</div>}
