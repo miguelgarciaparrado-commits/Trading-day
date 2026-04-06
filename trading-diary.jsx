@@ -4363,14 +4363,26 @@ function AlertasTab({S,predictions}){
       var slPctShow=((Math.abs(entryPrice-slPrice)/entryPrice)*100).toFixed(1);
       var tpPctShow=((Math.abs(tpPrice-entryPrice)/entryPrice)*100).toFixed(1);
       var hasConfluence=confluenceCount>=2;
+      // Leer historial de feedback para este tipo de señal
+      var fbAllProb={};
+      try{fbAllProb=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
+      var fbStatsProb=fbAllProb[type]||{total:0,correct:0};
+      var fbRate=fbStatsProb.total>=3?(fbStatsProb.correct/fbStatsProb.total):null;
+      // Aprendizaje: ajustar umbral de confluencia y bloquear señales con mal historial
+      // Con buen historial (>=5 señales, tasa >65%) → bajar umbral a 1 señal
+      var learnedThreshold=(fbStatsProb.total>=5&&fbRate!==null&&fbRate>0.65)?1:2;
+      var hasConfluenceLearned=confluenceCount>=learnedThreshold;
+      // Bloquear si mal historial confirmado (>=8 señales, tasa <35%)
+      var fbBlocked=fbStatsProb.total>=8&&fbRate!==null&&fbRate<0.35;
+      // Advertir si rendimiento bajo pero no bloqueado (>=5 señales, tasa 35-50%)
+      var fbLowPerf=!fbBlocked&&fbStatsProb.total>=5&&fbRate!==null&&fbRate<0.50;
+      // Usar confluencia aprendida (salvo bloqueo)
+      var hasConfluence=hasConfluenceLearned&&!fbBlocked;
       // Calcular probabilidad estimada (mejora con feedback histórico)
       var probPct=null;
-      if(hasConfluence){
-        var fbAllProb={};
-        try{fbAllProb=JSON.parse(localStorage.getItem("td-pattern-fb")||"{}");}catch(e){}
-        var fbStatsProb=fbAllProb[type]||{total:0,correct:0};
-        // Base: 55% para 2 señales, +8% por cada señal extra (máx 82%)
-        var basePct=Math.min(82,55+(confluenceCount-2)*8);
+      if(hasConfluenceLearned){
+        // Base: 55% para 2 señales, +8% por cada señal extra (máx 82%); para 1 señal con historial: base 60%
+        var basePct=learnedThreshold===1?60:Math.min(82,55+(confluenceCount-2)*8);
         if(fbStatsProb.total>=10){
           probPct=Math.round(fbStatsProb.correct/fbStatsProb.total*100);
         }else if(fbStatsProb.total>=3){
@@ -4381,7 +4393,7 @@ function AlertasTab({S,predictions}){
           probPct=basePct;
         }
       }
-      // Guardar operación bot solo si confluencia y ratio ok
+      // Guardar operación bot solo si confluencia aprendida y ratio ok, y no bloqueado
       if(hasConfluence){
         var botOp={id:Date.now(),date:new Date().toLocaleDateString("es-ES"),time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),asset:label,interval:tf,signal:type,dir:sugDir,entry:parseFloat(entryPrice.toFixed(4)),sl:parseFloat(slPrice.toFixed(4)),tp:parseFloat(tpPrice.toFixed(4)),ratio:parseFloat(ratioBot),tpNote:tpNote,result:null,hit:null};
         try{var prevBotOps=JSON.parse(localStorage.getItem("td-bot-ops")||"[]");prevBotOps.unshift(botOp);localStorage.setItem("td-bot-ops",JSON.stringify(prevBotOps.slice(0,100)));}catch(e){}
@@ -4423,17 +4435,27 @@ function AlertasTab({S,predictions}){
         signalNames.forEach(function(s){tgLines.push("   ✅ "+s);});
       }
       tgLines.push("");
-      if(hasConfluence){
-        tgLines.push("💡 Operación Bot ("+sugDir+") — "+confluenceCount+" señales alineadas:");
+      if(fbBlocked){
+        tgLines.push("🚫 Operación Bot BLOQUEADA por mal historial:");
+        tgLines.push("   Señal '"+type+"': "+fbStatsProb.correct+"/"+fbStatsProb.total+" aciertos ("+(fbRate!==null?Math.round(fbRate*100):0)+"%) — umbral mínimo 35%");
+        tgLines.push("   No se enviará operación hasta que el historial mejore.");
+      }else if(hasConfluence){
+        var confLabel=learnedThreshold===1?"1 señal (umbral reducido por buen historial)":confluenceCount+" señales alineadas";
+        tgLines.push("💡 Operación Bot ("+sugDir+") — "+confLabel+":");
+        if(learnedThreshold===1&&fbStatsProb.total>=5){
+          tgLines.push("   📚 Historial: "+fbStatsProb.correct+"/"+fbStatsProb.total+" aciertos ("+Math.round(fbRate*100)+"%) — umbral reducido");
+        }
+        if(fbLowPerf){
+          tgLines.push("   ⚠️ AVISO: rendimiento bajo ("+Math.round(fbRate*100)+"% de "+fbStatsProb.total+" señales) — opera con precaución");
+        }
         tgLines.push("   📍 Entrada: $"+parseFloat(entryPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+(entryNote?" ["+entryNote+"]":""));
         tgLines.push("   🎯 TP: $"+parseFloat(tpPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (+"+tpPctShow+"%) ["+tpNote+"]");
         tgLines.push("   🛑 SL: $"+parseFloat(slPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (-"+slPctShow+"%)");
         tgLines.push("   ⚖️ Ratio: 1:"+ratioBot);
-        var fbStatsTg={};try{fbStatsTg=(JSON.parse(localStorage.getItem("td-pattern-fb")||"{}"))[type]||{total:0};}catch(e){}
-        var probSrc=fbStatsTg.total>=3?"basada en "+fbStatsTg.total+" señales previas":"base estadística";
+        var probSrc=fbStatsProb.total>=3?"basada en "+fbStatsProb.total+" señales previas":"base estadística";
         tgLines.push("   🧠 Probabilidad: "+probPct+"% ("+probSrc+")");
       }else{
-        tgLines.push("⚠️ Sin operación bot — confluencia insuficiente ("+confluenceCount+"/2 señales alineadas)");
+        tgLines.push("⚠️ Sin operación bot — confluencia insuficiente ("+confluenceCount+"/"+learnedThreshold+" señales alineadas)");
         tgLines.push("   Espera más señales "+sugDir+" en "+tf+" para entrada de calidad");
       }
       tgLines.push("");
