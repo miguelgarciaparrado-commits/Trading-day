@@ -6569,34 +6569,37 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
     setLiveCheck("error");
   }
   function doSavePosForm(){
-    if(!f.asset){setFormError("Introduce el ticker del activo (ej: BTC, AAPL)");return;}
-    if(!f.entry){setFormError("Introduce el precio de entrada. Si el check falla, usa el campo manual o escríbelo directamente en el campo Entrada");return;}
-    if(!f.capital){setFormError("Introduce el capital de la operación");return;}
-    setFormError("");
-    var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
-    var posId=editId||Date.now();
-    var reflText=preReflection?preReflection.trim():"";
-    var finalStatus=f.status||"open";
-    // Auto-pending: si se guarda como "open" pero el precio actual está >0.5% de la entrada, guardar como EN ESPERA
-    if(finalStatus==="open"&&!editId){
-      var entryPx=+f.entry;
-      var base2=f.asset.replace(/\/.*$/,"").toUpperCase();
-      var mktPx=(D.current.pr&&D.current.pr[base2])||0;
-      if(mktPx>0&&entryPx>0&&Math.abs(mktPx-entryPx)/entryPx>0.005){
-        finalStatus="pending";
+    try{
+      if(!f.asset){setFormError("Falta: ticker del activo (BTC, AAPL...)");return;}
+      if(!f.entry){setFormError("Falta: precio de entrada");return;}
+      if(!f.capital){setFormError("Falta: capital de la operacion");return;}
+      setFormError("");
+      var tpLvls=(f.tpLevels||[]).filter(function(l){return l.price&&l.pct;}).map(function(l){return{id:l.id,price:+l.price,pct:+l.pct,hit:l.hit||false};});
+      var posId=editId||Date.now();
+      var reflText=preReflection?preReflection.trim():"";
+      var finalStatus=f.status||"open";
+      if(finalStatus==="open"&&!editId){
+        var entryPx=+f.entry;
+        var base2=f.asset.replace(/\/.*$/,"").toUpperCase();
+        var mktPx=(D.current.pr&&D.current.pr[base2])||0;
+        if(mktPx>0&&entryPx>0&&Math.abs(mktPx-entryPx)/entryPx>0.005){
+          finalStatus="pending";
+        }
       }
+      var obj=Object.assign({},f,{id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus});
+      var nv=editId?currentPos.map(function(x){return x.id===editId?obj:x;}):currentPos.concat([obj]);
+      SPos(nv);
+      if(reflText&&SJ&&!editId){
+        var jnlEntry={id:Date.now()+1,type:"analysis",
+          text:"[Pre-trade "+f.asset+"] "+reflText.slice(0,600),
+          date:new Date().toLocaleDateString("es-ES"),
+          preTradeReflection:true,linkedPos:posId};
+        SJ([jnlEntry].concat(jnl||[]));
+      }
+      setModal(function(m){return Object.assign({},m,{pos:false,posForm:null,editPosId:null});});
+    }catch(err){
+      setFormError("Error: "+(err&&err.message?err.message:"desconocido. Revisa los campos e inténtalo de nuevo."));
     }
-    const obj={...f,id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus};
-    const nv=editId?currentPos.map(x=>x.id===editId?obj:x):[...currentPos,obj];
-    SPos(nv);
-    if(reflText&&SJ&&!editId){
-      var jnlEntry={id:Date.now()+1,type:"analysis",
-        text:"[Pre-trade "+f.asset+"] "+reflText.slice(0,600),
-        date:new Date().toLocaleDateString("es-ES"),
-        preTradeReflection:true,linkedPos:posId};
-      SJ([jnlEntry,...(jnl||[])]);
-    }
-    setModal(m=>({...m,pos:false,posForm:null,editPosId:null}));
   }
   const e2=+f.entry,sl=+f.sl,tp2=+f.tp,cap=+f.capital;
   const hasCalc=f.entry&&f.sl&&f.tp&&f.capital;
@@ -6625,9 +6628,18 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
   }
   const ratio=risk>0&&rewardValid?reward/risk:0;
   return(
-    <div style={S.modal}><div style={{...S.mc,display:"flex",flexDirection:"column",padding:0,height:"min(90vh,680px)"}}>
-      <div style={{flex:1,overflowY:"auto",padding:20,paddingBottom:8,minHeight:0}}>
-      <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>{editId?"EDITAR OPERACION":"NUEVA OPERACION"}</div>
+    <div style={S.modal}><div style={{...S.mc,display:"flex",flexDirection:"column",padding:0,maxHeight:"92vh"}}>
+      <div style={{padding:"12px 20px 10px",borderBottom:"1px solid #1e1e2e",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <div style={{fontSize:12,color:"#f0b429",fontWeight:700}}>{editId?"EDITAR OPERACION":"NUEVA OPERACION"}</div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={doSavePosForm} style={{...S.btn(true),padding:"6px 16px",fontSize:10}}>{editId?"GUARDAR":"ANADIR"}</button>
+            <button onClick={function(){setModal(function(m){return{...m,pos:false,posForm:null,editPosId:null};});}} style={{...S.btn(false),padding:"6px 12px",fontSize:10}}>✕</button>
+          </div>
+        </div>
+        {formError&&<div style={{marginTop:6,padding:"5px 8px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.35)",borderRadius:4,color:"#ff6666",fontSize:9}}>{formError}</div>}
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:20,paddingBottom:20,minHeight:0}}>
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>ACTIVO</div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -6812,11 +6824,6 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
       )}
       </div>
       <div style={{padding:"8px 20px 16px",borderTop:"1px solid #1e1e2e",background:"#111118",borderRadius:"0 0 12px 12px",flexShrink:0}}>
-        {formError&&<div style={{marginBottom:8,padding:"7px 10px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.35)",borderRadius:4,color:"#ff6666",fontSize:9}}>{formError}</div>}
-        <div style={{display:"flex",gap:7}}>
-          <button onClick={doSavePosForm} style={{...S.btn(true),flex:1,padding:10,fontSize:11}}>{editId?"GUARDAR CAMBIOS":"ANADIR"}</button>
-          <button onClick={()=>setModal(m=>({...m,pos:false,posForm:null,editPosId:null}))} style={{...S.btn(false),flex:1,padding:10}}>CANCELAR</button>
-        </div>
       </div>
     </div></div>
   );
