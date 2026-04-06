@@ -7019,8 +7019,8 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
     }
     const ratio = risk > 0 && rewardValid ? reward / risk : 0;
     return (React.createElement("div", { style: S.modal },
-        React.createElement("div", { style: { ...S.mc, display: "flex", flexDirection: "column", padding: 0 } },
-            React.createElement("div", { style: { flex: 1, overflowY: "auto", padding: 20, paddingBottom: 8 } },
+        React.createElement("div", { style: { ...S.mc, display: "flex", flexDirection: "column", padding: 0, height: "min(90vh,680px)" } },
+            React.createElement("div", { style: { flex: 1, overflowY: "auto", padding: 20, paddingBottom: 8, minHeight: 0 } },
                 React.createElement("div", { style: { fontSize: 12, color: "#f0b429", fontWeight: 700, marginBottom: 14 } }, editId ? "EDITAR OPERACION" : "NUEVA OPERACION"),
                 React.createElement("div", { style: { marginBottom: 9 } },
                     React.createElement("div", { style: S.lbl }, "ACTIVO"),

@@ -6625,8 +6625,8 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
   }
   const ratio=risk>0&&rewardValid?reward/risk:0;
   return(
-    <div style={S.modal}><div style={{...S.mc,display:"flex",flexDirection:"column",padding:0}}>
-      <div style={{flex:1,overflowY:"auto",padding:20,paddingBottom:8}}>
+    <div style={S.modal}><div style={{...S.mc,display:"flex",flexDirection:"column",padding:0,height:"min(90vh,680px)"}}>
+      <div style={{flex:1,overflowY:"auto",padding:20,paddingBottom:8,minHeight:0}}>
       <div style={{fontSize:12,color:"#f0b429",fontWeight:700,marginBottom:14}}>{editId?"EDITAR OPERACION":"NUEVA OPERACION"}</div>
       <div style={{marginBottom:9}}>
         <div style={S.lbl}>ACTIVO</div>
