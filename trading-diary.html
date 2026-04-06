@@ -6132,8 +6132,39 @@ function AlertasTab({ S, predictions }) {
                 { l: "RATIO MEDIO", v: avgRatio ? "1:" + avgRatio : "--", c: "#88aaff" },
                 { l: "MEJOR/PEOR", v: maxRatio ? maxRatio + "/" + minRatio : "--", c: "#f0b429" }].map(function (s) {
                 return React.createElement("div", { key: s.l, style: { background: "#0d0d16", borderRadius: 6, padding: "7px 8px", textAlign: "center" } }, React.createElement("div", { style: { fontSize: 7, color: "#555", marginBottom: 3 } }, [s.l]), React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: s.c } }, [s.v]));
-            })), bops.slice(0, 8).map(function (b) {
-                return React.createElement("div", { key: b.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #1a1a2a", fontSize: 8 } }, React.createElement("div", null, React.createElement("span", { style: { color: "#88aaff", fontWeight: 700 } }, [b.asset]), React.createElement("span", { style: { color: "#555", margin: "0 5px" } }, [b.interval]), React.createElement("span", { style: { color: b.dir === "Long" ? "#00ff88" : "#ff4444", fontSize: 7, border: "1px solid " + (b.dir === "Long" ? "#00ff88" : "#ff4444"), padding: "1px 4px", borderRadius: 3 } }, [b.dir]), React.createElement("span", { style: { color: "#666", marginLeft: 5 } }, [b.signal.replace("rsi_", "RSI ").replace("_", " ")])), React.createElement("div", { style: { textAlign: "right" } }, React.createElement("div", { style: { color: "#888", fontSize: 7 } }, ["$" + parseFloat(b.entry).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " → $" + parseFloat(b.tp).toLocaleString("es-ES", { maximumFractionDigits: 2 })]), React.createElement("div", { style: { color: "#f0b429", fontSize: 7 } }, ["R:" + b.ratio + " | " + b.date + " " + b.time])));
+            })), bops.slice(0, 20).map(function (b) {
+                function markResult(hitVal) {
+                    try {
+                        var ops = JSON.parse(localStorage.getItem("td-bot-ops") || "[]");
+                        ops = ops.map(function (op) { return op.id === b.id ? Object.assign({}, op, { hit: hitVal }) : op; });
+                        localStorage.setItem("td-bot-ops", JSON.stringify(ops));
+                        // También actualizar td-pattern-fb
+                        var fb2 = {};
+                        try {
+                            fb2 = JSON.parse(localStorage.getItem("td-pattern-fb") || "{}");
+                        }
+                        catch (e) { }
+                        if (!fb2[b.signal])
+                            fb2[b.signal] = { total: 0, correct: 0, wrong: 0 };
+                        // Solo contar si no tenía resultado previo
+                        if (!b.hit) {
+                            fb2[b.signal].total = (fb2[b.signal].total || 0) + 1;
+                            if (hitVal === "tp")
+                                fb2[b.signal].correct = (fb2[b.signal].correct || 0) + 1;
+                            else
+                                fb2[b.signal].wrong = (fb2[b.signal].wrong || 0) + 1;
+                            localStorage.setItem("td-pattern-fb", JSON.stringify(fb2));
+                        }
+                    }
+                    catch (e) { }
+                    // Forzar re-render leyendo de nuevo
+                    setAlerts(function (prev) { return prev.slice(); });
+                }
+                var hitColor = b.hit === "tp" ? "#00ff88" : b.hit === "sl" ? "#ff4444" : "#555";
+                var hitLabel = b.hit === "tp" ? "✅ TP" : b.hit === "sl" ? "❌ SL" : "?";
+                return React.createElement("div", { key: b.id, style: { padding: "7px 0", borderBottom: "1px solid #1a1a2a", fontSize: 8 } }, React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } }, React.createElement("div", null, React.createElement("span", { style: { color: "#88aaff", fontWeight: 700 } }, [b.asset]), React.createElement("span", { style: { color: "#555", margin: "0 4px" } }, [b.interval]), React.createElement("span", { style: { color: b.dir === "Long" ? "#00ff88" : "#ff4444", fontSize: 7, border: "1px solid " + (b.dir === "Long" ? "#00ff88" : "#ff4444"), padding: "1px 4px", borderRadius: 3 } }, [b.dir]), React.createElement("span", { style: { color: "#666", marginLeft: 4, fontSize: 7 } }, [(b.signal || "").replace("rsi_", "RSI ").replace(/_/g, " ")]), React.createElement("div", { style: { color: "#555", marginTop: 2 } }, ["$" + parseFloat(b.entry).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " → TP $" + parseFloat(b.tp).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " | SL $" + parseFloat(b.sl).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " | R:" + b.ratio]), React.createElement("div", { style: { color: "#444", fontSize: 7 } }, [b.date + " " + b.time])), React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-end", flexShrink: 0, marginLeft: 8 } }, b.hit
+                    ? React.createElement("span", { style: { color: hitColor, fontWeight: 700, fontSize: 9 } }, hitLabel)
+                    : React.createElement("div", { style: { display: "flex", gap: 3 } }, React.createElement("button", { onClick: function () { markResult("tp"); }, style: { background: "rgba(0,255,136,.15)", border: "1px solid #00ff88", color: "#00ff88", padding: "3px 7px", borderRadius: 4, fontSize: 8, cursor: "pointer", fontWeight: 700 } }, "✅ TP"), React.createElement("button", { onClick: function () { markResult("sl"); }, style: { background: "rgba(255,68,68,.15)", border: "1px solid #ff4444", color: "#ff4444", padding: "3px 7px", borderRadius: 4, fontSize: 8, cursor: "pointer", fontWeight: 700 } }, "❌ SL")))));
             })));
         })(),
         (function () {
