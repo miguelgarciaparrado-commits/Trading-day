@@ -6965,7 +6965,7 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
             if (finalStatus === "open" && !editId) {
                 var entryPx = +f.entry;
                 var base2 = f.asset.replace(/\/.*$/, "").toUpperCase();
-                var mktPx = (D.current.pr && D.current.pr[base2]) || 0;
+                var mktPx = (pr && pr[base2]) || 0;
                 if (mktPx > 0 && entryPx > 0 && Math.abs(mktPx - entryPx) / entryPx > 0.005) {
                     finalStatus = "pending";
                 }
