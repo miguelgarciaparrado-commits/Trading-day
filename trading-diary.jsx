@@ -330,7 +330,7 @@ export default function App(){
     const openAssets=D.current.pos.map(function(p){return p.asset;});
 
     // Separar crypto (Binance) de acciones/ETFs (Yahoo Finance)
-    const CRYPTO_BASE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT"};
+    const CRYPTO_BASE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","POL":"POLUSDT","XRP":"XRPUSDT","LTC":"LTCUSDT","AAVE":"AAVEUSDT","UNI":"UNIUSDT","CRV":"CRVUSDT","SUSHI":"SUSHIUSDT","COMP":"COMPUSDT","SNX":"SNXUSDT","MKR":"MKRUSDT","ALGO":"ALGOUSDT","ATOM":"ATOMUSDT","FIL":"FILUSDT","ICP":"ICPUSDT","NEAR":"NEARUSDT","APT":"APTUSDT","ARB":"ARBUSDT","OP":"OPUSDT","SUI":"SUIUSDT","TIA":"TIAUSDT","INJ":"INJUSDT","JUP":"JUPUSDT","WIF":"WIFUSDT","PEPE":"PEPEUSDT","BONK":"BONKUSDT","FLOKI":"FLOKIUSDT","SEI":"SEIUSDT","RENDER":"RENDERUSDT","WLD":"WLDUSDT","FET":"FETUSDT","AGIX":"AGIXUSDT","BCH":"BCHUSDT","ETC":"ETCUSDT","DASH":"DASHUSDT","ZEC":"ZECUSDT","MANA":"MANAUSDT","SAND":"SANDUSDT","AXS":"AXSUSDT","ENJ":"ENJUSDT","CHZ":"CHZUSDT","URA":"URAUSDT","PENDLE":"PENDLEUSDT","EIGEN":"EIGENUSDT","ENA":"ENAUSDT","STRK":"STRKUSDT","ZK":"ZKUSDT","W":"WUSDT","BRETT":"BRETTUSDT","TAO":"TAOUSDT","PYTH":"PYTHUSDT","JTO":"JTOUSDT","ONDO":"ONDOUSDT","VIRTUALS":"VIRTUALSUSDT","AI16Z":"AI16ZUSDT"};
     const cryptoPairs=[];
     const stockSymbols=new Set();
 
@@ -340,7 +340,6 @@ export default function App(){
     openAssets.forEach(function(a){
       const base=a.replace(/\/.*$/,"").toUpperCase();
       // Es crypto si: está en CRYPTO_BASE, o si el activo tiene '/' (formato BASE/QUOTE), o termina en USDT/BTC/ETH
-      // Para tickers ambiguos (sin '/'), se intentará Binance primero en el paso de resolución dinámica
       var isCrypto=CRYPTO_BASE[base]||(a.indexOf("/")!==-1)||(/USDT$|BTC$|ETH$/i.test(a));
       if(isCrypto){
         if(!cryptoPairs.some(function(p){return p.key===base;})){
@@ -348,7 +347,7 @@ export default function App(){
           cryptoPairs.push({symbol:sym,key:base});
         }
       }else{
-        // Para tickers ambiguos (ej: BCH, DOGE sin '/'), intentar Binance primero
+        // Para tickers ambiguos (ej: ticker no en lista), intentar Binance primero
         stockSymbols.add(base);
         if(!cryptoPairs.some(function(p){return p.key===base;})){
           cryptoPairs.push({symbol:base+"USDT",key:base,tryOnly:true});
@@ -356,16 +355,17 @@ export default function App(){
       }
     });
 
-    await Promise.all([
-      // Crypto via Binance — tryOnly=true significa que si falla lo manejará el flujo de acciones
-      ...cryptoPairs.map(async function(pair){
+    // FASE 1: Binance (crypto + tryOnly ambiguos) — esperar a que terminen antes de buscar acciones
+    await Promise.all(
+      cryptoPairs.map(async function(pair){
         try{
           const r=await fetch("https://api.binance.com/api/v3/ticker/price?symbol="+pair.symbol);
           if(r.ok){const d=await r.json();if(d.price){newPr[pair.key]=parseFloat(parseFloat(d.price).toFixed(2));if(pair.tryOnly)stockSymbols.delete(pair.key);}}
         }catch(e){}
-      }),
-      // Acciones y ETFs: Finnhub primero (si hay key), luego Stooq, fallback Yahoo
-      ...[...stockSymbols].map(async function(sym){
+      })
+    );
+    // FASE 2: Acciones y ETFs — solo los symbols que NO fueron resueltos por Binance en fase 1
+    await Promise.all([...[...stockSymbols].map(async function(sym){
         var found=false;
         // Finnhub — fuente primaria para acciones/ETFs
         var fhKeyFP=localStorage.getItem("td-finnhub-key");
@@ -419,7 +419,7 @@ export default function App(){
             }
           }catch(e){}
         }
-      })
+      })]
     ]);
 
     D.current.pr=newPr;
@@ -4716,8 +4716,7 @@ function AlertasTab({S,predictions}){
               }
             }
           }
-          // ─── PATRONES CHARTISTAS: solo registran confluencia, no disparan notificación ───
-          // Las notificaciones vienen de RSI/EMA; los patrones confirman la señal
+          // ─── PATRONES CHARTISTAS: registran confluencia Y disparan notificación propia ───
           if(k.x){
             var confKeyPat=alert.label+"|"+alert.interval;
             if(!confluenceRef.current[confKeyPat])confluenceRef.current[confKeyPat]={};
@@ -4730,12 +4729,18 @@ function AlertasTab({S,predictions}){
             }
             if(pennantResult&&pennantResult.breakout){
               if(!pennantResult.falseBrkWarning){
-                // Ruptura limpia → registrar como señal de confluencia alcista
+                // Ruptura limpia → notificar si es primera vez en este estado
+                if(!lastTrigRef.current[ak+"pennant_bull"]){
+                  sendAlert(alert.label,alert.interval,rsi,"pennant_bull",ema7,ema25,null,closePrice,{ohlc:ohlc,pennantResult:pennantResult,divResult:divResult});
+                }
                 confluenceRef.current[confKeyPat]["pennant_bull"]=Date.now();
                 lastTrigRef.current[ak+"pennant_bull"]=true;
                 lastTrigRef.current[ak+"pennant_fake"]=false;
               }else{
-                // Fakeout → no registrar (patrón no confirmado)
+                // Fakeout → notificar si es primera vez
+                if(!lastTrigRef.current[ak+"pennant_fake"]){
+                  sendAlert(alert.label,alert.interval,rsi,"pennant_fake",ema7,ema25,null,closePrice,{ohlc:ohlc,pennantResult:pennantResult,divResult:divResult});
+                }
                 lastTrigRef.current[ak+"pennant_fake"]=true;
                 delete confluenceRef.current[confKeyPat]["pennant_bull"];
               }
@@ -4749,10 +4754,16 @@ function AlertasTab({S,predictions}){
             }
             if(bearPennantResult&&bearPennantResult.breakout){
               if(!bearPennantResult.falseBrkWarning){
+                if(!lastTrigRef.current[ak+"pennant_bear"]){
+                  sendAlert(alert.label,alert.interval,rsi,"pennant_bear",ema7,ema25,null,closePrice,{ohlc:ohlc,pennantResult:bearPennantResult,divResult:divResult});
+                }
                 confluenceRef.current[confKeyPat]["pennant_bear"]=Date.now();
                 lastTrigRef.current[ak+"pennant_bear"]=true;
                 lastTrigRef.current[ak+"pennant_bear_fake"]=false;
               }else{
+                if(!lastTrigRef.current[ak+"pennant_bear_fake"]){
+                  sendAlert(alert.label,alert.interval,rsi,"pennant_bear_fake",ema7,ema25,null,closePrice,{ohlc:ohlc,pennantResult:bearPennantResult,divResult:divResult});
+                }
                 lastTrigRef.current[ak+"pennant_bear_fake"]=true;
                 delete confluenceRef.current[confKeyPat]["pennant_bear"];
               }
@@ -4845,8 +4856,13 @@ function AlertasTab({S,predictions}){
             // FVG
             var fvgResult=checkFVGCovered(ohlc,closePrice);
             if(fvgResult){
+              if(alert.fvgEnabled&&!lastTrigRef.current[ak+"fvg"]){
+                lastTrigRef.current[ak+"fvg"]=true;
+                sendAlert(alert.label,alert.interval,rsi,"patron_fvg",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult});
+              }
               confluenceRef.current[confKeyPat]["patron_fvg"]=Date.now();
             }else{
+              lastTrigRef.current[ak+"fvg"]=false;
               delete confluenceRef.current[confKeyPat]["patron_fvg"];
             }
           }
@@ -6431,7 +6447,7 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
     });
     return{...prev,tpLevels:newLevels};
   });}
-  const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","RENDER":"RENDERUSDT","MANA":"MANAUSDT","URA":"URAUSDT"};
+  const CRYPTO_BINANCE={"BTC":"BTCUSDT","ETH":"ETHUSDT","SOL":"SOLUSDT","LINK":"LINKUSDT","MARA":"MARAUSDT","RGTI":"RGTIUSDT","BNB":"BNBUSDT","ADA":"ADAUSDT","DOGE":"DOGEUSDT","AVAX":"AVAXUSDT","DOT":"DOTUSDT","MATIC":"MATICUSDT","POL":"POLUSDT","XRP":"XRPUSDT","LTC":"LTCUSDT","AAVE":"AAVEUSDT","UNI":"UNIUSDT","CRV":"CRVUSDT","SUSHI":"SUSHIUSDT","COMP":"COMPUSDT","SNX":"SNXUSDT","MKR":"MKRUSDT","ALGO":"ALGOUSDT","ATOM":"ATOMUSDT","FIL":"FILUSDT","ICP":"ICPUSDT","NEAR":"NEARUSDT","APT":"APTUSDT","ARB":"ARBUSDT","OP":"OPUSDT","SUI":"SUIUSDT","TIA":"TIAUSDT","INJ":"INJUSDT","JUP":"JUPUSDT","WIF":"WIFUSDT","PEPE":"PEPEUSDT","BONK":"BONKUSDT","FLOKI":"FLOKIUSDT","SEI":"SEIUSDT","RENDER":"RENDERUSDT","WLD":"WLDUSDT","FET":"FETUSDT","AGIX":"AGIXUSDT","BCH":"BCHUSDT","ETC":"ETCUSDT","DASH":"DASHUSDT","ZEC":"ZECUSDT","MANA":"MANAUSDT","SAND":"SANDUSDT","AXS":"AXSUSDT","ENJ":"ENJUSDT","CHZ":"CHZUSDT","URA":"URAUSDT","PENDLE":"PENDLEUSDT","EIGEN":"EIGENUSDT","ENA":"ENAUSDT","STRK":"STRKUSDT","ZK":"ZKUSDT","W":"WUSDT","TAO":"TAOUSDT","PYTH":"PYTHUSDT","JTO":"JTOUSDT","ONDO":"ONDOUSDT"};
 
   // Obtener precio de una accion/ETF via Finnhub (si hay key), Stooq, Yahoo
   async function fetchStockPrice(base){
