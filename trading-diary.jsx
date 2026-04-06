@@ -1408,7 +1408,7 @@ export default function App(){
           </svg>
           <div>
             <div style={{fontSize:22,fontWeight:700,color:"#f0b429",letterSpacing:3}}>TRADING DIARY</div>
-            <div style={{fontSize:9,color:"#444"}}>CAMBIOS</div>
+            <div style={{fontSize:9,color:"#444"}}>MIGUEL GARCIA PARRADO</div>
           </div>
         </div>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
@@ -4462,12 +4462,10 @@ function AlertasTab({S,predictions}){
   function startStockAlertFinnhub(alert){
     requestWakeLock();
     var sid=alert.id.toString();
-    // Restaurar estado de zona persistido para Finnhub
-    var savedZonesFH={};
-    try{var szFH=localStorage.getItem("td-alert-zones");if(szFH)savedZonesFH=JSON.parse(szFH);}catch(e){}
+    // NO restaurar zona — siempre empezar en neutral para disparar si ya está en zona extrema
     var ak0FH=sid+"_";
-    if(savedZonesFH[ak0FH+"rsizone"]!==undefined)lastTrigRef.current[ak0FH+"rsizone"]=savedZonesFH[ak0FH+"rsizone"];
-    if(savedZonesFH[ak0FH+"rsicustom"]!==undefined)lastTrigRef.current[ak0FH+"rsicustom"]=savedZonesFH[ak0FH+"rsicustom"];
+    lastTrigRef.current[ak0FH+"rsizone"]="neutral";
+    delete lastTrigRef.current[ak0FH+"rsicustom"];
     var fhKey2=localStorage.getItem("td-finnhub-key");
     if(!fhKey2){
       setAlerts(function(prev){return prev.map(function(a){return a.id===alert.id?{...a,active:false,error:true}:a;});});
@@ -4589,13 +4587,11 @@ function AlertasTab({S,predictions}){
   }
 
   function startAlert(alert){
-    // Restaurar estado de zona persistido para este alert (evita re-disparar al reconectar o recargar)
-    var sidReset=alert.id.toString();
-    var savedZonesInit={};
-    try{var szInit=localStorage.getItem("td-alert-zones");if(szInit)savedZonesInit=JSON.parse(szInit);}catch(e){}
-    var ak0Init=sidReset+"_";
-    if(savedZonesInit[ak0Init+"rsizone"]!==undefined)lastTrigRef.current[ak0Init+"rsizone"]=savedZonesInit[ak0Init+"rsizone"];
-    if(savedZonesInit[ak0Init+"rsicustom"]!==undefined)lastTrigRef.current[ak0Init+"rsicustom"]=savedZonesInit[ak0Init+"rsicustom"];
+    // NO restaurar zona RSI — siempre empezar en "neutral" para que el estado actual dispare en el primer candle
+    // (si ya estaba en overbought/oversold al cargar, queremos saberlo)
+    var ak0Init=alert.id.toString()+"_";
+    lastTrigRef.current[ak0Init+"rsizone"]="neutral";
+    delete lastTrigRef.current[ak0Init+"rsicustom"];
     // Acciones/ETFs (no Binance) → usar Finnhub polling
     var isBinancePair=/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
     if(!isBinancePair){startStockAlertFinnhub(alert);return;}
