@@ -1528,9 +1528,13 @@ export default function App(){
               var allH=[].concat(mergedXhist,H0);
 
               // Racha: breakeven interrumpe la racha (no es ni win ni loss)
+              // BE detection: por resultado (isNearBE) O por nota que contenga BE/⚖️
               var streak=0,streakType="";
               for(var si=0;si<allH.length;si++){
-                var isBEEntry=allH[si].result===0||isNearBE(allH[si].result,allH[si].cap);
+                var hNote=allH[si].note||"";
+                var isBEEntry=allH[si].result===0
+                  ||isNearBE(allH[si].result,allH[si].cap)
+                  ||(hNote.indexOf("BE")!==-1||hNote.indexOf("⚖️")!==-1||hNote.indexOf("breakeven")!==-1);
                 if(isBEEntry)break;
                 var sw=allH[si].result>0;
                 if(streak===0){streak=1;streakType=sw?"win":"loss";}
