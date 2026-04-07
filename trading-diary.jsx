@@ -878,7 +878,22 @@ export default function App(){
       return h.asset+" "+(h.result>0?"+":"")+h.result.toFixed(0)+"$ ("+h.note+") "+h.date;
     }).join(" | ");
 
+    // Rasgos psicológicos acumulados desde conversaciones de chat
+    var learnedTraits=[];
+    try{learnedTraits=JSON.parse(localStorage.getItem("td-ai-profile-traits")||"[]");}catch(e){}
+    var traitsSection=learnedTraits.length>0
+      ?"=== RASGOS PSICOLOGICOS DETECTADOS EN CONVERSACIONES ===\n"+
+        learnedTraits.slice(-20).map(function(t){return "• "+t;}).join("\n")+"\n\n"
+      :"";
+    // Opiniones y creencias aprendidas del trader
+    var learnedOpinions=[];
+    try{learnedOpinions=JSON.parse(localStorage.getItem("td-chat-memory")||"[]");}catch(e){}
+    var opinionsSection=learnedOpinions.length>0
+      ?"=== OPINIONES Y FILOSOFIA DEL TRADER (sesiones anteriores) ===\n"+
+        learnedOpinions.slice(-15).map(function(o){return "["+o.date+"] "+o.opinion;}).join("\n")+"\n\n"
+      :"";
     const prompt="Eres coach de trading. Analiza el perfil completo de este trader y genera un informe detallado en espanol.\n\n"+
+      traitsSection+opinionsSection+
       "DATOS DEL TRADER (Miguel Garcia Parrado, Quantfury desde nov 2024):\n"+
       "Nivel score: "+sc+"/100\n"+
       "Total operaciones: "+allH.length+" | Ganadoras: "+wins+" | Perdedoras: "+losses+" | Tasa exito: "+winRate+"%\n"+
@@ -900,7 +915,7 @@ export default function App(){
       "Diario psicologico: "+jnlTypes+" ("+jnl.length+" entradas totales)\n"+
       "Mejor patron: "+(bestPat?bestPat.name+" "+Math.round(bestPat.conf/bestPat.obs*100)+"% exito":"sin datos")+"\n"+
       "Posiciones abiertas: "+pos.map(function(p){return p.asset+" "+p.dir+" entrada $"+p.entry;}).join(", ")+"\n\n"+
-      "GENERA UN INFORME con estas secciones exactas (analiza especialmente el patron de cierres y lo que sus descripciones revelan sobre su psicologia):\n"+
+      "GENERA UN INFORME con estas secciones exactas (usa los rasgos y opiniones aprendidos para personalizar el analisis — no repitas lo que ya sabe, conecta patrones entre conversaciones y datos):\n"+
       "## RESUMEN EJECUTIVO\n(2-3 frases sobre el estado actual del trader)\n\n"+
       "## PUNTOS FUERTES\n(lista de 3-4 puntos, con datos concretos de cierres y trading)\n\n"+
       "## PUNTOS DEBILES\n(lista de 3-4 puntos, analiza el patron de cierres prematuros, emociones, descripciones)\n\n"+
@@ -1512,10 +1527,11 @@ export default function App(){
               });
               var allH=[].concat(mergedXhist,H0);
 
-              // Racha: ignorar resultados $0 (breakeven), contar consecutivas desde la más reciente
+              // Racha: breakeven interrumpe la racha (no es ni win ni loss)
               var streak=0,streakType="";
               for(var si=0;si<allH.length;si++){
-                if(allH[si].result===0)continue;
+                var isBEEntry=allH[si].result===0||isNearBE(allH[si].result,allH[si].cap);
+                if(isBEEntry)break;
                 var sw=allH[si].result>0;
                 if(streak===0){streak=1;streakType=sw?"win":"loss";}
                 else if((sw&&streakType==="win")||(!sw&&streakType==="loss"))streak++;
