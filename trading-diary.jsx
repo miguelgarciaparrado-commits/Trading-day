@@ -1110,10 +1110,8 @@ export default function App(){
   function notifyProximity(asset,dir,level,targetPrice,currentPrice){
     var pct=Math.abs(currentPrice-targetPrice)/targetPrice*100;
     var isTP=level.indexOf("TP")===0;
-    var isSL=level.indexOf("SL")===0;
     var title=(isTP?"🎯 ":"⚠️ ")+asset+" — "+level+" próximo";
-    var action=isTP?"Considera tomar beneficios manualmente":isSL?"Revisa si quieres ajustar el SL":"Precio cerca del nivel de entrada";
-    var body=dir+" | "+level+": $"+parseFloat(targetPrice).toLocaleString()+" | Actual: $"+parseFloat(currentPrice).toLocaleString()+" ("+pct.toFixed(2)+"% distancia) — "+action;
+    var body=dir+" | "+level+": $"+parseFloat(targetPrice).toLocaleString()+" | Actual: $"+parseFloat(currentPrice).toLocaleString()+" ("+pct.toFixed(2)+"% distancia)";
     if(typeof Notification!=="undefined"&&Notification.permission==="granted"){
       try{new Notification(title,{body:body});}catch(e){}
     }
