@@ -4635,10 +4635,14 @@ function AlertasTab({S,predictions}){
           else{lastTrigRef.current[ak+"d200"]=false;}
         }
       }
-      // Divergencias/Convergencias RSI — todas las temporalidades
+      // Divergencias/Convergencias RSI — se detectan en cada poll (excepción: locks se liberan solo cuando cierra vela nueva)
       if(alert.rsiDivEnabled===false){return;}
       var rsiSeriesFH=calcRSISeries(closes,14);
       var divResultFH=rsiSeriesFH.length>=12&&ohlc.length>=12?detectRSIDivergence(ohlc,rsiSeriesFH):null;
+      var fhCandleCountKey=ak+"fhCandleCount";
+      var prevFHCount=lastTrigRef.current[fhCandleCountKey]||0;
+      var isFreshFHCandle=ohlc.length>prevFHCount;
+      if(isFreshFHCandle)lastTrigRef.current[fhCandleCountKey]=ohlc.length;
       if(divResultFH){
         var divKindFH=divResultFH.kind||"divergence";
         var divAlertFH=divKindFH==="convergence"
@@ -4649,7 +4653,8 @@ function AlertasTab({S,predictions}){
           lastTrigRef.current[divKeyFH]=true;
           sendAlert(alert.label,alert.interval,rsi,divAlertFH,ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResultFH});
         }
-      }else{
+      }else if(isFreshFHCandle){
+        // Solo liberar locks cuando cierra una vela nueva sin divergencia (evita re-disparar en cada poll)
         var pzFH=Math.round(closePrice/50);
         ["divergence_bullish","divergence_bearish","convergence_bullish","convergence_bearish"].forEach(function(dt){
           delete lastTrigRef.current[ak+dt+"_"+pzFH];
@@ -4795,8 +4800,8 @@ function AlertasTab({S,predictions}){
                 try{var szWs3={};var szWsStr3=localStorage.getItem("td-alert-zones");if(szWsStr3)szWs3=JSON.parse(szWsStr3);szWs3[rsiKey]=false;localStorage.setItem("td-alert-zones",JSON.stringify(szWs3));}catch(e){}
               }
             }
-            // Divergencias/Convergencias RSI — todas las temporalidades, solo vela cerrada
-            if(k.x&&(alert.rsiDivEnabled!==false)){
+            // Divergencias/Convergencias RSI — se detectan en cada tick (excepción: forman antes de que cierre la vela)
+            if(alert.rsiDivEnabled!==false){
               if(divResult){
                 var divKind=divResult.kind||"divergence";
                 var divAlertType=divKind==="convergence"
@@ -4807,8 +4812,8 @@ function AlertasTab({S,predictions}){
                   lastTrigRef.current[divKey]=true;
                   sendAlert(alert.label,alert.interval,rsi,divAlertType,ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult,ema50:ema50,ema200:ema200});
                 }
-              }else{
-                // Sin divergencia → liberar locks de la zona actual para poder re-detectar
+              }else if(k.x){
+                // Solo liberar el lock cuando la vela cierra sin divergencia (evita re-disparar en cada tick)
                 var pzD=Math.round(closePrice/50);
                 ["divergence_bullish","divergence_bearish","convergence_bullish","convergence_bearish"].forEach(function(dt){
                   delete lastTrigRef.current[ak+dt+"_"+pzD];
@@ -7172,7 +7177,7 @@ function detectBullishPennant(ohlc){
       // Pole volume should be higher than consolidation volume
       var poleVols=pSlice.map(function(c){return c.v||0;});
       var avgPoleVol=poleVols.reduce(function(a,v){return a+v;},0)/pSlice.length;
-      if(avgConsVol>0&&avgPoleVol<avgConsVol)continue; // pole volume must be >= consolidation
+      // pole volume check removed — often fails in crypto even on valid pennants
       poleFound=true;
       poleData={start:ps,end:consStart,gainPct:gain,height:poleClose-poleOpen,poleClose:poleClose};
       break;
@@ -7269,7 +7274,7 @@ function detectBearishPennant(ohlc){
       // Pole volume must be higher than consolidation (strong impulse)
       var poleVols=pSlice.map(function(c){return c.v||0;});
       var avgPoleVol=poleVols.reduce(function(a,v){return a+v;},0)/pSlice.length;
-      if(avgConsVol>0&&avgPoleVol<avgConsVol)continue;
+      // pole volume check removed — often fails in crypto even on valid pennants
       poleFound=true;
       poleData={start:ps,end:consStart,dropPct:drop,height:poleOpen-poleClose,poleClose:poleClose};
       break;
@@ -7402,8 +7407,8 @@ function detectChannelAlert(ohlc){
   var prevCandle=n>0?recent[n-1]:recent[n];
   var prevTopLine=rH.slope*(n-1)+rH.intercept;
   var prevBotLine=rL.slope*(n-1)+rL.intercept;
-  var isBreakoutUp=price>topLine*1.002&&prevCandle.c>prevTopLine*1.002;
-  var isBreakoutDown=price<botLine*0.998&&prevCandle.c<prevBotLine*0.998;
+  var isBreakoutUp=price>topLine*1.002;
+  var isBreakoutDown=price<botLine*0.998;
 
   if(isBreakoutUp||isBreakoutDown){
     // Validar: ¿es ruptura real o fakeout?
