@@ -1109,8 +1109,11 @@ export default function App(){
 
   function notifyProximity(asset,dir,level,targetPrice,currentPrice){
     var pct=Math.abs(currentPrice-targetPrice)/targetPrice*100;
-    var title="⚠️ "+asset+" cerca de "+level;
-    var body=dir+" | Objetivo: $"+parseFloat(targetPrice).toLocaleString()+" | Actual: $"+parseFloat(currentPrice).toLocaleString()+" ("+pct.toFixed(2)+"% distancia)";
+    var isTP=level.indexOf("TP")===0;
+    var isSL=level.indexOf("SL")===0;
+    var title=(isTP?"🎯 ":"⚠️ ")+asset+" — "+level+" próximo";
+    var action=isTP?"Considera tomar beneficios manualmente":isSL?"Revisa si quieres ajustar el SL":"Precio cerca del nivel de entrada";
+    var body=dir+" | "+level+": $"+parseFloat(targetPrice).toLocaleString()+" | Actual: $"+parseFloat(currentPrice).toLocaleString()+" ("+pct.toFixed(2)+"% distancia) — "+action;
     if(typeof Notification!=="undefined"&&Notification.permission==="granted"){
       try{new Notification(title,{body:body});}catch(e){}
     }
@@ -1194,6 +1197,7 @@ export default function App(){
       // Partial TP levels — stored as ONE xhist entry when all levels complete
       if(p.tpLevels&&p.tpLevels.length){
         var newSessionResult=0;
+        var newlyHitLevels=[];
         var updLevels=p.tpLevels.map(function(lvl){
           if(lvl.hit)return lvl;
           var hit=isShort?(price<=lvl.price):(price>=lvl.price);
@@ -1202,12 +1206,12 @@ export default function App(){
           var partResult=isShort?(partCap*(p.entry-lvl.price)/p.entry):(partCap*(lvl.price-p.entry)/p.entry);
           newSessionResult+=partResult;
           changed=true;
-          notifyAutoClose(p.asset,p.dir,"TP "+lvl.pct+"%",price,partResult);
+          newlyHitLevels.push({lvl:lvl,result:partResult});
           return{...lvl,hit:true};
         });
         var allHit=updLevels.every(function(l){return l.hit;});
         if(allHit){
-          // ALL levels done — save ONE consolidated xhist entry
+          // ALL levels done — una sola notificación consolidada
           var totalResult=(p.accPartialResult||0)+newSessionResult;
           var fullRatio=calcPosRatio(p);
           if(fullRatio!==null){psU.ratioSum=(psU.ratioSum||0)+fullRatio;psU.ratioCount=(psU.ratioCount||0)+1;}
@@ -1218,13 +1222,20 @@ export default function App(){
           entries.push({id:Date.now()+entries.length,asset:p.asset,dir:p.dir,cap:p.capital,result:parseFloat(totalResult.toFixed(2)),date:today(),note:"🎯 TPs completados "+tpPrices,autoClose:true,...(fullRatio!==null?{ratio:fullRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})});
           if(p.patternId)applyPatternResult(p.patternId,true);
           clearPosProximityKeys(p.id);
-          changed=true;continue;
+          changed=true;
+          // Notificación única consolidada — no disparar una por nivel
+          notifyAutoClose(p.asset,p.dir,"TPs completados ("+newlyHitLevels.length+" niveles)",price,totalResult);
+          continue;
         }
         var someNew=updLevels.some(function(l,i){return l.hit&&!p.tpLevels[i].hit;});
         if(someNew){
           var remPct=updLevels.filter(function(l){return!l.hit;}).reduce(function(a,l){return a+l.pct;},0);
           var accResult=(p.accPartialResult||0)+newSessionResult;
           newPos.push({...p,tpLevels:updLevels,capitalRemaining:p.capital*remPct/100,accPartialResult:accResult});
+          // Notificar solo los niveles recién golpeados (normalmente 1)
+          newlyHitLevels.forEach(function(nh){
+            notifyAutoClose(p.asset,p.dir,"TP parcial "+nh.lvl.pct+"%",price,nh.result);
+          });
           continue;
         }
       } else if(p.tp){
