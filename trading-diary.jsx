@@ -4693,7 +4693,18 @@ function AlertasTab({S,predictions}){
     // Primer tick tras inicio/reconexión → sincronizar zona silenciosamente sin disparar alerta
     var ak0Init=alert.id.toString()+"_";
     lastTrigRef.current[ak0Init+"firstTick"]=true;
+    lastTrigRef.current[ak0Init+"firstClosed"]=true; // silenciar primera vela cerrada (sync sin alertar)
     delete lastTrigRef.current[ak0Init+"rsicustom"];
+    // Reset pattern flags — se resincronizarán en la primera vela cerrada sin alertar
+    lastTrigRef.current[ak0Init+"pennant_bull"]=false;
+    lastTrigRef.current[ak0Init+"pennant_fake"]=false;
+    lastTrigRef.current[ak0Init+"pennant_bear"]=false;
+    lastTrigRef.current[ak0Init+"pennant_bear_fake"]=false;
+    lastTrigRef.current[ak0Init+"chan_type"]=null;
+    lastTrigRef.current[ak0Init+"chan_zone"]=null;
+    lastTrigRef.current[ak0Init+"chan_was_out"]=false;
+    lastTrigRef.current[ak0Init+"chan_hp_done"]=false;
+    lastTrigRef.current[ak0Init+"fvg"]=false;
     // Acciones/ETFs (no Binance) → usar Finnhub polling
     var isBinancePair=/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
     if(!isBinancePair){startStockAlertFinnhub(alert);return;}
@@ -4829,6 +4840,26 @@ function AlertasTab({S,predictions}){
           if(k.x){
             var confKeyPat=alert.label+"|"+alert.interval;
             if(!confluenceRef.current[confKeyPat])confluenceRef.current[confKeyPat]={};
+            // Primera vela cerrada tras inicio/reconexión: sincronizar estado sin alertar
+            if(lastTrigRef.current[ak+"firstClosed"]){
+              lastTrigRef.current[ak+"firstClosed"]=false;
+              var syncPennB=detectBullishPennant(ohlc);
+              lastTrigRef.current[ak+"pennant_bull"]=!!(syncPennB&&syncPennB.breakout&&!syncPennB.falseBrkWarning);
+              lastTrigRef.current[ak+"pennant_fake"]=!!(syncPennB&&syncPennB.breakout&&syncPennB.falseBrkWarning);
+              var syncPennBr=detectBearishPennant(ohlc);
+              lastTrigRef.current[ak+"pennant_bear"]=!!(syncPennBr&&syncPennBr.breakout&&!syncPennBr.falseBrkWarning);
+              lastTrigRef.current[ak+"pennant_bear_fake"]=!!(syncPennBr&&syncPennBr.breakout&&syncPennBr.falseBrkWarning);
+              var syncChan=detectChannelAlert(ohlc);
+              if(syncChan){
+                lastTrigRef.current[ak+"chan_type"]=syncChan.canalType;
+                var syncCZ=syncChan.breakout?(syncChan.breakoutDir==="alcista"?"out_above":"out_below"):syncChan.pos<0.18?"support":syncChan.pos>0.82?"resistance":"mid";
+                lastTrigRef.current[ak+"chan_zone"]=syncCZ;
+              }else{
+                lastTrigRef.current[ak+"chan_type"]=null;
+                lastTrigRef.current[ak+"chan_zone"]=null;
+              }
+              lastTrigRef.current[ak+"fvg"]=!!(checkFVGCovered(ohlc,closePrice));
+            }else{
             // Banderín alcista
             var pennantResult=detectBullishPennant(ohlc);
             if(!pennantResult||!pennantResult.breakout){
@@ -4974,6 +5005,7 @@ function AlertasTab({S,predictions}){
               lastTrigRef.current[ak+"fvg"]=false;
               delete confluenceRef.current[confKeyPat]["patron_fvg"];
             }
+            } // end else (not firstClosed)
           }
           // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
           // Semanal no tiene cruces (muy raros, generarían ruido)

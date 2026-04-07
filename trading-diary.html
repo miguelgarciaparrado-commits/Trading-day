@@ -5206,7 +5206,18 @@ function AlertasTab({ S, predictions }) {
         // Primer tick tras inicio/reconexión → sincronizar zona silenciosamente sin disparar alerta
         var ak0Init = alert.id.toString() + "_";
         lastTrigRef.current[ak0Init + "firstTick"] = true;
+        lastTrigRef.current[ak0Init + "firstClosed"] = true; // silenciar primera vela cerrada (sync sin alertar)
         delete lastTrigRef.current[ak0Init + "rsicustom"];
+        // Reset pattern flags — se resincronizarán en la primera vela cerrada sin alertar
+        lastTrigRef.current[ak0Init + "pennant_bull"] = false;
+        lastTrigRef.current[ak0Init + "pennant_fake"] = false;
+        lastTrigRef.current[ak0Init + "pennant_bear"] = false;
+        lastTrigRef.current[ak0Init + "pennant_bear_fake"] = false;
+        lastTrigRef.current[ak0Init + "chan_type"] = null;
+        lastTrigRef.current[ak0Init + "chan_zone"] = null;
+        lastTrigRef.current[ak0Init + "chan_was_out"] = false;
+        lastTrigRef.current[ak0Init + "chan_hp_done"] = false;
+        lastTrigRef.current[ak0Init + "fvg"] = false;
         // Acciones/ETFs (no Binance) → usar Finnhub polling
         var isBinancePair = /USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
         if (!isBinancePair) {
@@ -5399,175 +5410,198 @@ function AlertasTab({ S, predictions }) {
                         var confKeyPat = alert.label + "|" + alert.interval;
                         if (!confluenceRef.current[confKeyPat])
                             confluenceRef.current[confKeyPat] = {};
-                        // Banderín alcista
-                        var pennantResult = detectBullishPennant(ohlc);
-                        if (!pennantResult || !pennantResult.breakout) {
-                            lastTrigRef.current[ak + "pennant_bull"] = false;
-                            lastTrigRef.current[ak + "pennant_fake"] = false;
-                            delete confluenceRef.current[confKeyPat]["pennant_bull"];
-                        }
-                        if (pennantResult && pennantResult.breakout) {
-                            if (!pennantResult.falseBrkWarning) {
-                                // Ruptura limpia → notificar si es primera vez en este estado
-                                if (!lastTrigRef.current[ak + "pennant_bull"]) {
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bull", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
-                                }
-                                confluenceRef.current[confKeyPat]["pennant_bull"] = Date.now();
-                                lastTrigRef.current[ak + "pennant_bull"] = true;
-                                lastTrigRef.current[ak + "pennant_fake"] = false;
+                        // Primera vela cerrada tras inicio/reconexión: sincronizar estado sin alertar
+                        if (lastTrigRef.current[ak + "firstClosed"]) {
+                            lastTrigRef.current[ak + "firstClosed"] = false;
+                            var syncPennB = detectBullishPennant(ohlc);
+                            lastTrigRef.current[ak + "pennant_bull"] = !!(syncPennB && syncPennB.breakout && !syncPennB.falseBrkWarning);
+                            lastTrigRef.current[ak + "pennant_fake"] = !!(syncPennB && syncPennB.breakout && syncPennB.falseBrkWarning);
+                            var syncPennBr = detectBearishPennant(ohlc);
+                            lastTrigRef.current[ak + "pennant_bear"] = !!(syncPennBr && syncPennBr.breakout && !syncPennBr.falseBrkWarning);
+                            lastTrigRef.current[ak + "pennant_bear_fake"] = !!(syncPennBr && syncPennBr.breakout && syncPennBr.falseBrkWarning);
+                            var syncChan = detectChannelAlert(ohlc);
+                            if (syncChan) {
+                                lastTrigRef.current[ak + "chan_type"] = syncChan.canalType;
+                                var syncCZ = syncChan.breakout ? (syncChan.breakoutDir === "alcista" ? "out_above" : "out_below") : syncChan.pos < 0.18 ? "support" : syncChan.pos > 0.82 ? "resistance" : "mid";
+                                lastTrigRef.current[ak + "chan_zone"] = syncCZ;
                             }
                             else {
-                                // Fakeout → notificar si es primera vez
-                                if (!lastTrigRef.current[ak + "pennant_fake"]) {
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_fake", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
-                                }
-                                lastTrigRef.current[ak + "pennant_fake"] = true;
-                                delete confluenceRef.current[confKeyPat]["pennant_bull"];
-                            }
-                        }
-                        // Banderín bajista
-                        var bearPennantResult = detectBearishPennant(ohlc);
-                        if (!bearPennantResult || !bearPennantResult.breakout) {
-                            lastTrigRef.current[ak + "pennant_bear"] = false;
-                            lastTrigRef.current[ak + "pennant_bear_fake"] = false;
-                            delete confluenceRef.current[confKeyPat]["pennant_bear"];
-                        }
-                        if (bearPennantResult && bearPennantResult.breakout) {
-                            if (!bearPennantResult.falseBrkWarning) {
-                                if (!lastTrigRef.current[ak + "pennant_bear"]) {
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bear", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: bearPennantResult, divResult: divResult });
-                                }
-                                confluenceRef.current[confKeyPat]["pennant_bear"] = Date.now();
-                                lastTrigRef.current[ak + "pennant_bear"] = true;
-                                lastTrigRef.current[ak + "pennant_bear_fake"] = false;
-                            }
-                            else {
-                                if (!lastTrigRef.current[ak + "pennant_bear_fake"]) {
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bear_fake", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: bearPennantResult, divResult: divResult });
-                                }
-                                lastTrigRef.current[ak + "pennant_bear_fake"] = true;
-                                delete confluenceRef.current[confKeyPat]["pennant_bear"];
-                            }
-                        }
-                        // ─── CANAL: máquina de estados con notificaciones ───
-                        var chanResult = detectChannelAlert(ohlc);
-                        var prevCT = lastTrigRef.current[ak + "chan_type"] || null;
-                        var prevCZ = lastTrigRef.current[ak + "chan_zone"] || null;
-                        var ALL_CHAN_KEYS = ["canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista", "canal_bajista_soporte", "canal_bajista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista", "canal_alcista_soporte", "canal_alcista_resistencia"];
-                        if (!chanResult) {
-                            // Canal desaparecido — limpiar estado
-                            if (prevCT) {
                                 lastTrigRef.current[ak + "chan_type"] = null;
                                 lastTrigRef.current[ak + "chan_zone"] = null;
-                                lastTrigRef.current[ak + "chan_was_out"] = false;
-                                lastTrigRef.current[ak + "chan_hp_done"] = false;
-                                ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
                             }
+                            lastTrigRef.current[ak + "fvg"] = !!(checkFVGCovered(ohlc, closePrice));
                         }
                         else {
-                            var curCT = chanResult.canalType;
-                            // Determinar zona actual del precio
-                            var curCZ;
-                            if (chanResult.breakout) {
-                                curCZ = chanResult.breakoutDir === "alcista" ? "out_above" : "out_below";
+                            // Banderín alcista
+                            var pennantResult = detectBullishPennant(ohlc);
+                            if (!pennantResult || !pennantResult.breakout) {
+                                lastTrigRef.current[ak + "pennant_bull"] = false;
+                                lastTrigRef.current[ak + "pennant_fake"] = false;
+                                delete confluenceRef.current[confKeyPat]["pennant_bull"];
                             }
-                            else if (chanResult.pos < 0.18) {
-                                curCZ = "support";
-                            }
-                            else if (chanResult.pos > 0.82) {
-                                curCZ = "resistance";
-                            }
-                            else {
-                                curCZ = "mid";
-                            }
-                            if (curCT !== prevCT) {
-                                // ─── Nuevo canal detectado (tipo cambió o primera vez) ───
-                                lastTrigRef.current[ak + "chan_was_out"] = false;
-                                lastTrigRef.current[ak + "chan_hp_done"] = false;
-                                ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
-                                if (!chanResult.falseBrk) {
-                                    // Notificar detección con posición actual
-                                    var newNotifType;
-                                    if (curCZ === "out_above") {
-                                        newNotifType = "canal_" + curCT + "_ruptura_alcista";
+                            if (pennantResult && pennantResult.breakout) {
+                                if (!pennantResult.falseBrkWarning) {
+                                    // Ruptura limpia → notificar si es primera vez en este estado
+                                    if (!lastTrigRef.current[ak + "pennant_bull"]) {
+                                        sendAlert(alert.label, alert.interval, rsi, "pennant_bull", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
                                     }
-                                    else if (curCZ === "out_below") {
-                                        newNotifType = "canal_" + curCT + "_ruptura_bajista";
-                                    }
-                                    else if (curCZ === "resistance") {
-                                        newNotifType = "canal_" + curCT + "_resistencia";
-                                    }
-                                    else {
-                                        newNotifType = "canal_" + curCT + "_soporte";
-                                    }
-                                    sendAlert(alert.label, alert.interval, rsi, newNotifType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "🆕 Canal " + curCT + " detectado. " + chanResult.desc, channelResult: chanResult });
-                                    confluenceRef.current[confKeyPat][newNotifType] = Date.now();
-                                }
-                                lastTrigRef.current[ak + "chan_type"] = curCT;
-                                lastTrigRef.current[ak + "chan_zone"] = curCZ;
-                            }
-                            else {
-                                // ─── Mismo canal: procesar transición de zona ───
-                                var wasOut = lastTrigRef.current[ak + "chan_was_out"] || false;
-                                var hpDone = lastTrigRef.current[ak + "chan_hp_done"] || false;
-                                if (curCZ === "out_above" || curCZ === "out_below") {
-                                    if (chanResult.falseBrk) {
-                                        // Fakeout → no notificar, actualizar zona para detectar re-entrada
-                                        lastTrigRef.current[ak + "chan_zone"] = curCZ;
-                                    }
-                                    else {
-                                        var isHP = (curCT === "bajista" && curCZ === "out_above") || (curCT === "alcista" && curCZ === "out_below");
-                                        if (isHP && !hpDone) {
-                                            // ─── ALTA PROBABILIDAD: ruptura contraria al canal ─── siempre notificar
-                                            var hpType = "canal_" + curCT + "_ruptura_" + (curCZ === "out_above" ? "alcista" : "bajista");
-                                            sendAlert(alert.label, alert.interval, rsi, hpType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                            confluenceRef.current[confKeyPat][hpType] = Date.now();
-                                            lastTrigRef.current[ak + "chan_hp_done"] = true;
-                                        }
-                                        else if (!isHP && prevCZ !== curCZ) {
-                                            // Salida en dirección del canal (continuación) → marcar para detectar re-entrada
-                                            lastTrigRef.current[ak + "chan_was_out"] = true;
-                                        }
-                                        lastTrigRef.current[ak + "chan_zone"] = curCZ;
-                                    }
+                                    confluenceRef.current[confKeyPat]["pennant_bull"] = Date.now();
+                                    lastTrigRef.current[ak + "pennant_bull"] = true;
+                                    lastTrigRef.current[ak + "pennant_fake"] = false;
                                 }
                                 else {
-                                    // Precio dentro del canal
-                                    var reEntry = wasOut && (prevCZ === "out_above" || prevCZ === "out_below" || prevCZ === null);
-                                    if (reEntry) {
-                                        // Re-entrada real tras salida (no fakeout)
-                                        var reEntryType = "canal_" + curCT + (curCZ === "resistance" ? "_resistencia" : "_soporte");
-                                        sendAlert(alert.label, alert.interval, rsi, reEntryType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "↩️ RE-ENTRADA al canal " + curCT + ". " + chanResult.desc, channelResult: chanResult });
-                                        confluenceRef.current[confKeyPat][reEntryType] = Date.now();
-                                        lastTrigRef.current[ak + "chan_was_out"] = false;
+                                    // Fakeout → notificar si es primera vez
+                                    if (!lastTrigRef.current[ak + "pennant_fake"]) {
+                                        sendAlert(alert.label, alert.interval, rsi, "pennant_fake", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
                                     }
-                                    else if (curCZ === "support" && prevCZ !== "support") {
-                                        // Llegada al soporte dinámico
-                                        sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_soporte", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                        confluenceRef.current[confKeyPat]["canal_" + curCT + "_soporte"] = Date.now();
-                                    }
-                                    else if (curCZ === "resistance" && prevCZ !== "resistance") {
-                                        // Llegada a la resistencia dinámica
-                                        sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_resistencia", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                        confluenceRef.current[confKeyPat]["canal_" + curCT + "_resistencia"] = Date.now();
-                                    }
-                                    lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                    lastTrigRef.current[ak + "pennant_fake"] = true;
+                                    delete confluenceRef.current[confKeyPat]["pennant_bull"];
                                 }
                             }
-                        }
-                        // FVG
-                        var fvgResult = checkFVGCovered(ohlc, closePrice);
-                        if (fvgResult) {
-                            if (alert.fvgEnabled && !lastTrigRef.current[ak + "fvg"]) {
-                                lastTrigRef.current[ak + "fvg"] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                            // Banderín bajista
+                            var bearPennantResult = detectBearishPennant(ohlc);
+                            if (!bearPennantResult || !bearPennantResult.breakout) {
+                                lastTrigRef.current[ak + "pennant_bear"] = false;
+                                lastTrigRef.current[ak + "pennant_bear_fake"] = false;
+                                delete confluenceRef.current[confKeyPat]["pennant_bear"];
                             }
-                            confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
-                        }
-                        else {
-                            lastTrigRef.current[ak + "fvg"] = false;
-                            delete confluenceRef.current[confKeyPat]["patron_fvg"];
-                        }
+                            if (bearPennantResult && bearPennantResult.breakout) {
+                                if (!bearPennantResult.falseBrkWarning) {
+                                    if (!lastTrigRef.current[ak + "pennant_bear"]) {
+                                        sendAlert(alert.label, alert.interval, rsi, "pennant_bear", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: bearPennantResult, divResult: divResult });
+                                    }
+                                    confluenceRef.current[confKeyPat]["pennant_bear"] = Date.now();
+                                    lastTrigRef.current[ak + "pennant_bear"] = true;
+                                    lastTrigRef.current[ak + "pennant_bear_fake"] = false;
+                                }
+                                else {
+                                    if (!lastTrigRef.current[ak + "pennant_bear_fake"]) {
+                                        sendAlert(alert.label, alert.interval, rsi, "pennant_bear_fake", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: bearPennantResult, divResult: divResult });
+                                    }
+                                    lastTrigRef.current[ak + "pennant_bear_fake"] = true;
+                                    delete confluenceRef.current[confKeyPat]["pennant_bear"];
+                                }
+                            }
+                            // ─── CANAL: máquina de estados con notificaciones ───
+                            var chanResult = detectChannelAlert(ohlc);
+                            var prevCT = lastTrigRef.current[ak + "chan_type"] || null;
+                            var prevCZ = lastTrigRef.current[ak + "chan_zone"] || null;
+                            var ALL_CHAN_KEYS = ["canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista", "canal_bajista_soporte", "canal_bajista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista", "canal_alcista_soporte", "canal_alcista_resistencia"];
+                            if (!chanResult) {
+                                // Canal desaparecido — limpiar estado
+                                if (prevCT) {
+                                    lastTrigRef.current[ak + "chan_type"] = null;
+                                    lastTrigRef.current[ak + "chan_zone"] = null;
+                                    lastTrigRef.current[ak + "chan_was_out"] = false;
+                                    lastTrigRef.current[ak + "chan_hp_done"] = false;
+                                    ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
+                                }
+                            }
+                            else {
+                                var curCT = chanResult.canalType;
+                                // Determinar zona actual del precio
+                                var curCZ;
+                                if (chanResult.breakout) {
+                                    curCZ = chanResult.breakoutDir === "alcista" ? "out_above" : "out_below";
+                                }
+                                else if (chanResult.pos < 0.18) {
+                                    curCZ = "support";
+                                }
+                                else if (chanResult.pos > 0.82) {
+                                    curCZ = "resistance";
+                                }
+                                else {
+                                    curCZ = "mid";
+                                }
+                                if (curCT !== prevCT) {
+                                    // ─── Nuevo canal detectado (tipo cambió o primera vez) ───
+                                    lastTrigRef.current[ak + "chan_was_out"] = false;
+                                    lastTrigRef.current[ak + "chan_hp_done"] = false;
+                                    ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
+                                    if (!chanResult.falseBrk) {
+                                        // Notificar detección con posición actual
+                                        var newNotifType;
+                                        if (curCZ === "out_above") {
+                                            newNotifType = "canal_" + curCT + "_ruptura_alcista";
+                                        }
+                                        else if (curCZ === "out_below") {
+                                            newNotifType = "canal_" + curCT + "_ruptura_bajista";
+                                        }
+                                        else if (curCZ === "resistance") {
+                                            newNotifType = "canal_" + curCT + "_resistencia";
+                                        }
+                                        else {
+                                            newNotifType = "canal_" + curCT + "_soporte";
+                                        }
+                                        sendAlert(alert.label, alert.interval, rsi, newNotifType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "🆕 Canal " + curCT + " detectado. " + chanResult.desc, channelResult: chanResult });
+                                        confluenceRef.current[confKeyPat][newNotifType] = Date.now();
+                                    }
+                                    lastTrigRef.current[ak + "chan_type"] = curCT;
+                                    lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                }
+                                else {
+                                    // ─── Mismo canal: procesar transición de zona ───
+                                    var wasOut = lastTrigRef.current[ak + "chan_was_out"] || false;
+                                    var hpDone = lastTrigRef.current[ak + "chan_hp_done"] || false;
+                                    if (curCZ === "out_above" || curCZ === "out_below") {
+                                        if (chanResult.falseBrk) {
+                                            // Fakeout → no notificar, actualizar zona para detectar re-entrada
+                                            lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                        }
+                                        else {
+                                            var isHP = (curCT === "bajista" && curCZ === "out_above") || (curCT === "alcista" && curCZ === "out_below");
+                                            if (isHP && !hpDone) {
+                                                // ─── ALTA PROBABILIDAD: ruptura contraria al canal ─── siempre notificar
+                                                var hpType = "canal_" + curCT + "_ruptura_" + (curCZ === "out_above" ? "alcista" : "bajista");
+                                                sendAlert(alert.label, alert.interval, rsi, hpType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
+                                                confluenceRef.current[confKeyPat][hpType] = Date.now();
+                                                lastTrigRef.current[ak + "chan_hp_done"] = true;
+                                            }
+                                            else if (!isHP && prevCZ !== curCZ) {
+                                                // Salida en dirección del canal (continuación) → marcar para detectar re-entrada
+                                                lastTrigRef.current[ak + "chan_was_out"] = true;
+                                            }
+                                            lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                        }
+                                    }
+                                    else {
+                                        // Precio dentro del canal
+                                        var reEntry = wasOut && (prevCZ === "out_above" || prevCZ === "out_below" || prevCZ === null);
+                                        if (reEntry) {
+                                            // Re-entrada real tras salida (no fakeout)
+                                            var reEntryType = "canal_" + curCT + (curCZ === "resistance" ? "_resistencia" : "_soporte");
+                                            sendAlert(alert.label, alert.interval, rsi, reEntryType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "↩️ RE-ENTRADA al canal " + curCT + ". " + chanResult.desc, channelResult: chanResult });
+                                            confluenceRef.current[confKeyPat][reEntryType] = Date.now();
+                                            lastTrigRef.current[ak + "chan_was_out"] = false;
+                                        }
+                                        else if (curCZ === "support" && prevCZ !== "support") {
+                                            // Llegada al soporte dinámico
+                                            sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_soporte", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
+                                            confluenceRef.current[confKeyPat]["canal_" + curCT + "_soporte"] = Date.now();
+                                        }
+                                        else if (curCZ === "resistance" && prevCZ !== "resistance") {
+                                            // Llegada a la resistencia dinámica
+                                            sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_resistencia", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
+                                            confluenceRef.current[confKeyPat]["canal_" + curCT + "_resistencia"] = Date.now();
+                                        }
+                                        lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                    }
+                                }
+                            }
+                            // FVG
+                            var fvgResult = checkFVGCovered(ohlc, closePrice);
+                            if (fvgResult) {
+                                if (alert.fvgEnabled && !lastTrigRef.current[ak + "fvg"]) {
+                                    lastTrigRef.current[ak + "fvg"] = true;
+                                    sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                }
+                                confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
+                            }
+                            else {
+                                lastTrigRef.current[ak + "fvg"] = false;
+                                delete confluenceRef.current[confKeyPat]["patron_fvg"];
+                            }
+                        } // end else (not firstClosed)
                     }
                     // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
                     // Semanal no tiene cruces (muy raros, generarían ruido)
