@@ -4074,9 +4074,9 @@ function AlertasTab({S,predictions}){
   function addQuickAsset(){
     var raw=addInput.trim().toUpperCase();
     if(!raw)return;
-    // Auto-append USDT for bare crypto tickers (no pair suffix, no dot)
+    // Auto-append USDT for bare crypto tickers (no pair suffix, no dot, no slash)
     var sym=raw;
-    if(!/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(raw)&&raw.indexOf(".")===-1&&raw.length<=6){
+    if(!/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(raw)&&raw.indexOf(".")===-1&&raw.indexOf("/")===-1){
       sym=raw+"USDT";
     }
     if(alertsRef.current.some(function(a){return a.symbol===sym&&a.interval===addInterval;})){setAddStatus("dup");setTimeout(function(){setAddStatus(null);},2000);return;}
