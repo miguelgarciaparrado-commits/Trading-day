@@ -4436,7 +4436,7 @@ function AlertasTab({S,predictions}){
       tgLines.push("");
       tgLines.push("📅 Temporalidad: "+tf+"  |  "+label);
       if(isEMACross)tgLines.push("🔀 Cruce EMAs: "+emaCrossLabel);
-      tgLines.push("📊 RSI: "+(rsi!=null?rsi.toFixed(1):"--")+" | "+divConvLine);
+      tgLines.push("📊 RSI: "+(rsi!=null?rsi.toFixed(1):"--")+(type!=="rsi_oversold"&&type!=="rsi_overbought"&&type!=="rsi_custom"&&type!=="rsi_div_bull"&&type!=="rsi_div_bear"&&type!=="rsi_conv_bull"&&type!=="rsi_conv_bear"?" | "+divConvLine:""));
       tgLines.push("💰 Precio mercado: $"+parseFloat(price||0).toLocaleString("es-ES",{maximumFractionDigits:4}));
       tgLines.push("📈 Volumen: "+(extra.volDir||"Desconocido"));
       // Pennant-specific detail block
@@ -4601,7 +4601,13 @@ function AlertasTab({S,predictions}){
       if(rsi!==null){
         var ovThr2=alert.rsiOversoldTarget!=null?alert.rsiOversoldTarget:30;
         var obThr2=alert.rsiOverboughtTarget!=null?alert.rsiOverboughtTarget:70;
-        var rsiZone2=rsi<=ovThr2?"oversold":rsi>=obThr2?"overbought":"neutral";
+        var prevZoneH2=lastTrigRef.current[ak+"rsizone"]||"neutral";
+        var rsiZone2;
+        if(rsi<=ovThr2)rsiZone2="oversold";
+        else if(rsi>=obThr2)rsiZone2="overbought";
+        else if(prevZoneH2==="overbought"&&rsi<obThr2-2)rsiZone2="neutral";
+        else if(prevZoneH2==="oversold"&&rsi>ovThr2+2)rsiZone2="neutral";
+        else rsiZone2=prevZoneH2;
         if(lastTrigRef.current[ak+"firstTick"]){
           // Primer tick tras inicio: sincronizar zona sin alertar
           lastTrigRef.current[ak+"firstTick"]=false;
@@ -4658,13 +4664,15 @@ function AlertasTab({S,predictions}){
         var divAlertFH=divKindFH==="convergence"
           ?(divResultFH.type==="bullish"?"rsi_conv_bull":"rsi_conv_bear")
           :(divResultFH.type==="bullish"?"rsi_div_bull":"rsi_div_bear");
-        var divKeyFH=ak+divKindFH+"_"+divResultFH.type+"_"+Math.round(closePrice/50);
-        if(!lastTrigRef.current[divKeyFH]){
-          lastTrigRef.current[divKeyFH]=true;
+        var divLockKeyFH=ak+divKindFH+"_"+divResultFH.type+"_lock";
+        var divCooldownFH={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[alert.interval]||14400000;
+        var prevDivFiredFH=lastTrigRef.current[divLockKeyFH]||0;
+        if(Date.now()-prevDivFiredFH>divCooldownFH){
+          lastTrigRef.current[divLockKeyFH]=Date.now();
           sendAlert(alert.label,alert.interval,rsi,divAlertFH,ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResultFH});
         }
       }else if(isFreshFHCandle){
-        // Solo liberar locks cuando cierra una vela nueva sin divergencia (evita re-disparar en cada poll)
+        // Liberar locks de divergencia cuando nueva vela cierra sin divergencia
         var pzFH=Math.round(closePrice/50);
         ["divergence_bullish","divergence_bearish","convergence_bullish","convergence_bearish"].forEach(function(dt){
           delete lastTrigRef.current[ak+dt+"_"+pzFH];
@@ -4793,7 +4801,15 @@ function AlertasTab({S,predictions}){
             }
             var ovThr=alert.rsiOversoldTarget!=null?alert.rsiOversoldTarget:30;
             var obThr=alert.rsiOverboughtTarget!=null?alert.rsiOverboughtTarget:70;
-            var rsiZone=rsi<=ovThr?"oversold":rsi>=obThr?"overbought":"neutral";
+            // Hysteresis: RSI must return 2 points past threshold before zone resets to neutral
+            // This prevents rapid re-firing when RSI oscillates around the threshold
+            var prevZoneH=lastTrigRef.current[ak+"rsizone"]||"neutral";
+            var rsiZone;
+            if(rsi<=ovThr)rsiZone="oversold";
+            else if(rsi>=obThr)rsiZone="overbought";
+            else if(prevZoneH==="overbought"&&rsi<obThr-2)rsiZone="neutral";
+            else if(prevZoneH==="oversold"&&rsi>ovThr+2)rsiZone="neutral";
+            else rsiZone=prevZoneH; // stay in current zone until hysteresis threshold crossed
             if(lastTrigRef.current[ak+"firstTick"]){
               // Primer tick tras inicio/reconexión: sincronizar zona sin alertar
               lastTrigRef.current[ak+"firstTick"]=false;
@@ -4804,8 +4820,8 @@ function AlertasTab({S,predictions}){
               if(rsiZone!==prevZone){
                 lastTrigRef.current[ak+"rsizone"]=rsiZone;
                 try{var szWs={};var szWsStr=localStorage.getItem("td-alert-zones");if(szWsStr)szWs=JSON.parse(szWsStr);szWs[ak+"rsizone"]=rsiZone;localStorage.setItem("td-alert-zones",JSON.stringify(szWs));}catch(e){}
-                if(rsiZone==="oversold"&&(alert.rsiOversoldEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult,ema50:ema50,ema200:ema200});
-                else if(rsiZone==="overbought"&&(alert.rsiOverboughtEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult,ema50:ema50,ema200:ema200});
+                if(rsiZone==="oversold"&&(alert.rsiOversoldEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,ema50:ema50,ema200:ema200});
+                else if(rsiZone==="overbought"&&(alert.rsiOverboughtEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,ema50:ema50,ema200:ema200});
               }
             }
             // RSI personalizado (nivel configurado por el usuario)
@@ -4830,18 +4846,14 @@ function AlertasTab({S,predictions}){
                 var divAlertType=divKind==="convergence"
                   ?(divResult.type==="bullish"?"rsi_conv_bull":"rsi_conv_bear")
                   :(divResult.type==="bullish"?"rsi_div_bull":"rsi_div_bear");
-                var divKey=ak+divKind+"_"+divResult.type+"_"+Math.round(closePrice/50);
-                if(!lastTrigRef.current[divKey]){
-                  lastTrigRef.current[divKey]=true;
+                // Time-based lock: don't re-fire same divergence type within one candle period
+                var divLockKey=ak+divKind+"_"+divResult.type+"_lock";
+                var divCooldownMs={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[alert.interval]||14400000;
+                var prevDivFired=lastTrigRef.current[divLockKey]||0;
+                if(Date.now()-prevDivFired>divCooldownMs){
+                  lastTrigRef.current[divLockKey]=Date.now();
                   sendAlert(alert.label,alert.interval,rsi,divAlertType,ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,divResult:divResult,ema50:ema50,ema200:ema200});
                 }
-              }else if(k.x){
-                // Solo liberar el lock cuando la vela cierra sin divergencia (evita re-disparar en cada tick)
-                var pzD=Math.round(closePrice/50);
-                ["divergence_bullish","divergence_bearish","convergence_bullish","convergence_bearish"].forEach(function(dt){
-                  delete lastTrigRef.current[ak+dt+"_"+pzD];
-                });
-              }
             }
           }
           // ─── PATRONES CHARTISTAS: registran confluencia Y disparan notificación propia ───
