@@ -953,8 +953,8 @@ function App() {
                 ema200_golden: "🌟 Cruce Dorado EMA 50/200", ema200_death: "💀 Cruce Muerte EMA 50/200",
                 rsi_div_bull: "🟢 Divergencia Alcista RSI", rsi_div_bear: "🔴 Divergencia Bajista RSI",
                 rsi_conv_bull: "📈 Convergencia Alcista RSI", rsi_conv_bear: "📉 Convergencia Bajista RSI",
-                pennant_bull: "🚩 Banderín Alcista", pennant_fake: "⚠️ Banderín Alcista Falso",
-                pennant_bear: "🔻 Banderín Bajista", pennant_bear_fake: "⚠️ Banderín Bajista Falso",
+                pennant_bull: "🚩 Banderín Alcista", pennant_bull_forming: "🚩 Banderín Alcista (Formando)", pennant_fake: "⚠️ Banderín Alcista Falso",
+                pennant_bear: "🔻 Banderín Bajista", pennant_bear_forming: "🔻 Banderín Bajista (Formando)", pennant_bear_fake: "⚠️ Banderín Bajista Falso",
                 canal_bajista_ruptura_alcista: "📐 Canal Bajista — Ruptura Alcista",
                 canal_alcista_ruptura_bajista: "📐 Canal Alcista — Ruptura Bajista",
                 canal_alcista_soporte: "📐 Canal Alcista — Soporte",
@@ -3590,7 +3590,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
         }
         setLoading(false);
     }
-    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "calc(100vh - 160px)" } },
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", overflow: "hidden" } },
         showKeyInput && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.3)", borderRadius: 8, padding: 10, marginBottom: 8 } },
             React.createElement("div", { style: { fontSize: 9, color: "#f0b429", fontWeight: 700, marginBottom: 6 } }, "CLAVE API ANTHROPIC"),
             React.createElement("div", { style: { display: "flex", gap: 6 } },
@@ -3729,7 +3729,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                                 setShowPredictions(false);
                             }, style: { flex: 2, padding: "4px", background: "rgba(136,170,255,.08)", border: "1px solid rgba(136,170,255,.3)", color: "#88aaff", borderRadius: 4, fontSize: 8, cursor: "pointer" } }, "\u21A9 Preguntar update")))));
             }))),
-        React.createElement("div", { ref: listRef, style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, paddingBottom: 8 } },
+        React.createElement("div", { ref: listRef, style: { flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 8, paddingBottom: 8 } },
             React.createElement("div", { style: { flex: 1, minHeight: 8 } }),
             chatMode === "reflexion" && messages.filter(function (m) { return m.isReflexion; }).length === 0 && (React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, opacity: .4 } },
                 React.createElement("div", { style: { fontSize: 28 } }, "\uD83D\uDCAD"),
@@ -4473,11 +4473,19 @@ function AlertasTab({ S, predictions }) {
         else if (type === "pennant_bull") {
             title = "🚩 Banderín Alcista — Ruptura Confirmada";
         }
+        else if (type === "pennant_bull_forming") {
+            title = "🚩 Banderín Alcista — En Formación";
+            body = "Triángulo convergente detectado. Vigilar ruptura al alza." + priceStr;
+        }
         else if (type === "pennant_fake") {
             title = "⚠️ Banderín Alcista — Posible Falsa Ruptura";
         }
         else if (type === "pennant_bear") {
             title = "🔻 Banderín Bajista — Ruptura Bajista Confirmada";
+        }
+        else if (type === "pennant_bear_forming") {
+            title = "🔻 Banderín Bajista — En Formación";
+            body = "Triángulo convergente bajista detectado. Vigilar ruptura a la baja." + priceStr;
         }
         else if (type === "pennant_bear_fake") {
             title = "⚠️ Banderín Bajista — Posible Falsa Ruptura";
@@ -4551,8 +4559,8 @@ function AlertasTab({ S, predictions }) {
                     divConvLine = "📉 Convergencia bajista";
             }
             // ─── CONFLUENCIA: registrar señal y calcular señales alineadas ───
-            var BULLISH_TYPES = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "patron_fvg", "pennant_bull", "pennant_fake", "canal_bajista_ruptura_alcista", "canal_alcista_soporte", "canal_alcista_ruptura_alcista"];
-            var BEARISH_TYPES = ["rsi_overbought", "death", "ema200_death", "rsi_div_bear", "rsi_conv_bear", "pennant_bear", "pennant_bear_fake", "canal_alcista_ruptura_bajista", "canal_bajista_resistencia", "canal_bajista_ruptura_bajista", "canal_alcista_resistencia"];
+            var BULLISH_TYPES = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "patron_fvg", "pennant_bull", "pennant_bull_forming", "pennant_fake", "canal_bajista_ruptura_alcista", "canal_alcista_soporte", "canal_alcista_ruptura_alcista"];
+            var BEARISH_TYPES = ["rsi_overbought", "death", "ema200_death", "rsi_div_bear", "rsi_conv_bear", "pennant_bear", "pennant_bear_forming", "pennant_bear_fake", "canal_alcista_ruptura_bajista", "canal_bajista_resistencia", "canal_bajista_ruptura_bajista", "canal_alcista_resistencia"];
             var confKey = label + "|" + interval;
             if (!confluenceRef.current[confKey])
                 confluenceRef.current[confKey] = {};
@@ -4851,18 +4859,31 @@ function AlertasTab({ S, predictions }) {
             if (extra.pennantResult) {
                 var pr2 = extra.pennantResult;
                 tgLines.push("");
-                var isBearPennant = (type === "pennant_bear" || type === "pennant_bear_fake");
-                tgLines.push(isBearPennant ? "🔻 BANDERÍN BAJISTA:" : "🚩 BANDERÍN ALCISTA:");
+                var isBearPennant = (type === "pennant_bear" || type === "pennant_bear_fake" || type === "pennant_bear_forming");
+                var isForming = (type === "pennant_bull_forming" || type === "pennant_bear_forming");
+                tgLines.push(isBearPennant ? "🔻 BANDERÍN BAJISTA:" + (isForming ? " (EN FORMACIÓN)" : "") : "🚩 BANDERÍN ALCISTA:" + (isForming ? " (EN FORMACIÓN)" : ""));
                 if (isBearPennant) {
-                    tgLines.push("   📏 Mástil: −" + (pr2.poleDropPct * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
+                    tgLines.push("   📏 Mástil: −" + ((pr2.poleDropPct || 0) * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
                     tgLines.push("   📐 Triángulo: línea sup $" + pr2.upperLine.toFixed(2) + " | línea inf $" + pr2.lowerLine.toFixed(2));
-                    tgLines.push("   🎯 Objetivo (proyección mástil): $" + pr2.targetPrice.toFixed(2));
-                    tgLines.push("   ⚠️ Ruptura por DEBAJO del triángulo — continuación bajista");
+                    if (!isForming) {
+                        tgLines.push("   🎯 Objetivo (proyección mástil): $" + pr2.targetPrice.toFixed(2));
+                    }
+                    if (!isForming) {
+                        tgLines.push("   ⚠️ Ruptura por DEBAJO del triángulo — continuación bajista");
+                    }
+                    if (isForming) {
+                        tgLines.push("   ⏳ Triángulo convergente bajista en formación — vigilar ruptura a la baja");
+                    }
                 }
                 else {
-                    tgLines.push("   📏 Asta: +" + (pr2.poleGainPct * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
+                    tgLines.push("   📏 Asta: +" + ((pr2.poleGainPct || 0) * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
                     tgLines.push("   📐 Triángulo: línea sup $" + pr2.upperLine.toFixed(2) + " | línea inf $" + pr2.lowerLine.toFixed(2));
-                    tgLines.push("   🎯 Objetivo (altura asta): $" + pr2.targetPrice.toFixed(2));
+                    if (!isForming) {
+                        tgLines.push("   🎯 Objetivo (altura asta): $" + pr2.targetPrice.toFixed(2));
+                    }
+                    if (isForming) {
+                        tgLines.push("   ⏳ Triángulo convergente alcista en formación — vigilar ruptura al alza");
+                    }
                 }
                 if ((type === "pennant_fake" || type === "pennant_bear_fake") && pr2.falseBrkReasons && pr2.falseBrkReasons.length > 0) {
                     tgLines.push("   ⚠️ Señales falsa ruptura: " + pr2.falseBrkReasons.join(" · "));
@@ -5211,8 +5232,10 @@ function AlertasTab({ S, predictions }) {
         delete lastTrigRef.current[ak0Init + "rsicustom"];
         // Reset pattern flags — se resincronizarán en la primera vela cerrada sin alertar
         lastTrigRef.current[ak0Init + "pennant_bull"] = false;
+        lastTrigRef.current[ak0Init + "pennant_bull_forming"] = false;
         lastTrigRef.current[ak0Init + "pennant_fake"] = false;
         lastTrigRef.current[ak0Init + "pennant_bear"] = false;
+        lastTrigRef.current[ak0Init + "pennant_bear_forming"] = false;
         lastTrigRef.current[ak0Init + "pennant_bear_fake"] = false;
         lastTrigRef.current[ak0Init + "chan_type"] = null;
         lastTrigRef.current[ak0Init + "chan_zone"] = null;
@@ -5417,9 +5440,11 @@ function AlertasTab({ S, predictions }) {
                             var syncPennB = detectBullishPennant(ohlc);
                             lastTrigRef.current[ak + "pennant_bull"] = !!(syncPennB && syncPennB.breakout && !syncPennB.falseBrkWarning);
                             lastTrigRef.current[ak + "pennant_fake"] = !!(syncPennB && syncPennB.breakout && syncPennB.falseBrkWarning);
+                            lastTrigRef.current[ak + "pennant_bull_forming"] = !!(syncPennB && syncPennB.forming);
                             var syncPennBr = detectBearishPennant(ohlc);
                             lastTrigRef.current[ak + "pennant_bear"] = !!(syncPennBr && syncPennBr.breakout && !syncPennBr.falseBrkWarning);
                             lastTrigRef.current[ak + "pennant_bear_fake"] = !!(syncPennBr && syncPennBr.breakout && syncPennBr.falseBrkWarning);
+                            lastTrigRef.current[ak + "pennant_bear_forming"] = !!(syncPennBr && syncPennBr.forming);
                             var syncChan = detectChannelAlert(ohlc);
                             if (syncChan) {
                                 lastTrigRef.current[ak + "chan_type"] = syncChan.canalType;
@@ -5433,16 +5458,31 @@ function AlertasTab({ S, predictions }) {
                             lastTrigRef.current[ak + "fvg"] = !!(checkFVGCovered(ohlc, closePrice));
                         }
                         else {
-                            // Banderín alcista
+                            // ─── Banderín alcista (tri-state: null / forming / breakout) ───
                             var pennantResult = detectBullishPennant(ohlc);
-                            if (!pennantResult || !pennantResult.breakout) {
+                            if (!pennantResult) {
+                                // Pattern disappeared entirely
+                                lastTrigRef.current[ak + "pennant_bull_forming"] = false;
                                 lastTrigRef.current[ak + "pennant_bull"] = false;
                                 lastTrigRef.current[ak + "pennant_fake"] = false;
                                 delete confluenceRef.current[confKeyPat]["pennant_bull"];
+                                delete confluenceRef.current[confKeyPat]["pennant_bull_forming"];
                             }
-                            if (pennantResult && pennantResult.breakout) {
+                            else if (pennantResult.forming && !pennantResult.breakout) {
+                                // Pattern forming, no breakout yet — notify first time
+                                lastTrigRef.current[ak + "pennant_bull"] = false;
+                                lastTrigRef.current[ak + "pennant_fake"] = false;
+                                if (!lastTrigRef.current[ak + "pennant_bull_forming"]) {
+                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bull_forming", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
+                                }
+                                confluenceRef.current[confKeyPat]["pennant_bull_forming"] = Date.now();
+                                lastTrigRef.current[ak + "pennant_bull_forming"] = true;
+                            }
+                            else if (pennantResult.breakout) {
+                                // Breakout detected
+                                lastTrigRef.current[ak + "pennant_bull_forming"] = false;
+                                delete confluenceRef.current[confKeyPat]["pennant_bull_forming"];
                                 if (!pennantResult.falseBrkWarning) {
-                                    // Ruptura limpia → notificar si es primera vez en este estado
                                     if (!lastTrigRef.current[ak + "pennant_bull"]) {
                                         sendAlert(alert.label, alert.interval, rsi, "pennant_bull", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
                                     }
@@ -5451,7 +5491,6 @@ function AlertasTab({ S, predictions }) {
                                     lastTrigRef.current[ak + "pennant_fake"] = false;
                                 }
                                 else {
-                                    // Fakeout → notificar si es primera vez
                                     if (!lastTrigRef.current[ak + "pennant_fake"]) {
                                         sendAlert(alert.label, alert.interval, rsi, "pennant_fake", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
                                     }
@@ -5459,14 +5498,27 @@ function AlertasTab({ S, predictions }) {
                                     delete confluenceRef.current[confKeyPat]["pennant_bull"];
                                 }
                             }
-                            // Banderín bajista
+                            // ─── Banderín bajista (tri-state: null / forming / breakout) ───
                             var bearPennantResult = detectBearishPennant(ohlc);
-                            if (!bearPennantResult || !bearPennantResult.breakout) {
+                            if (!bearPennantResult) {
+                                lastTrigRef.current[ak + "pennant_bear_forming"] = false;
                                 lastTrigRef.current[ak + "pennant_bear"] = false;
                                 lastTrigRef.current[ak + "pennant_bear_fake"] = false;
                                 delete confluenceRef.current[confKeyPat]["pennant_bear"];
+                                delete confluenceRef.current[confKeyPat]["pennant_bear_forming"];
                             }
-                            if (bearPennantResult && bearPennantResult.breakout) {
+                            else if (bearPennantResult.forming && !bearPennantResult.breakout) {
+                                lastTrigRef.current[ak + "pennant_bear"] = false;
+                                lastTrigRef.current[ak + "pennant_bear_fake"] = false;
+                                if (!lastTrigRef.current[ak + "pennant_bear_forming"]) {
+                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bear_forming", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: bearPennantResult, divResult: divResult });
+                                }
+                                confluenceRef.current[confKeyPat]["pennant_bear_forming"] = Date.now();
+                                lastTrigRef.current[ak + "pennant_bear_forming"] = true;
+                            }
+                            else if (bearPennantResult.breakout) {
+                                lastTrigRef.current[ak + "pennant_bear_forming"] = false;
+                                delete confluenceRef.current[confKeyPat]["pennant_bear_forming"];
                                 if (!bearPennantResult.falseBrkWarning) {
                                     if (!lastTrigRef.current[ak + "pennant_bear"]) {
                                         sendAlert(alert.label, alert.interval, rsi, "pennant_bear", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: bearPennantResult, divResult: divResult });
@@ -6476,11 +6528,11 @@ function AlertasTab({ S, predictions }) {
                     icon = "📉";
                     color = "#ff8844";
                 }
-                else if (log.type === "pennant_bull") {
+                else if (log.type === "pennant_bull" || log.type === "pennant_bull_forming" || log.type === "pennant_fake") {
                     icon = "🚩";
                     color = "#00ff88";
                 }
-                else if (log.type === "pennant_bear" || log.type === "pennant_bear_fake") {
+                else if (log.type === "pennant_bear" || log.type === "pennant_bear_forming" || log.type === "pennant_bear_fake") {
                     icon = "🔻";
                     color = "#ff4444";
                 }
@@ -6488,7 +6540,7 @@ function AlertasTab({ S, predictions }) {
                 var fbPct = fb && fb.total > 0 ? Math.round(fb.correct / fb.total * 100) : null;
                 var rated = ratedLogs[log.id];
                 var ALL_FB_TYPES = ["rsi_oversold", "rsi_overbought", "rsi_custom", "golden", "death", "ema200_golden", "ema200_death",
-                    "rsi_div_bull", "rsi_div_bear", "rsi_conv_bull", "rsi_conv_bear", "pennant_bull", "pennant_fake", "pennant_bear", "pennant_bear_fake",
+                    "rsi_div_bull", "rsi_div_bear", "rsi_conv_bull", "rsi_conv_bear", "pennant_bull", "pennant_bull_forming", "pennant_fake", "pennant_bear", "pennant_bear_forming", "pennant_bear_fake",
                     "canal_bajista_soporte", "canal_bajista_resistencia", "canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista",
                     "canal_alcista_soporte", "canal_alcista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista",
                     "patron_combo", "patron_fvg"];
@@ -7584,108 +7636,91 @@ function linReg(pts) {
 // Structure: strong upward pole → small triangular consolidation (descending highs, ascending lows,
 // decreasing volume) → bullish breakout above upper trendline with volume
 function detectBullishPennant(ohlc) {
-    if (!ohlc || ohlc.length < 30)
+    if (!ohlc || ohlc.length < 20)
         return null;
-    // Try consolidation windows from 5 to 20 candles (most recent), largest valid wins
     var best = null;
     for (var consLen = 15; consLen >= 5; consLen--) {
         var consEnd = ohlc.length - 1;
         var consStart = consEnd - consLen + 1;
-        if (consStart < 8)
+        if (consStart < 5)
             continue;
-        var consSlice = ohlc.slice(consStart, consEnd + 1);
-        // Build regression on highs and lows of consolidation
-        var highPts = consSlice.map(function (c, i) { return { x: i, y: c.h }; });
-        var lowPts = consSlice.map(function (c, i) { return { x: i, y: c.l }; });
+        // Build regression on ALL candles EXCEPT the last one (potential breakout candle)
+        // This prevents the breakout candle from distorting its own trendline
+        var regSlice = ohlc.slice(consStart, consEnd); // excludes last candle
+        if (regSlice.length < 4)
+            continue;
+        var highPts = regSlice.map(function (c, i) { return { x: i, y: c.h }; });
+        var lowPts = regSlice.map(function (c, i) { return { x: i, y: c.l }; });
         var rH = linReg(highPts);
         var rL = linReg(lowPts);
         if (!rH || !rL)
             continue;
-        // Pennant: highs slope DOWN, lows slope UP (converging)
+        // Pennant: highs slope DOWN, lows slope UP (converging triangle)
         if (rH.slope >= 0 || rL.slope <= 0)
             continue;
-        // Lines must be converging (spread narrowing over the consolidation)
-        var spreadStart = rH.intercept - rL.intercept;
-        var spreadEnd = (rH.slope * (consLen - 1) + rH.intercept) - (rL.slope * (consLen - 1) + rL.intercept);
-        if (spreadEnd <= 0 || spreadEnd >= spreadStart * 0.9)
-            continue; // must narrow at least 10%
-        // Volume declining: avg of first half > avg of second half of consolidation
-        var vols = consSlice.map(function (c) { return c.v || 0; });
-        var halfLen = Math.floor(consLen / 2);
-        var firstHalfVol = vols.slice(0, halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(halfLen, 1);
-        var secondHalfVol = vols.slice(halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(vols.slice(halfLen).length, 1);
-        var avgConsVol = vols.reduce(function (a, v) { return a + v; }, 0) / vols.length;
-        if (firstHalfVol > 0 && secondHalfVol > firstHalfVol * 1.1)
-            continue; // volume increasing — not a pennant
-        // Find the pole: look back before consStart for the bullish impulse (3-20 candles)
+        // Lines must converge by at least 5%
+        var spreadStart = Math.max(rH.intercept - rL.intercept, 0.001);
+        var nReg = regSlice.length - 1;
+        var spreadEnd = (rH.slope * nReg + rH.intercept) - (rL.slope * nReg + rL.intercept);
+        if (spreadEnd <= 0 || spreadEnd >= spreadStart * 0.95)
+            continue;
+        // Find the pole: bullish impulse before consolidation (2-20 candles, 2%+ gain)
         var poleFound = false;
         var poleData = null;
-        for (var pLen = 3; pLen <= 20; pLen++) {
+        for (var pLen = 2; pLen <= 20; pLen++) {
             var ps = consStart - pLen;
             if (ps < 0)
                 break;
             var pSlice = ohlc.slice(ps, consStart + 1);
             var poleOpen = pSlice[0].o;
             var poleClose = pSlice[pSlice.length - 1].c;
-            var gain = (poleClose - poleOpen) / poleOpen;
-            if (gain < 0.03)
-                continue; // pole must be at least 3% gain
+            var gain = (poleClose - poleOpen) / (poleOpen || 1);
+            if (gain < 0.02)
+                continue; // pole must gain at least 2%
             var bullCount = pSlice.filter(function (c) { return c.c > c.o; }).length;
-            if (bullCount < pLen * 0.5)
-                continue; // majority bullish candles
-            // Pole volume should be higher than consolidation volume
-            var poleVols = pSlice.map(function (c) { return c.v || 0; });
-            var avgPoleVol = poleVols.reduce(function (a, v) { return a + v; }, 0) / pSlice.length;
-            // pole volume check removed — often fails in crypto even on valid pennants
+            if (bullCount < pLen * 0.4)
+                continue; // at least 40% bullish candles
             poleFound = true;
             poleData = { start: ps, end: consStart, gainPct: gain, height: poleClose - poleOpen, poleClose: poleClose };
             break;
         }
         if (!poleFound)
             continue;
-        // Compute projected upper/lower trendlines at current bar
-        var n = consLen - 1; // index of last bar in consolidation
-        var upperNow = rH.slope * n + rH.intercept;
-        var lowerNow = rL.slope * n + rL.intercept;
+        // Project trendlines ONE step beyond regression data to the current (breakout) candle
+        var nLast = regSlice.length; // one position beyond last regression point
+        var upperNow = rH.slope * nLast + rH.intercept;
+        var lowerNow = rL.slope * nLast + rL.intercept;
         var lastC = ohlc[consEnd];
         var curPrice = lastC.c;
-        // Breakout: close above upper trendline
+        // Breakout: close above extrapolated upper trendline
         var breakout = curPrice > upperNow;
-        // Target: pole height projected from breakout point (or from upper line if not yet broken)
+        var forming = !breakout;
         var projBase = breakout ? curPrice : upperNow;
         var targetPrice = projBase + poleData.height;
-        // False-breakout evaluation
+        // False-breakout: weak candle structure (no volume check — unreliable in crypto)
         var falseBrkWarning = false;
         var falseBrkReasons = [];
         if (breakout) {
             var body = Math.abs(lastC.c - lastC.o);
             var upperWick = lastC.h - Math.max(lastC.c, lastC.o);
-            var totalRange = lastC.h - lastC.l;
-            // 1. Long upper wick relative to body
-            if (totalRange > 0 && body > 0 && upperWick > body) {
+            // Long upper wick (price poked above but closed weak)
+            if (body > 0 && upperWick > body * 1.5) {
                 falseBrkWarning = true;
-                falseBrkReasons.push("mecha superior > cuerpo (cierre débil)");
+                falseBrkReasons.push("mecha superior muy larga (cierre débil)");
             }
-            // 2. Close barely above or back below upper trendline
+            // Close back inside the triangle
             if (lastC.c < upperNow) {
                 falseBrkWarning = true;
-                falseBrkReasons.push("cierre por debajo de línea de ruptura");
-            }
-            // 3. Breakout volume below 1.2x consolidation average
-            var brkVol = lastC.v || 0;
-            if (avgConsVol > 0 && brkVol < avgConsVol * 1.2) {
-                falseBrkWarning = true;
-                falseBrkReasons.push("volumen de ruptura insuficiente");
+                falseBrkReasons.push("cierre aún por debajo de la línea");
             }
         }
         best = {
             type: "pennant_bull",
             poleStart: poleData.start, poleEnd: poleData.end,
             consStart: consStart, consEnd: consEnd,
-            breakout: breakout, falseBrkWarning: falseBrkWarning, falseBrkReasons: falseBrkReasons,
+            breakout: breakout, forming: forming, falseBrkWarning: falseBrkWarning, falseBrkReasons: falseBrkReasons,
             targetPrice: targetPrice, upperLine: upperNow, lowerLine: lowerNow,
-            poleGainPct: poleData.gainPct, poleHeight: poleData.height,
-            consLength: consLen, avgConsVol: avgConsVol
+            poleGainPct: poleData.gainPct, poleHeight: poleData.height, consLength: consLen
         };
         break;
     }
@@ -7695,108 +7730,90 @@ function detectBullishPennant(ohlc) {
 // Structure: strong downward pole → converging triangle consolidation (descending highs,
 // ascending lows, decreasing volume) → bearish breakout below lower trendline with volume
 function detectBearishPennant(ohlc) {
-    if (!ohlc || ohlc.length < 30)
+    if (!ohlc || ohlc.length < 20)
         return null;
     var best = null;
     for (var consLen = 15; consLen >= 5; consLen--) {
         var consEnd = ohlc.length - 1;
         var consStart = consEnd - consLen + 1;
-        if (consStart < 8)
+        if (consStart < 5)
             continue;
-        var consSlice = ohlc.slice(consStart, consEnd + 1);
-        var highPts = consSlice.map(function (c, i) { return { x: i, y: c.h }; });
-        var lowPts = consSlice.map(function (c, i) { return { x: i, y: c.l }; });
+        // Build regression excluding the last (potential breakout) candle
+        var regSlice = ohlc.slice(consStart, consEnd);
+        if (regSlice.length < 4)
+            continue;
+        var highPts = regSlice.map(function (c, i) { return { x: i, y: c.h }; });
+        var lowPts = regSlice.map(function (c, i) { return { x: i, y: c.l }; });
         var rH = linReg(highPts);
         var rL = linReg(lowPts);
         if (!rH || !rL)
             continue;
-        // Pennant consolidation: highs slope DOWN, lows slope UP (symmetric converging triangle)
+        // Pennant: highs slope DOWN, lows slope UP (converging triangle)
         if (rH.slope >= 0 || rL.slope <= 0)
             continue;
-        // Lines must be converging (spread narrowing by at least 10%)
-        var spreadStart = rH.intercept - rL.intercept;
-        var spreadEnd = (rH.slope * (consLen - 1) + rH.intercept) - (rL.slope * (consLen - 1) + rL.intercept);
-        if (spreadEnd <= 0 || spreadEnd >= spreadStart * 0.9)
+        // Lines must converge by at least 5%
+        var spreadStart = Math.max(rH.intercept - rL.intercept, 0.001);
+        var nReg = regSlice.length - 1;
+        var spreadEnd = (rH.slope * nReg + rH.intercept) - (rL.slope * nReg + rL.intercept);
+        if (spreadEnd <= 0 || spreadEnd >= spreadStart * 0.95)
             continue;
-        // Volume declining during consolidation (pause before continuation)
-        var vols = consSlice.map(function (c) { return c.v || 0; });
-        var halfLen = Math.floor(consLen / 2);
-        var firstHalfVol = vols.slice(0, halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(halfLen, 1);
-        var secondHalfVol = vols.slice(halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(vols.slice(halfLen).length, 1);
-        var avgConsVol = vols.reduce(function (a, v) { return a + v; }, 0) / vols.length;
-        if (firstHalfVol > 0 && secondHalfVol > firstHalfVol * 1.1)
-            continue; // volume should not increase
-        // Find the pole: bearish impulse BEFORE consolidation
+        // Find the pole: bearish impulse before consolidation (2-20 candles, 2%+ drop)
         var poleFound = false;
         var poleData = null;
-        for (var pLen = 3; pLen <= 20; pLen++) {
+        for (var pLen = 2; pLen <= 20; pLen++) {
             var ps = consStart - pLen;
             if (ps < 0)
                 break;
             var pSlice = ohlc.slice(ps, consStart + 1);
             var poleOpen = pSlice[0].o;
             var poleClose = pSlice[pSlice.length - 1].c;
-            var drop = (poleOpen - poleClose) / poleOpen; // positive value = downward move
-            if (drop < 0.03)
-                continue; // pole must drop at least 3%
+            var drop = (poleOpen - poleClose) / (poleOpen || 1);
+            if (drop < 0.02)
+                continue; // pole must drop at least 2%
             var bearCount = pSlice.filter(function (c) { return c.c < c.o; }).length;
-            if (bearCount < pLen * 0.5)
-                continue; // majority bearish candles
-            // Pole volume must be higher than consolidation (strong impulse)
-            var poleVols = pSlice.map(function (c) { return c.v || 0; });
-            var avgPoleVol = poleVols.reduce(function (a, v) { return a + v; }, 0) / pSlice.length;
-            // pole volume check removed — often fails in crypto even on valid pennants
+            if (bearCount < pLen * 0.4)
+                continue; // at least 40% bearish candles
             poleFound = true;
             poleData = { start: ps, end: consStart, dropPct: drop, height: poleOpen - poleClose, poleClose: poleClose };
             break;
         }
         if (!poleFound)
             continue;
-        // Project trendlines to current bar
-        var n = consLen - 1;
-        var upperNow = rH.slope * n + rH.intercept;
-        var lowerNow = rL.slope * n + rL.intercept;
+        // Project trendlines ONE step beyond regression data to the current candle
+        var nLast = regSlice.length;
+        var upperNow = rH.slope * nLast + rH.intercept;
+        var lowerNow = rL.slope * nLast + rL.intercept;
         var lastC = ohlc[consEnd];
         var curPrice = lastC.c;
-        // Breakout: close BELOW the lower trendline
+        // Breakout: close BELOW extrapolated lower trendline
         var breakout = curPrice < lowerNow;
-        // Target: project pole height downward from breakout
+        var forming = !breakout;
         var projBase = breakout ? curPrice : lowerNow;
         var targetPrice = projBase - poleData.height;
-        // False-breakout evaluation
+        // False-breakout: weak candle structure only (no volume check)
         var falseBrkWarning = false;
         var falseBrkReasons = [];
         if (breakout) {
             var body = Math.abs(lastC.c - lastC.o);
             var lowerWick = Math.min(lastC.c, lastC.o) - lastC.l;
-            var totalRange = lastC.h - lastC.l;
-            // 1. Long lower wick: price poked below but closed higher — trap
-            if (totalRange > 0 && body > 0 && lowerWick > body) {
+            // Long lower wick (price poked below but closed higher — trap)
+            if (body > 0 && lowerWick > body * 1.5) {
                 falseBrkWarning = true;
-                falseBrkReasons.push("mecha inferior > cuerpo (cierre débil)");
+                falseBrkReasons.push("mecha inferior muy larga (cierre débil)");
             }
-            // 2. Candle closed back above the lower trendline — inside the triangle
+            // Close back inside the triangle
             if (lastC.c > lowerNow) {
                 falseBrkWarning = true;
-                falseBrkReasons.push("cierre dentro del triángulo");
+                falseBrkReasons.push("cierre aún por encima de la línea");
             }
-            // 3. Low breakout volume
-            var brkVol = lastC.v || 0;
-            if (avgConsVol > 0 && brkVol < avgConsVol * 1.2) {
-                falseBrkWarning = true;
-                falseBrkReasons.push("volumen de ruptura insuficiente");
-            }
-            // 4. Breakout is in opposite direction to the pole (upward break after bearish pole = likely fake)
-            // Not applicable here — we check for downward break, same as pole direction
         }
         best = {
             type: "pennant_bear",
             poleStart: poleData.start, poleEnd: poleData.end,
             consStart: consStart, consEnd: consEnd,
-            breakout: breakout, falseBrkWarning: falseBrkWarning, falseBrkReasons: falseBrkReasons,
+            breakout: breakout, forming: forming, falseBrkWarning: falseBrkWarning, falseBrkReasons: falseBrkReasons,
             targetPrice: targetPrice, upperLine: upperNow, lowerLine: lowerNow,
-            poleDropPct: poleData.dropPct, poleHeight: poleData.height,
-            consLength: consLen, avgConsVol: avgConsVol
+            poleDropPct: poleData.dropPct, poleHeight: poleData.height, consLength: consLen
         };
         break;
     }
@@ -7813,9 +7830,9 @@ function detectChannelAlert(ohlc) {
     var lows = recent.map(function (c) { return c.l; });
     var vols = recent.map(function (c) { return c.v || 0; });
     var price = recent[n].c;
-    // Pivot detection with window=3 (necesita al menos 3 pivots de cada lado)
-    var pivs = detectPivots(highs, lows, 3);
-    if (pivs.pH.length < 3 || pivs.pL.length < 3)
+    // Pivot detection with window=2 (2 candles each side — more pivots detected in crypto)
+    var pivs = detectPivots(highs, lows, 2);
+    if (pivs.pH.length < 2 || pivs.pL.length < 2)
         return null;
     var rH = linReg(pivs.pH);
     var rL = linReg(pivs.pL);
@@ -7836,30 +7853,9 @@ function detectChannelAlert(ohlc) {
         return null;
     var isDescending = rH.slope < 0; // canal bajista si ambas líneas bajan
     var canalType = isDescending ? "bajista" : "alcista";
-    // ─── Canal Ascendente: validaciones adicionales ───
-    // Verificar que los mínimos pivot son realmente ascendentes (no solo la regresión)
+    // Ascending channel: at least the regression slope must be positive on both lines (already guaranteed by sameSign)
     var ascLowsOk = true;
     var ascHighsOk = true;
-    if (!isDescending) {
-        // Al menos los últimos 3 mínimos deben ser ascendentes
-        var lastPL = pivs.pL.slice(-3);
-        for (var li = 1; li < lastPL.length; li++) {
-            if (lastPL[li][1] <= lastPL[li - 1][1]) {
-                ascLowsOk = false;
-                break;
-            }
-        }
-        // Al menos los últimos 3 máximos deben ser ascendentes
-        var lastPH = pivs.pH.slice(-3);
-        for (var hi2 = 1; hi2 < lastPH.length; hi2++) {
-            if (lastPH[hi2][1] <= lastPH[hi2 - 1][1]) {
-                ascHighsOk = false;
-                break;
-            }
-        }
-        if (!ascLowsOk && !ascHighsOk)
-            return null; // ambas fallando → no es canal ascendente válido
-    }
     // Contar toques: pivot que alcanzó o superó la línea cuenta como toque
     // (incluyendo velas de ruptura — si rompió la resistencia, la tocó)
     var touchMargin = ch * 0.35;
@@ -7875,8 +7871,8 @@ function detectChannelAlert(ohlc) {
     }).length;
     // Calidad general: más toques = canal más fiable (mínimo 3 pivots de cada lado)
     var channelQuality = Math.min(100, Math.round((supportTouches + resistTouches) / 2 * 20));
-    // ─── Validación obligatoria: canal requiere toques en AMBOS lados ───
-    if (supportTouches < 2 || resistTouches < 2)
+    // ─── Validación obligatoria: canal requiere al menos 1 toque en cada lado ───
+    if (supportTouches < 1 || resistTouches < 1)
         return null;
     // Posición del precio dentro del canal (0 = soporte, 1 = resistencia)
     var pos = (price - botLine) / ch;
@@ -7900,12 +7896,9 @@ function detectChannelAlert(ohlc) {
         var totalRange = lastCandle.h - lastCandle.l;
         var falseBrkReasons = [];
         if (isBreakoutUp) {
-            // Ruptura alcista de canal bajista (lo más común) o canal alcista (continuación)
-            if (totalRange > 0 && body > 0 && upperWick > body) {
-                falseBrkReasons.push("mecha superior > cuerpo");
-            }
-            if (!highVolume) {
-                falseBrkReasons.push("volumen insuficiente");
+            // Ruptura alcista
+            if (totalRange > 0 && body > 0 && upperWick > body * 1.5) {
+                falseBrkReasons.push("mecha superior muy larga");
             }
             if (lastCandle.c < topLine) {
                 falseBrkReasons.push("cierre dentro del canal");
@@ -7913,17 +7906,15 @@ function detectChannelAlert(ohlc) {
         }
         else {
             // Ruptura bajista
-            if (totalRange > 0 && body > 0 && lowerWick > body) {
-                falseBrkReasons.push("mecha inferior > cuerpo");
-            }
-            if (!highVolume) {
-                falseBrkReasons.push("volumen insuficiente");
+            if (totalRange > 0 && body > 0 && lowerWick > body * 1.5) {
+                falseBrkReasons.push("mecha inferior muy larga");
             }
             if (lastCandle.c > botLine) {
                 falseBrkReasons.push("cierre dentro del canal");
             }
         }
-        var falseBrk = falseBrkReasons.length >= 2; // 2+ señales = posible fakeout
+        // False breakout only if BOTH structural signals present (no volume check — unreliable in crypto)
+        var falseBrk = falseBrkReasons.length >= 2;
         var dir = isBreakoutUp ? "alcista" : "bajista";
         var alertType = (isBreakoutUp ? "canal_" + canalType + "_ruptura_alcista" : "canal_" + canalType + "_ruptura_bajista");
         var desc = (isDescending && isBreakoutUp)
