@@ -7082,14 +7082,12 @@ function detectChannelAlert(ohlc){
   // (incluyendo velas de ruptura — si rompió la resistencia, la tocó)
   var touchMargin=ch*0.35;
   var supportTouches=pivs.pL.filter(function(pt){
-    var lineVal=rL.slope*pt[0]+rL.intercept;
-    // mínimo tocó el soporte desde arriba (pt[1] <= lineVal+margin) o lo perforó hacia abajo
-    return pt[1]<=lineVal+touchMargin;
+    var lineVal=rL.slope*pt.x+rL.intercept;
+    return pt.y<=lineVal+touchMargin;
   }).length;
   var resistTouches=pivs.pH.filter(function(pt){
-    var lineVal=rH.slope*pt[0]+rH.intercept;
-    // máximo tocó la resistencia desde abajo (pt[1] >= lineVal-margin) o la perforó hacia arriba
-    return pt[1]>=lineVal-touchMargin;
+    var lineVal=rH.slope*pt.x+rH.intercept;
+    return pt.y>=lineVal-touchMargin;
   }).length;
   // Calidad general: más toques = canal más fiable (mínimo 3 pivots de cada lado)
   var channelQuality=Math.min(100,Math.round((supportTouches+resistTouches)/2*20));
