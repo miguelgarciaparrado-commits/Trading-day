@@ -3503,7 +3503,8 @@ function ChatTab({S,pos,PM,pats,ps,sc,jnl,hist,xhist,SPs,SJ,D,save,predictions,S
 
 
       {/* Messages */}
-      <div ref={listRef} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",justifyContent:"flex-end",gap:8,paddingBottom:8}}>
+      <div ref={listRef} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,paddingBottom:8}}>
+        <div style={{flex:1,minHeight:8}}/>
         {chatMode==="reflexion"&&messages.filter(function(m){return m.isReflexion;}).length===0&&(
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,opacity:.4}}>
             <div style={{fontSize:28}}>💭</div>

@@ -3729,7 +3729,8 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                                 setShowPredictions(false);
                             }, style: { flex: 2, padding: "4px", background: "rgba(136,170,255,.08)", border: "1px solid rgba(136,170,255,.3)", color: "#88aaff", borderRadius: 4, fontSize: 8, cursor: "pointer" } }, "\u21A9 Preguntar update")))));
             }))),
-        React.createElement("div", { ref: listRef, style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 8, paddingBottom: 8 } },
+        React.createElement("div", { ref: listRef, style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, paddingBottom: 8 } },
+            React.createElement("div", { style: { flex: 1, minHeight: 8 } }),
             chatMode === "reflexion" && messages.filter(function (m) { return m.isReflexion; }).length === 0 && (React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, opacity: .4 } },
                 React.createElement("div", { style: { fontSize: 28 } }, "\uD83D\uDCAD"),
                 React.createElement("div", { style: { fontSize: 10, color: "#888", textAlign: "center", lineHeight: 1.6 } },
