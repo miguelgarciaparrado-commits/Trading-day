@@ -1245,11 +1245,17 @@ function App() {
     const lvColor = sc < 0 ? "#ff2222" : sc < 30 ? "#ff5533" : sc < 50 ? "#ff8844" : sc < 65 ? "#f0b429" : sc < 80 ? "#88cc44" : "#00ff88";
     const lvLabel = sc < 0 ? "⚠️ AUTODESTRUCTIVO" : sc < 30 ? "APOSTADOR" : sc < 50 ? "PRINCIPIANTE" : sc < 65 ? "EN TRANSICION" : sc < 80 ? "AVANZADO" : "PROFESIONAL";
     // - HISTORY -
+    function dateKey(d) {
+        var p = (d || "").split("/");
+        if (p.length !== 3)
+            return d || "";
+        return p[2] + p[1].padStart(2, "0") + p[0].padStart(2, "0");
+    }
     const fH = hist
         .filter(h => (hFilter === "all" || hFilter === h.dir.toLowerCase()) && (!hSearch || h.asset.toLowerCase().includes(hSearch.toLowerCase())))
         .sort((a, b) => {
-        const da = a.date.split("/").reverse().join("");
-        const db = b.date.split("/").reverse().join("");
+        const da = dateKey(a.date);
+        const db = dateKey(b.date);
         return hSort === "desc" ? db.localeCompare(da) : da.localeCompare(db);
     });
     const lWin = hist.filter(function (h) { return h.dir === "Long" && h.result > 0 && !isNearBE(h.result, h.cap); }).length;
