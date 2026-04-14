@@ -4565,6 +4565,7 @@ function AlertasTab({S,predictions}){
       if(rsi!==null){
         var ovThr2=alert.rsiOversoldTarget!=null?alert.rsiOversoldTarget:30;
         var obThr2=alert.rsiOverboughtTarget!=null?alert.rsiOverboughtTarget:70;
+        var rsiCdMs2={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[alert.interval]||3600000;
         var prevZoneH2=lastTrigRef.current[ak+"rsizone"]||"neutral";
         var rsiZone2;
         if(rsi<=ovThr2)rsiZone2="oversold";
@@ -4573,17 +4574,39 @@ function AlertasTab({S,predictions}){
         else if(prevZoneH2==="oversold"&&rsi>ovThr2+2)rsiZone2="neutral";
         else rsiZone2=prevZoneH2;
         if(lastTrigRef.current[ak+"firstTick"]){
-          // Primer tick tras inicio: sincronizar zona sin alertar
           lastTrigRef.current[ak+"firstTick"]=false;
           lastTrigRef.current[ak+"rsizone"]=rsiZone2;
-          try{var szFhI={};var szFhIStr=localStorage.getItem("td-alert-zones");if(szFhIStr)szFhI=JSON.parse(szFhIStr);szFhI[ak+"rsizone"]=rsiZone2;localStorage.setItem("td-alert-zones",JSON.stringify(szFhI));}catch(e){}
+          try{
+            var szFhI=JSON.parse(localStorage.getItem("td-alert-zones")||"{}");
+            szFhI[ak+"rsizone"]=rsiZone2;
+            if(szFhI[ak+"rsi_ob_ts"])lastTrigRef.current[ak+"rsi_ob_ts"]=szFhI[ak+"rsi_ob_ts"];
+            if(szFhI[ak+"rsi_os_ts"])lastTrigRef.current[ak+"rsi_os_ts"]=szFhI[ak+"rsi_os_ts"];
+            localStorage.setItem("td-alert-zones",JSON.stringify(szFhI));
+          }catch(e){}
+          if(rsiZone2==="overbought"||rsiZone2==="oversold"){
+            var cdKeyI2=rsiZone2==="overbought"?(ak+"rsi_ob_ts"):(ak+"rsi_os_ts");
+            var lastCdI2=lastTrigRef.current[cdKeyI2]||0;
+            if(Date.now()-lastCdI2>rsiCdMs2){
+              lastTrigRef.current[cdKeyI2]=Date.now();
+              try{var szFire2=JSON.parse(localStorage.getItem("td-alert-zones")||"{}");szFire2[cdKeyI2]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(szFire2));}catch(e){}
+              if(rsiZone2==="oversold"&&alert.rsiOversoldEnabled!==false)sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc});
+              else if(rsiZone2==="overbought"&&alert.rsiOverboughtEnabled!==false)sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc});
+            }
+          }
         }else{
           var prevZone2=lastTrigRef.current[ak+"rsizone"]||"neutral";
-          if(rsiZone2!==prevZone2){
-            lastTrigRef.current[ak+"rsizone"]=rsiZone2;
-            try{var szFh={};var szFhStr=localStorage.getItem("td-alert-zones");if(szFhStr)szFh=JSON.parse(szFhStr);szFh[ak+"rsizone"]=rsiZone2;localStorage.setItem("td-alert-zones",JSON.stringify(szFh));}catch(e){}
-            if(rsiZone2==="oversold"&&(alert.rsiOversoldEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc});
-            else if(rsiZone2==="overbought"&&(alert.rsiOverboughtEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc});
+          lastTrigRef.current[ak+"rsizone"]=rsiZone2;
+          if((rsiZone2==="overbought"||rsiZone2==="oversold")&&rsiZone2!==prevZone2){
+            var cdKey2=rsiZone2==="overbought"?(ak+"rsi_ob_ts"):(ak+"rsi_os_ts");
+            var lastCd2=lastTrigRef.current[cdKey2]||0;
+            if(Date.now()-lastCd2>rsiCdMs2){
+              lastTrigRef.current[cdKey2]=Date.now();
+              try{var szFh={};var szFhStr=localStorage.getItem("td-alert-zones");if(szFhStr)szFh=JSON.parse(szFhStr);szFh[ak+"rsizone"]=rsiZone2;szFh[cdKey2]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(szFh));}catch(e){}
+              if(rsiZone2==="oversold"&&alert.rsiOversoldEnabled!==false)sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc});
+              else if(rsiZone2==="overbought"&&alert.rsiOverboughtEnabled!==false)sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc});
+            }
+          }else if(rsiZone2!==prevZone2){
+            try{var szFhN={};var szFhNStr=localStorage.getItem("td-alert-zones");if(szFhNStr)szFhN=JSON.parse(szFhNStr);szFhN[ak+"rsizone"]=rsiZone2;localStorage.setItem("td-alert-zones",JSON.stringify(szFhN));}catch(e){}
           }
         }
         if(alert.rsiCustomEnabled&&alert.rsiCustomTarget){
@@ -4758,27 +4781,54 @@ function AlertasTab({S,predictions}){
             }
             var ovThr=alert.rsiOversoldTarget!=null?alert.rsiOversoldTarget:30;
             var obThr=alert.rsiOverboughtTarget!=null?alert.rsiOverboughtTarget:70;
-            // Hysteresis: RSI must return 2 points past threshold before zone resets to neutral
-            // This prevents rapid re-firing when RSI oscillates around the threshold
+            // Cooldown: one notification per candle period per zone (prevents spam when RSI oscillates)
+            var rsiCdMs={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[alert.interval]||3600000;
+            // Hysteresis: zone resets to neutral only after RSI crosses 2pts past threshold
             var prevZoneH=lastTrigRef.current[ak+"rsizone"]||"neutral";
             var rsiZone;
             if(rsi<=ovThr)rsiZone="oversold";
             else if(rsi>=obThr)rsiZone="overbought";
             else if(prevZoneH==="overbought"&&rsi<obThr-2)rsiZone="neutral";
             else if(prevZoneH==="oversold"&&rsi>ovThr+2)rsiZone="neutral";
-            else rsiZone=prevZoneH; // stay in current zone until hysteresis threshold crossed
+            else rsiZone=prevZoneH;
             if(lastTrigRef.current[ak+"firstTick"]){
-              // Primer tick tras inicio/reconexión: sincronizar zona sin alertar
+              // Primer tick: sincronizar zona y restaurar timestamps de cooldown desde localStorage
               lastTrigRef.current[ak+"firstTick"]=false;
               lastTrigRef.current[ak+"rsizone"]=rsiZone;
-              try{var szWsI={};var szWsIStr=localStorage.getItem("td-alert-zones");if(szWsIStr)szWsI=JSON.parse(szWsIStr);szWsI[ak+"rsizone"]=rsiZone;localStorage.setItem("td-alert-zones",JSON.stringify(szWsI));}catch(e){}
+              try{
+                var szWsI=JSON.parse(localStorage.getItem("td-alert-zones")||"{}");
+                szWsI[ak+"rsizone"]=rsiZone;
+                if(szWsI[ak+"rsi_ob_ts"])lastTrigRef.current[ak+"rsi_ob_ts"]=szWsI[ak+"rsi_ob_ts"];
+                if(szWsI[ak+"rsi_os_ts"])lastTrigRef.current[ak+"rsi_os_ts"]=szWsI[ak+"rsi_os_ts"];
+                localStorage.setItem("td-alert-zones",JSON.stringify(szWsI));
+              }catch(e){}
+              // Si ya estamos en zona extrema y no hay cooldown activo, notificar inmediatamente
+              if(rsiZone==="overbought"||rsiZone==="oversold"){
+                var cdKeyI=rsiZone==="overbought"?(ak+"rsi_ob_ts"):(ak+"rsi_os_ts");
+                var lastCdI=lastTrigRef.current[cdKeyI]||0;
+                if(Date.now()-lastCdI>rsiCdMs){
+                  lastTrigRef.current[cdKeyI]=Date.now();
+                  try{var szFire=JSON.parse(localStorage.getItem("td-alert-zones")||"{}");szFire[cdKeyI]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(szFire));}catch(e){}
+                  if(rsiZone==="oversold"&&alert.rsiOversoldEnabled!==false)sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,ema50:ema50,ema200:ema200});
+                  else if(rsiZone==="overbought"&&alert.rsiOverboughtEnabled!==false)sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,ema50:ema50,ema200:ema200});
+                }
+              }
             }else{
               var prevZone=lastTrigRef.current[ak+"rsizone"]||"neutral";
-              if(rsiZone!==prevZone){
-                lastTrigRef.current[ak+"rsizone"]=rsiZone;
-                try{var szWs={};var szWsStr=localStorage.getItem("td-alert-zones");if(szWsStr)szWs=JSON.parse(szWsStr);szWs[ak+"rsizone"]=rsiZone;localStorage.setItem("td-alert-zones",JSON.stringify(szWs));}catch(e){}
-                if(rsiZone==="oversold"&&(alert.rsiOversoldEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,ema50:ema50,ema200:ema200});
-                else if(rsiZone==="overbought"&&(alert.rsiOverboughtEnabled!==false))sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,ema50:ema50,ema200:ema200});
+              lastTrigRef.current[ak+"rsizone"]=rsiZone;
+              if((rsiZone==="overbought"||rsiZone==="oversold")&&rsiZone!==prevZone){
+                // Zona extrema recién alcanzada — verificar cooldown antes de notificar
+                var cdKey=rsiZone==="overbought"?(ak+"rsi_ob_ts"):(ak+"rsi_os_ts");
+                var lastCd=lastTrigRef.current[cdKey]||0;
+                if(Date.now()-lastCd>rsiCdMs){
+                  lastTrigRef.current[cdKey]=Date.now();
+                  try{var szWs={};var szWsStr=localStorage.getItem("td-alert-zones");if(szWsStr)szWs=JSON.parse(szWsStr);szWs[ak+"rsizone"]=rsiZone;szWs[cdKey]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(szWs));}catch(e){}
+                  if(rsiZone==="oversold"&&alert.rsiOversoldEnabled!==false)sendAlert(alert.label,alert.interval,rsi,"rsi_oversold",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,ema50:ema50,ema200:ema200});
+                  else if(rsiZone==="overbought"&&alert.rsiOverboughtEnabled!==false)sendAlert(alert.label,alert.interval,rsi,"rsi_overbought",ema7,ema25,null,closePrice,{ohlc:ohlc,volDir:volDir,ema50:ema50,ema200:ema200});
+                }
+              }else if(rsiZone!==prevZone){
+                // Zona cambió a neutral — actualizar estado, sin alerta
+                try{var szWsN={};var szWsNStr=localStorage.getItem("td-alert-zones");if(szWsNStr)szWsN=JSON.parse(szWsNStr);szWsN[ak+"rsizone"]=rsiZone;localStorage.setItem("td-alert-zones",JSON.stringify(szWsN));}catch(e){}
               }
             }
             // RSI personalizado (nivel configurado por el usuario)
