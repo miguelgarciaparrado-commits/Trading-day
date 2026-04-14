@@ -5238,7 +5238,28 @@ function AlertasTab({ S, predictions }) {
         lastTrigRef.current[ak0Init + "chan_zone"] = null;
         lastTrigRef.current[ak0Init + "chan_was_out"] = false;
         lastTrigRef.current[ak0Init + "chan_hp_done"] = false;
-        lastTrigRef.current[ak0Init + "fvg"] = false;
+        // Restaurar estados desde localStorage para no re-disparar tras recarga/reconexión
+        try {
+            var alZsInit = JSON.parse(localStorage.getItem("td-alert-zones") || "{}");
+            var intrMsInit = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 3600000;
+            var nowInit = Date.now();
+            // FVG: si notificó en los últimos 3 períodos, suprimir re-disparo
+            lastTrigRef.current[ak0Init + "fvg"] = (alZsInit[ak0Init + "fvg_ts"] && (nowInit - alZsInit[ak0Init + "fvg_ts"]) < intrMsInit * 3) ? true : false;
+            // EMA cruces: si notificó en los últimos 5 períodos, suprimir re-disparo
+            lastTrigRef.current[ak0Init + "g725"] = (alZsInit[ak0Init + "g725_ts"] && (nowInit - alZsInit[ak0Init + "g725_ts"]) < intrMsInit * 5) ? true : false;
+            lastTrigRef.current[ak0Init + "d725"] = (alZsInit[ak0Init + "d725_ts"] && (nowInit - alZsInit[ak0Init + "d725_ts"]) < intrMsInit * 5) ? true : false;
+            lastTrigRef.current[ak0Init + "g200"] = (alZsInit[ak0Init + "g200_ts"] && (nowInit - alZsInit[ak0Init + "g200_ts"]) < intrMsInit * 5) ? true : false;
+            lastTrigRef.current[ak0Init + "d200"] = (alZsInit[ak0Init + "d200_ts"] && (nowInit - alZsInit[ak0Init + "d200_ts"]) < intrMsInit * 5) ? true : false;
+            // Divergencia: restaurar timestamps de cooldown
+            ["divergence_bullish", "divergence_bearish", "convergence_bullish", "convergence_bearish"].forEach(function (dt) {
+                var dKey = ak0Init + dt + "_lock";
+                if (alZsInit[dKey])
+                    lastTrigRef.current[dKey] = alZsInit[dKey];
+            });
+        }
+        catch (e) {
+            lastTrigRef.current[ak0Init + "fvg"] = false;
+        }
         // Acciones/ETFs (no Binance) → usar Finnhub polling
         var isBinancePair = /USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
         if (!isBinancePair) {
@@ -5469,6 +5490,15 @@ function AlertasTab({ S, predictions }) {
                                 var prevDivFired = lastTrigRef.current[divLockKey] || 0;
                                 if (Date.now() - prevDivFired > divCooldownMs) {
                                     lastTrigRef.current[divLockKey] = Date.now();
+                                    try {
+                                        var dzWs = {};
+                                        var dzWsStr = localStorage.getItem("td-alert-zones");
+                                        if (dzWsStr)
+                                            dzWs = JSON.parse(dzWsStr);
+                                        dzWs[divLockKey] = Date.now();
+                                        localStorage.setItem("td-alert-zones", JSON.stringify(dzWs));
+                                    }
+                                    catch (e) { }
                                     sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200 });
                                 }
                             }
@@ -5592,6 +5622,15 @@ function AlertasTab({ S, predictions }) {
                             if (fvgResult) {
                                 if (alert.fvgEnabled && !lastTrigRef.current[ak + "fvg"]) {
                                     lastTrigRef.current[ak + "fvg"] = true;
+                                    try {
+                                        var fvgZs = {};
+                                        var fvgZsStr = localStorage.getItem("td-alert-zones");
+                                        if (fvgZsStr)
+                                            fvgZs = JSON.parse(fvgZsStr);
+                                        fvgZs[ak + "fvg_ts"] = Date.now();
+                                        localStorage.setItem("td-alert-zones", JSON.stringify(fvgZs));
+                                    }
+                                    catch (e) { }
                                     sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
                                 }
                                 confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
@@ -5608,6 +5647,15 @@ function AlertasTab({ S, predictions }) {
                                 if (cross7_25 === "golden") {
                                     if (!lastTrigRef.current[ak + "g725"]) {
                                         lastTrigRef.current[ak + "g725"] = true;
+                                        try {
+                                            var g725Zs = {};
+                                            var g725ZsStr = localStorage.getItem("td-alert-zones");
+                                            if (g725ZsStr)
+                                                g725Zs = JSON.parse(g725ZsStr);
+                                            g725Zs[ak + "g725_ts"] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(g725Zs));
+                                        }
+                                        catch (e) { }
                                         sendAlert(alert.label, alert.interval, rsi, "golden", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, ema50: ema50, ema200: ema200 });
                                     }
                                 }
@@ -5617,6 +5665,15 @@ function AlertasTab({ S, predictions }) {
                                 if (cross7_25 === "death") {
                                     if (!lastTrigRef.current[ak + "d725"]) {
                                         lastTrigRef.current[ak + "d725"] = true;
+                                        try {
+                                            var d725Zs = {};
+                                            var d725ZsStr = localStorage.getItem("td-alert-zones");
+                                            if (d725ZsStr)
+                                                d725Zs = JSON.parse(d725ZsStr);
+                                            d725Zs[ak + "d725_ts"] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(d725Zs));
+                                        }
+                                        catch (e) { }
                                         sendAlert(alert.label, alert.interval, rsi, "death", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, ema50: ema50, ema200: ema200 });
                                     }
                                 }
@@ -5629,6 +5686,15 @@ function AlertasTab({ S, predictions }) {
                                 if (cross50_200 === "golden") {
                                     if (!lastTrigRef.current[ak + "g200"]) {
                                         lastTrigRef.current[ak + "g200"] = true;
+                                        try {
+                                            var g200Zs = {};
+                                            var g200ZsStr = localStorage.getItem("td-alert-zones");
+                                            if (g200ZsStr)
+                                                g200Zs = JSON.parse(g200ZsStr);
+                                            g200Zs[ak + "g200_ts"] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(g200Zs));
+                                        }
+                                        catch (e) { }
                                         sendAlert(alert.label, alert.interval, rsi, "ema200_golden", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
                                     }
                                 }
@@ -5638,6 +5704,15 @@ function AlertasTab({ S, predictions }) {
                                 if (cross50_200 === "death") {
                                     if (!lastTrigRef.current[ak + "d200"]) {
                                         lastTrigRef.current[ak + "d200"] = true;
+                                        try {
+                                            var d200Zs = {};
+                                            var d200ZsStr = localStorage.getItem("td-alert-zones");
+                                            if (d200ZsStr)
+                                                d200Zs = JSON.parse(d200ZsStr);
+                                            d200Zs[ak + "d200_ts"] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(d200Zs));
+                                        }
+                                        catch (e) { }
                                         sendAlert(alert.label, alert.interval, rsi, "ema200_death", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
                                     }
                                 }
