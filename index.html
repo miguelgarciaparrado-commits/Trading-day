@@ -604,8 +604,9 @@ function App() {
     useEffect(() => {
         (async () => {
             let rawData = null;
-            // 1. Intentar cargar desde Supabase (mas reciente, sincronizado)
+            // 1. Cargar desde Supabase y localStorage, usar el más reciente (_savedAt)
             const cfg = window.SUPABASE_CFG;
+            let supabaseRaw = null;
             if (cfg && cfg.url && cfg.key) {
                 try {
                     const res = await fetch(cfg.url + "/rest/v1/trading_data?user_id=eq.miguel&select=data", {
@@ -614,16 +615,28 @@ function App() {
                     if (res.ok) {
                         const rows = await res.json();
                         if (rows && rows.length > 0)
-                            rawData = JSON.stringify(rows[0].data);
+                            supabaseRaw = JSON.stringify(rows[0].data);
                     }
                 }
                 catch (e) {
                     console.warn("Supabase load failed, using localStorage");
                 }
             }
-            // 2. Si no hay Supabase o fallo, usar localStorage
-            if (!rawData)
-                rawData = localStorage.getItem("td-user");
+            var localRaw = localStorage.getItem("td-user");
+            // Comparar timestamps y usar la fuente más reciente
+            if (supabaseRaw && localRaw) {
+                try {
+                    var sTs = (JSON.parse(supabaseRaw)._savedAt) || 0;
+                    var lTs = (JSON.parse(localRaw)._savedAt) || 0;
+                    rawData = lTs > sTs ? localRaw : supabaseRaw;
+                }
+                catch (e) {
+                    rawData = supabaseRaw || localRaw;
+                }
+            }
+            else {
+                rawData = supabaseRaw || localRaw;
+            }
             try {
                 if (rawData) {
                     const d = JSON.parse(rawData);
@@ -953,8 +966,6 @@ function App() {
                 ema200_golden: "🌟 Cruce Dorado EMA 50/200", ema200_death: "💀 Cruce Muerte EMA 50/200",
                 rsi_div_bull: "🟢 Divergencia Alcista RSI", rsi_div_bear: "🔴 Divergencia Bajista RSI",
                 rsi_conv_bull: "📈 Convergencia Alcista RSI", rsi_conv_bear: "📉 Convergencia Bajista RSI",
-                pennant_bull: "🚩 Banderín Alcista", pennant_fake: "⚠️ Banderín Alcista Falso",
-                pennant_bear: "🔻 Banderín Bajista", pennant_bear_fake: "⚠️ Banderín Bajista Falso",
                 canal_bajista_ruptura_alcista: "📐 Canal Bajista — Ruptura Alcista",
                 canal_alcista_ruptura_bajista: "📐 Canal Alcista — Ruptura Bajista",
                 canal_alcista_soporte: "📐 Canal Alcista — Soporte",
@@ -1001,7 +1012,8 @@ function App() {
             xhist: D.current.xhist || [],
             ethClosed: D.current.ethClosed || false,
             predictions: D.current.predictions || [],
-            chatMsgs: D.current.chatMsgs || []
+            chatMsgs: D.current.chatMsgs || [],
+            _savedAt: Date.now()
         };
         const json = JSON.stringify(payload);
         // 1. Guardar siempre en localStorage (offline backup)
@@ -1041,7 +1053,7 @@ function App() {
     // - SETTERS (sync D ref then React state) -
     const SP = v => { D.current.pats = v; setPats(v); save(); };
     const SPos = v => { D.current.pos = v; setPos(v); try {
-        localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: v, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: D.current.xhist || [], ethClosed: D.current.ethClosed || false }));
+        localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: v, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: D.current.xhist || [], ethClosed: D.current.ethClosed || false, _savedAt: Date.now() }));
     }
     catch (e) { } save(); };
     const SJ = v => { D.current.jnl = v; setJnl(v); save(); };
@@ -1122,7 +1134,28 @@ function App() {
         const recentXhist = xhist.slice(0, 8).map(function (h) {
             return h.asset + " " + (h.result > 0 ? "+" : "") + h.result.toFixed(0) + "$ (" + h.note + ") " + h.date;
         }).join(" | ");
+        // Rasgos psicológicos acumulados desde conversaciones de chat
+        var learnedTraits = [];
+        try {
+            learnedTraits = JSON.parse(localStorage.getItem("td-ai-profile-traits") || "[]");
+        }
+        catch (e) { }
+        var traitsSection = learnedTraits.length > 0
+            ? "=== RASGOS PSICOLOGICOS DETECTADOS EN CONVERSACIONES ===\n" +
+                learnedTraits.slice(-20).map(function (t) { return "• " + t; }).join("\n") + "\n\n"
+            : "";
+        // Opiniones y creencias aprendidas del trader
+        var learnedOpinions = [];
+        try {
+            learnedOpinions = JSON.parse(localStorage.getItem("td-chat-memory") || "[]");
+        }
+        catch (e) { }
+        var opinionsSection = learnedOpinions.length > 0
+            ? "=== OPINIONES Y FILOSOFIA DEL TRADER (sesiones anteriores) ===\n" +
+                learnedOpinions.slice(-15).map(function (o) { return "[" + o.date + "] " + o.opinion; }).join("\n") + "\n\n"
+            : "";
         const prompt = "Eres coach de trading. Analiza el perfil completo de este trader y genera un informe detallado en espanol.\n\n" +
+            traitsSection + opinionsSection +
             "DATOS DEL TRADER (Miguel Garcia Parrado, Quantfury desde nov 2024):\n" +
             "Nivel score: " + sc + "/100\n" +
             "Total operaciones: " + allH.length + " | Ganadoras: " + wins + " | Perdedoras: " + losses + " | Tasa exito: " + winRate + "%\n" +
@@ -1144,7 +1177,7 @@ function App() {
             "Diario psicologico: " + jnlTypes + " (" + jnl.length + " entradas totales)\n" +
             "Mejor patron: " + (bestPat ? bestPat.name + " " + Math.round(bestPat.conf / bestPat.obs * 100) + "% exito" : "sin datos") + "\n" +
             "Posiciones abiertas: " + pos.map(function (p) { return p.asset + " " + p.dir + " entrada $" + p.entry; }).join(", ") + "\n\n" +
-            "GENERA UN INFORME con estas secciones exactas (analiza especialmente el patron de cierres y lo que sus descripciones revelan sobre su psicologia):\n" +
+            "GENERA UN INFORME con estas secciones exactas (usa los rasgos y opiniones aprendidos para personalizar el analisis — no repitas lo que ya sabe, conecta patrones entre conversaciones y datos):\n" +
             "## RESUMEN EJECUTIVO\n(2-3 frases sobre el estado actual del trader)\n\n" +
             "## PUNTOS FUERTES\n(lista de 3-4 puntos, con datos concretos de cierres y trading)\n\n" +
             "## PUNTOS DEBILES\n(lista de 3-4 puntos, analiza el patron de cierres prematuros, emociones, descripciones)\n\n" +
@@ -1212,11 +1245,17 @@ function App() {
     const lvColor = sc < 0 ? "#ff2222" : sc < 30 ? "#ff5533" : sc < 50 ? "#ff8844" : sc < 65 ? "#f0b429" : sc < 80 ? "#88cc44" : "#00ff88";
     const lvLabel = sc < 0 ? "⚠️ AUTODESTRUCTIVO" : sc < 30 ? "APOSTADOR" : sc < 50 ? "PRINCIPIANTE" : sc < 65 ? "EN TRANSICION" : sc < 80 ? "AVANZADO" : "PROFESIONAL";
     // - HISTORY -
+    function dateKey(d) {
+        var p = (d || "").split("/");
+        if (p.length !== 3)
+            return d || "";
+        return p[2] + p[1].padStart(2, "0") + p[0].padStart(2, "0");
+    }
     const fH = hist
         .filter(h => (hFilter === "all" || hFilter === h.dir.toLowerCase()) && (!hSearch || h.asset.toLowerCase().includes(hSearch.toLowerCase())))
         .sort((a, b) => {
-        const da = a.date.split("/").reverse().join("");
-        const db = b.date.split("/").reverse().join("");
+        const da = dateKey(a.date);
+        const db = dateKey(b.date);
         return hSort === "desc" ? db.localeCompare(da) : da.localeCompare(db);
     });
     const lWin = hist.filter(function (h) { return h.dir === "Long" && h.result > 0 && !isNearBE(h.result, h.cap); }).length;
@@ -1368,6 +1407,11 @@ function App() {
         setXhist(newX);
         setPos(newPos2);
         setPs(newPs);
+        // Escribir a localStorage INMEDIATAMENTE (antes del debounce de save) para no perder el trade si la página recarga en <600ms
+        try {
+            localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: newPos2, pats: D.current.pats, jnl: D.current.jnl, ps: newPs, xhist: newX, ethClosed: D.current.ethClosed || false, _savedAt: Date.now() }));
+        }
+        catch (e) { }
         // Actualizar stats de estrategia: win si ganó, fail si SL o perdida manual
         if (p.patternId) {
             var isPatWin = (type === "tp") || (type !== "sl" && type !== "be" && result > 0);
@@ -1382,8 +1426,9 @@ function App() {
     }
     function notifyProximity(asset, dir, level, targetPrice, currentPrice) {
         var pct = Math.abs(currentPrice - targetPrice) / targetPrice * 100;
-        var title = "⚠️ " + asset + " cerca de " + level;
-        var body = dir + " | Objetivo: $" + parseFloat(targetPrice).toLocaleString() + " | Actual: $" + parseFloat(currentPrice).toLocaleString() + " (" + pct.toFixed(2) + "% distancia)";
+        var isTP = level.indexOf("TP") === 0;
+        var title = (isTP ? "🎯 " : "⚠️ ") + asset + " — " + level + " próximo";
+        var body = dir + " | " + level + ": $" + parseFloat(targetPrice).toLocaleString() + " | Actual: $" + parseFloat(currentPrice).toLocaleString() + " (" + pct.toFixed(2) + "% distancia)";
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
                 new Notification(title, { body: body });
@@ -1488,6 +1533,7 @@ function App() {
             // Partial TP levels — stored as ONE xhist entry when all levels complete
             if (p.tpLevels && p.tpLevels.length) {
                 var newSessionResult = 0;
+                var newlyHitLevels = [];
                 var updLevels = p.tpLevels.map(function (lvl) {
                     if (lvl.hit)
                         return lvl;
@@ -1498,12 +1544,12 @@ function App() {
                     var partResult = isShort ? (partCap * (p.entry - lvl.price) / p.entry) : (partCap * (lvl.price - p.entry) / p.entry);
                     newSessionResult += partResult;
                     changed = true;
-                    notifyAutoClose(p.asset, p.dir, "TP " + lvl.pct + "%", price, partResult);
+                    newlyHitLevels.push({ lvl: lvl, result: partResult });
                     return { ...lvl, hit: true };
                 });
                 var allHit = updLevels.every(function (l) { return l.hit; });
                 if (allHit) {
-                    // ALL levels done — save ONE consolidated xhist entry
+                    // ALL levels done — una sola notificación consolidada
                     var totalResult = (p.accPartialResult || 0) + newSessionResult;
                     var fullRatio = calcPosRatio(p);
                     if (fullRatio !== null) {
@@ -1520,6 +1566,8 @@ function App() {
                         applyPatternResult(p.patternId, true);
                     clearPosProximityKeys(p.id);
                     changed = true;
+                    // Notificación única consolidada — no disparar una por nivel
+                    notifyAutoClose(p.asset, p.dir, "TPs completados (" + newlyHitLevels.length + " niveles)", price, totalResult);
                     continue;
                 }
                 var someNew = updLevels.some(function (l, i) { return l.hit && !p.tpLevels[i].hit; });
@@ -1527,6 +1575,10 @@ function App() {
                     var remPct = updLevels.filter(function (l) { return !l.hit; }).reduce(function (a, l) { return a + l.pct; }, 0);
                     var accResult = (p.accPartialResult || 0) + newSessionResult;
                     newPos.push({ ...p, tpLevels: updLevels, capitalRemaining: p.capital * remPct / 100, accPartialResult: accResult });
+                    // Notificar solo los niveles recién golpeados (normalmente 1)
+                    newlyHitLevels.forEach(function (nh) {
+                        notifyAutoClose(p.asset, p.dir, "TP parcial " + nh.lvl.pct + "%", price, nh.result);
+                    });
                     continue;
                 }
             }
@@ -1669,6 +1721,10 @@ function App() {
         D.current.ethClosed = true;
         setXhist(newX);
         setEthClosed(true);
+        try {
+            localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: D.current.pos, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: newX, ethClosed: true, _savedAt: Date.now() }));
+        }
+        catch (e) { }
         save();
         setModal(m => ({ ...m, closeEth: false }));
     }
@@ -1836,11 +1892,16 @@ function App() {
                         return xMergedFirst[h.id] ? { asset: h.asset, dir: h.dir, cap: h.cap, date: h.date, note: "TPs completados", result: xMergedFirst[h.id].result } : h;
                     });
                     var allH = [].concat(mergedXhist, H0);
-                    // Racha: ignorar resultados $0 (breakeven), contar consecutivas desde la más reciente
+                    // Racha: breakeven interrumpe la racha (no es ni win ni loss)
+                    // BE detection: por resultado (isNearBE) O por nota que contenga BE/⚖️
                     var streak = 0, streakType = "";
                     for (var si = 0; si < allH.length; si++) {
-                        if (allH[si].result === 0)
-                            continue;
+                        var hNote = allH[si].note || "";
+                        var isBEEntry = allH[si].result === 0
+                            || isNearBE(allH[si].result, allH[si].cap)
+                            || (hNote.indexOf("BE") !== -1 || hNote.indexOf("⚖️") !== -1 || hNote.indexOf("breakeven") !== -1);
+                        if (isBEEntry)
+                            break;
                         var sw = allH[si].result > 0;
                         if (streak === 0) {
                             streak = 1;
@@ -2154,9 +2215,25 @@ function App() {
                         React.createElement("button", { onClick: function () {
                                 var cap = parseFloat(manualForm.capital);
                                 var en = parseFloat(manualForm.entry);
-                                var cl = parseFloat(manualForm.close);
-                                if (!manualForm.asset || !cap || !en || isNaN(cl))
+                                // Precio cierre: si vacío y es BE, usar entrada directamente
+                                var clRaw = manualForm.close === "" ? manualForm.entry : manualForm.close;
+                                var cl = parseFloat(clRaw);
+                                if (!manualForm.asset) {
+                                    alert("Indica el activo (ej: BTC, SOL...)");
                                     return;
+                                }
+                                if (!cap || isNaN(cap)) {
+                                    alert("Indica el capital ($)");
+                                    return;
+                                }
+                                if (!en || isNaN(en)) {
+                                    alert("Indica el precio de entrada");
+                                    return;
+                                }
+                                if (isNaN(cl)) {
+                                    alert("Indica el precio de cierre (usa el mismo que entrada para breakeven)");
+                                    return;
+                                }
                                 var res = manualForm.dir === "Long" ? cap * (cl - en) / en : cap * (en - cl) / en;
                                 var isBE = isNearBE(res, cap) || Math.abs(cl - en) < 0.0001;
                                 var dateStr = manualForm.date || new Date().toLocaleDateString("es-ES");
@@ -2177,6 +2254,11 @@ function App() {
                                 }
                                 D.current.ps = psU;
                                 setPs(psU);
+                                // Escribir a localStorage inmediatamente
+                                try {
+                                    localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: D.current.pos, pats: D.current.pats, jnl: D.current.jnl, ps: psU, xhist: newX, ethClosed: D.current.ethClosed || false, _savedAt: Date.now() }));
+                                }
+                                catch (e) { }
                                 save();
                                 setManualForm({ asset: "", dir: "Long", capital: "", entry: "", close: "", note: "", date: "" });
                                 setShowManualTrade(false);
@@ -3124,7 +3206,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
             catch (e2) { }
         }
     }, [messages]);
-    function buildSystemPrompt(md) {
+    function buildSystemPrompt(md, withImage) {
         const allHist = [...xhist, ...hist];
         const wins = allHist.filter(function (h) { return h.result > 0; }).length;
         const losses = allHist.filter(function (h) { return h.result < 0; }).length;
@@ -3175,19 +3257,6 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                 else if (dr.kind === "convergence" && dr.type === "bearish")
                     divText = "📉 CONVERGENCIA BAJISTA — precio LH + RSI LH (confirma tendencia bajista)";
             }
-            var pennantText = "No detectado";
-            if (md.pennantResult) {
-                var pn = md.pennantResult;
-                if (pn.breakout && !pn.falseBrkWarning) {
-                    pennantText = "🚩 BANDERÍN ALCISTA CONFIRMADO — ruptura válida | Asta +" + (pn.poleGainPct * 100).toFixed(1) + "% | Consolidación " + pn.consLength + " velas | Objetivo $" + pn.targetPrice.toFixed(2);
-                }
-                else if (pn.breakout && pn.falseBrkWarning) {
-                    pennantText = "⚠️ Banderín alcista con posible FALSA RUPTURA (" + pn.falseBrkReasons.join(", ") + ") | Objetivo tentativo $" + pn.targetPrice.toFixed(2);
-                }
-                else {
-                    pennantText = "Banderín alcista en formación (aún no hay ruptura) — asta +" + (pn.poleGainPct * 100).toFixed(1) + "% | Resistencia superior $" + pn.upperLine.toFixed(2) + " | Objetivo potencial $" + pn.targetPrice.toFixed(2);
-                }
-            }
             mdContext = "\n\n=== DATOS DE MERCADO EN TIEMPO REAL (" + md.asset + " " + md.tf + ") ===\n" +
                 "Precio actual: $" + md.price + " | Cambio 24h: " + md.change24h + "%\n" +
                 "RSI 14: " + md.rsi + " → " + rsiStatus + "\n" +
@@ -3197,8 +3266,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                 "Estructura: " + md.trend + " | Volumen: " + md.volRatio + "x media\n" +
                 "SOPORTES cercanos (debajo del precio): " + supStr + "\n" +
                 "RESISTENCIAS cercanas (encima del precio): " + resStr + "\n" +
-                "INEFICIENCIAS FVG cercanas (±5%): " + fvgStr + "\n" +
-                "Banderín alcista: " + pennantText;
+                "INEFICIENCIAS FVG cercanas (±5%): " + fvgStr;
         }
         // Analisis de cierres para el chat
         const totCloseC = (ps.tpAuto || 0) + (ps.tpManual || 0) + (ps.earlyClose || 0) + (ps.manualClose || 0);
@@ -3243,17 +3311,52 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
             });
             memContext += "Usa esta memoria para: (1) no repetirte explicando cosas que ya sabe, (2) referenciar sus propias palabras cuando sea util, (3) desafiar si contradice algo que antes afirmo, (4) reconocer cuando ha evolucionado su pensamiento.\n";
         }
+        var imageSection = withImage ?
+            "=== ANALISIS DE GRAFICO (IMAGEN ADJUNTA) ===\n" +
+                "El usuario ha enviado una imagen de grafico. Tu primera tarea es identificar TODOS los patrones chartistas visibles.\n\n" +
+                "PASO 1 — CONTEXTO DEL GRAFICO:\n" +
+                "- Identifica el activo y temporalidad si son visibles\n" +
+                "- Describe la estructura general: tendencia (alcista/bajista/lateral), fase (impulso, consolidacion, distribucion)\n\n" +
+                "PASO 2 — PATRONES CHARTISTAS (busca activamente cada uno):\n" +
+                "• Banderín alcista/bajista (Pennant): asta fuerte + consolidacion triangular + ruptura\n" +
+                "• Bandera (Flag): impulso fuerte + canal contra-tendencia de 5-15 velas\n" +
+                "• Cuña alcista/bajista (Rising/Falling Wedge): dos lineas convergentes con misma direccion\n" +
+                "• Triangulo simetrico/ascendente/descendente: convergencia horizontal o inclinada\n" +
+                "• Doble techo (M) / Doble suelo (W): dos maximos o minimos al mismo nivel con vallee entre ellos\n" +
+                "• Hombro-Cabeza-Hombro (HCH) / HCH invertido: tres picos, el central mas alto/bajo\n" +
+                "• Canal alcista/bajista: precio rebotando entre dos lineas paralelas\n" +
+                "• Copa con asa (Cup & Handle): fondo redondeado + pequena consolidacion lateral\n" +
+                "• Rectangulo/Rango: soporte y resistencia horizontales bien definidos\n\n" +
+                "PASO 3 — NIVELES CLAVE VISIBLES:\n" +
+                "- Soportes: niveles donde el precio ha rebotado al alza\n" +
+                "- Resistencias: niveles donde el precio ha rebotado a la baja\n" +
+                "- Linea de cuello (si HCH)\n" +
+                "- Punto de ruptura del patron (si aplica)\n\n" +
+                "PASO 4 — PROYECCION:\n" +
+                "- Si hay patron con ruptura: calcula objetivo = altura del patron proyectada desde ruptura\n" +
+                "- Indica si la ruptura ya ocurrio o esta pendiente\n" +
+                "- Señal de entrada, stop loss sugerido, y objetivo\n\n" +
+                "PASO 5 — CONFIRMACION CON DATOS EN TIEMPO REAL:\n" +
+                "- Combina lo que ves en la imagen con los datos de RSI/EMA/FVG disponibles arriba\n\n" +
+                "FORMATO DE RESPUESTA cuando hay imagen:\n" +
+                "📊 PATRON(ES) DETECTADO(S): [lista de patrones]\n" +
+                "📍 NIVELES CLAVE: S: [soporte] / R: [resistencia]\n" +
+                "🎯 PROYECCION: [objetivo si hay ruptura]\n" +
+                "📈 SEÑAL: [LONG/SHORT/ESPERAR] con SL en [precio] y TP en [precio]\n" +
+                "⚡ CONTEXTO INDICADORES: [RSI + EMAs del tiempo real]\n\n"
+            : "";
         return "Eres analista tecnico de trading Y compañero intelectual de Miguel. Tu mision es doble: dar analisis puros de mercado Y debatir activamente sus ideas de trading.\n\n" +
             mdContext + predContext + pinnedContext + memContext + "\n\n" +
+            imageSection +
             "=== REGLAS DE RESPUESTA ===\n" +
             "1. Tu analisis se basa EXCLUSIVAMENTE en los datos de mercado arriba (RSI, EMAs, soportes, resistencias, FVGs)\n" +
-            "2. Si el usuario adjunta un grafico/imagen, analiza visualmente la estructura, patrones y niveles que ves\n" +
+            "2. Si el usuario adjunta un grafico/imagen, sigue el formato de ANALISIS DE GRAFICO definido arriba\n" +
             "3. Combina el grafico (si hay) con los datos en tiempo real\n" +
             "4. Si hay PREDICCIONES PENDIENTES y el usuario hace referencia a una conversacion anterior, compara lo que dijiste con los datos ACTUALES y recalcula tiempos y precios\n" +
             "5. NO menciones el historial de operaciones del trader ni sus patrones en el analisis tecnico\n" +
-            "6. Responde en espanol, directo y tecnico, max 250 palabras\n" +
-            "7. Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n" +
-            "8. Si hay imagen adjunta, empieza con lo que ves en el grafico\n\n" +
+            "6. Responde en espanol, directo y tecnico, max 350 palabras si hay imagen (mas espacio para el analisis)\n" +
+            "7. Sin imagen: Estructura: [Estado EMAs] → [RSI] → [S/R relevante] → [FVGs cercanas] → [Conclusion]\n" +
+            "8. Con imagen: usa el formato de 5 pasos definido arriba\n\n" +
             "=== MODO DEBATE Y APRENDIZAJE (CRITICO) ===\n" +
             "- Si Miguel expresa una opinion, creencia o filosofia de trading: no la aceptes ciegamente. Evalua si es correcta. Si tiene fallos, dilos directamente pero con respeto.\n" +
             "- Usa frases como: 'Eso no siempre funciona asi porque...', 'Ojo — hay un matiz importante:', 'Discrepo en esto:', 'Eso tiene logica pero el riesgo es...'\n" +
@@ -3396,7 +3499,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                 else if (marketData) {
                     md = marketData;
                 }
-                systemPrompt = buildSystemPrompt(md);
+                systemPrompt = buildSystemPrompt(md, !!img);
             }
             // Only include messages from the current chat mode in API context
             var contextMessages = newMessages.filter(function (m) { return isReflexion ? m.isReflexion : !m.isReflexion; });
@@ -3426,7 +3529,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                 },
                 body: JSON.stringify({
                     model: hasImage ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001",
-                    max_tokens: 1024,
+                    max_tokens: hasImage ? 1800 : 1024,
                     system: systemPrompt,
                     messages: apiMessages
                 })
@@ -3521,7 +3624,7 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
         }
         setLoading(false);
     }
-    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "calc(100vh - 160px)" } },
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", overflow: "hidden" } },
         showKeyInput && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.3)", borderRadius: 8, padding: 10, marginBottom: 8 } },
             React.createElement("div", { style: { fontSize: 9, color: "#f0b429", fontWeight: 700, marginBottom: 6 } }, "CLAVE API ANTHROPIC"),
             React.createElement("div", { style: { display: "flex", gap: 6 } },
@@ -3660,7 +3763,8 @@ function ChatTab({ S, pos, PM, pats, ps, sc, jnl, hist, xhist, SPs, SJ, D, save,
                                 setShowPredictions(false);
                             }, style: { flex: 2, padding: "4px", background: "rgba(136,170,255,.08)", border: "1px solid rgba(136,170,255,.3)", color: "#88aaff", borderRadius: 4, fontSize: 8, cursor: "pointer" } }, "\u21A9 Preguntar update")))));
             }))),
-        React.createElement("div", { ref: listRef, style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 8, paddingBottom: 8 } },
+        React.createElement("div", { ref: listRef, style: { flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 8, paddingBottom: 8 } },
+            React.createElement("div", { style: { flex: 1, minHeight: 8 } }),
             chatMode === "reflexion" && messages.filter(function (m) { return m.isReflexion; }).length === 0 && (React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, opacity: .4 } },
                 React.createElement("div", { style: { fontSize: 28 } }, "\uD83D\uDCAD"),
                 React.createElement("div", { style: { fontSize: 10, color: "#888", textAlign: "center", lineHeight: 1.6 } },
@@ -4231,9 +4335,9 @@ function AlertasTab({ S, predictions }) {
         var raw = addInput.trim().toUpperCase();
         if (!raw)
             return;
-        // Auto-append USDT for bare crypto tickers (no pair suffix, no dot)
+        // Auto-append USDT for bare crypto tickers (no pair suffix, no dot, no slash)
         var sym = raw;
-        if (!/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(raw) && raw.indexOf(".") === -1 && raw.length <= 6) {
+        if (!/USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(raw) && raw.indexOf(".") === -1 && raw.indexOf("/") === -1) {
             sym = raw + "USDT";
         }
         if (alertsRef.current.some(function (a) { return a.symbol === sym && a.interval === addInterval; })) {
@@ -4400,18 +4504,6 @@ function AlertasTab({ S, predictions }) {
             title = "⚡ Precio en FVG";
             body = (customDesc || "") + priceStr;
         }
-        else if (type === "pennant_bull") {
-            title = "🚩 Banderín Alcista — Ruptura Confirmada";
-        }
-        else if (type === "pennant_fake") {
-            title = "⚠️ Banderín Alcista — Posible Falsa Ruptura";
-        }
-        else if (type === "pennant_bear") {
-            title = "🔻 Banderín Bajista — Ruptura Bajista Confirmada";
-        }
-        else if (type === "pennant_bear_fake") {
-            title = "⚠️ Banderín Bajista — Posible Falsa Ruptura";
-        }
         else if (type === "canal_bajista_soporte") {
             title = "📐 Canal Bajista — Precio en Soporte";
             body = (customDesc || "") + priceStr;
@@ -4481,8 +4573,8 @@ function AlertasTab({ S, predictions }) {
                     divConvLine = "📉 Convergencia bajista";
             }
             // ─── CONFLUENCIA: registrar señal y calcular señales alineadas ───
-            var BULLISH_TYPES = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "patron_fvg", "pennant_bull", "pennant_fake", "canal_bajista_ruptura_alcista", "canal_alcista_soporte", "canal_alcista_ruptura_alcista"];
-            var BEARISH_TYPES = ["rsi_overbought", "death", "ema200_death", "rsi_div_bear", "rsi_conv_bear", "pennant_bear", "pennant_bear_fake", "canal_alcista_ruptura_bajista", "canal_bajista_resistencia", "canal_bajista_ruptura_bajista", "canal_alcista_resistencia"];
+            var BULLISH_TYPES = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "patron_fvg", "canal_bajista_ruptura_alcista", "canal_alcista_soporte", "canal_alcista_ruptura_alcista"];
+            var BEARISH_TYPES = ["rsi_overbought", "death", "ema200_death", "rsi_div_bear", "rsi_conv_bear", "canal_alcista_ruptura_bajista", "canal_bajista_resistencia", "canal_bajista_ruptura_bajista", "canal_alcista_resistencia"];
             var confKey = label + "|" + interval;
             if (!confluenceRef.current[confKey])
                 confluenceRef.current[confKey] = {};
@@ -4491,11 +4583,9 @@ function AlertasTab({ S, predictions }) {
             var confWindow = confWindowMs[interval] || 28800000;
             var confNow = Date.now();
             var confMap = confluenceRef.current[confKey];
-            var SIGNAL_LABELS = { "rsi_oversold": "RSI sobreventa", "rsi_overbought": "RSI sobrecompra", "golden": "Cruce dorado EMA 7/25", "death": "Cruce muerte EMA 7/25", "ema200_golden": "Cruce dorado EMA 50/200", "ema200_death": "Cruce muerte EMA 50/200", "rsi_div_bull": "Divergencia alcista RSI", "rsi_div_bear": "Divergencia bajista RSI", "rsi_conv_bull": "Convergencia alcista RSI", "rsi_conv_bear": "Convergencia bajista RSI", "patron_fvg": "Precio en FVG (soporte)", "pennant_bull": "Banderín alcista", "pennant_fake": "Banderín alcista (posible falso)", "pennant_bear": "Banderín bajista", "pennant_bear_fake": "Banderín bajista (posible falso)", "canal_bajista_ruptura_alcista": "Canal — ruptura alcista", "canal_alcista_soporte": "Canal alcista — soporte", "canal_alcista_ruptura_alcista": "Canal — ruptura alcista confirmada", "canal_alcista_ruptura_bajista": "Canal — ruptura bajista", "canal_bajista_resistencia": "Canal bajista — resistencia", "canal_bajista_ruptura_bajista": "Canal — ruptura bajista confirmada", "canal_alcista_resistencia": "Canal alcista — resistencia" };
+            var SIGNAL_LABELS = { "rsi_oversold": "RSI sobreventa", "rsi_overbought": "RSI sobrecompra", "golden": "Cruce dorado EMA 7/25", "death": "Cruce muerte EMA 7/25", "ema200_golden": "Cruce dorado EMA 50/200", "ema200_death": "Cruce muerte EMA 50/200", "rsi_div_bull": "Divergencia alcista RSI", "rsi_div_bear": "Divergencia bajista RSI", "rsi_conv_bull": "Convergencia alcista RSI", "rsi_conv_bear": "Convergencia bajista RSI", "patron_fvg": "Precio en FVG (soporte)", "canal_bajista_ruptura_alcista": "Canal — ruptura alcista", "canal_alcista_soporte": "Canal alcista — soporte", "canal_alcista_ruptura_alcista": "Canal — ruptura alcista confirmada", "canal_alcista_ruptura_bajista": "Canal — ruptura bajista", "canal_bajista_resistencia": "Canal bajista — resistencia", "canal_bajista_ruptura_bajista": "Canal — ruptura bajista confirmada", "canal_alcista_resistencia": "Canal alcista — resistencia" };
             var ohlcData = extra.ohlc || [];
             var isLong = BULLISH_TYPES.indexOf(type) >= 0;
-            if (type === "pennant_bear" || type === "pennant_bear_fake")
-                isLong = false;
             var alignedTypes = isLong ? BULLISH_TYPES : BEARISH_TYPES;
             var activeSignals = alignedTypes.filter(function (t) { return confMap[t] && (confNow - confMap[t]) < confWindow; });
             var confluenceCount = activeSignals.length;
@@ -4580,14 +4670,6 @@ function AlertasTab({ S, predictions }) {
                 entryPrice = parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
                 entryNote = "Soporte roto (retest)";
             }
-            else if ((type === "pennant_bull" || type === "pennant_fake") && extra.pennantResult && extra.pennantResult.upperLine) {
-                entryPrice = parseFloat(extra.pennantResult.upperLine.toFixed(2));
-                entryNote = "Ruptura banderín";
-            }
-            else if ((type === "pennant_bear" || type === "pennant_bear_fake") && extra.pennantResult && extra.pennantResult.lowerLine) {
-                entryPrice = parseFloat(extra.pennantResult.lowerLine.toFixed(2));
-                entryNote = "Ruptura bajista banderín";
-            }
             else if ((type === "rsi_div_bull" || type === "rsi_conv_bull" || type === "rsi_oversold") && ohlcData.length > 4) {
                 // Divergencia/RSI alcista: buscar FVG alcista cercano (±3%) para entrada de precisión ICT
                 var fvgE = findNearFVG(ohlcData, price || 0, true, 0.03);
@@ -4627,12 +4709,6 @@ function AlertasTab({ S, predictions }) {
             }
             else if (type === "canal_bajista_resistencia" && extra.channelResult && extra.channelResult.topLine) {
                 slPrice = parseFloat((parseFloat(extra.channelResult.topLine) * 1.005).toFixed(2));
-            }
-            else if ((type === "pennant_bull" || type === "pennant_fake") && extra.pennantResult && extra.pennantResult.lowerLine) {
-                slPrice = parseFloat((extra.pennantResult.lowerLine * 0.99).toFixed(2));
-            }
-            else if ((type === "pennant_bear" || type === "pennant_bear_fake") && extra.pennantResult && extra.pennantResult.upperLine) {
-                slPrice = parseFloat((extra.pennantResult.upperLine * 1.01).toFixed(2));
             }
             else if ((type === "rsi_div_bull" || type === "rsi_oversold") && ohlcData.length >= 5) {
                 var rLows = ohlcData.slice(-5).map(function (c) { return c.l; });
@@ -4696,14 +4772,6 @@ function AlertasTab({ S, predictions }) {
                     tpNote = "EMA50";
                 }
             }
-            // Banderín: TP = proyección del mástil
-            if (!tpPrice && extra.pennantResult && extra.pennantResult.targetPrice) {
-                var pennTP = extra.pennantResult.targetPrice;
-                if (riskAmt <= 0 || Math.abs(pennTP - entryPrice) / riskAmt >= 1.5) {
-                    tpPrice = pennTP;
-                    tpNote = (type === "pennant_bear" || type === "pennant_bear_fake") ? "Objetivo banderín bajista" : "Objetivo banderín alcista";
-                }
-            }
             // Fallback: buscar FVG en dirección del trade (mínimo 1:1.5)
             if (!tpPrice && ohlcData.length > 4 && riskAmt > 0) {
                 var fvgTP = findFVGforTP(ohlcData, entryPrice, isLong, 1.5, riskAmt);
@@ -4722,17 +4790,29 @@ function AlertasTab({ S, predictions }) {
             var slPctShow = ((Math.abs(entryPrice - slPrice) / entryPrice) * 100).toFixed(1);
             var tpPctShow = ((Math.abs(tpPrice - entryPrice) / entryPrice) * 100).toFixed(1);
             var hasConfluence = confluenceCount >= 2;
+            // Leer historial de feedback para este tipo de señal
+            var fbAllProb = {};
+            try {
+                fbAllProb = JSON.parse(localStorage.getItem("td-pattern-fb") || "{}");
+            }
+            catch (e) { }
+            var fbStatsProb = fbAllProb[type] || { total: 0, correct: 0 };
+            var fbRate = fbStatsProb.total >= 3 ? (fbStatsProb.correct / fbStatsProb.total) : null;
+            // Aprendizaje: ajustar umbral de confluencia y bloquear señales con mal historial
+            // Con buen historial (>=5 señales, tasa >65%) → bajar umbral a 1 señal
+            var learnedThreshold = (fbStatsProb.total >= 5 && fbRate !== null && fbRate > 0.65) ? 1 : 2;
+            var hasConfluenceLearned = confluenceCount >= learnedThreshold;
+            // Bloquear si mal historial confirmado (>=8 señales, tasa <35%)
+            var fbBlocked = fbStatsProb.total >= 8 && fbRate !== null && fbRate < 0.35;
+            // Advertir si rendimiento bajo pero no bloqueado (>=5 señales, tasa 35-50%)
+            var fbLowPerf = !fbBlocked && fbStatsProb.total >= 5 && fbRate !== null && fbRate < 0.50;
+            // Usar confluencia aprendida (salvo bloqueo)
+            var hasConfluence = hasConfluenceLearned && !fbBlocked;
             // Calcular probabilidad estimada (mejora con feedback histórico)
             var probPct = null;
-            if (hasConfluence) {
-                var fbAllProb = {};
-                try {
-                    fbAllProb = JSON.parse(localStorage.getItem("td-pattern-fb") || "{}");
-                }
-                catch (e) { }
-                var fbStatsProb = fbAllProb[type] || { total: 0, correct: 0 };
-                // Base: 55% para 2 señales, +8% por cada señal extra (máx 82%)
-                var basePct = Math.min(82, 55 + (confluenceCount - 2) * 8);
+            if (hasConfluenceLearned) {
+                // Base: 55% para 2 señales, +8% por cada señal extra (máx 82%); para 1 señal con historial: base 60%
+                var basePct = learnedThreshold === 1 ? 60 : Math.min(82, 55 + (confluenceCount - 2) * 8);
                 if (fbStatsProb.total >= 10) {
                     probPct = Math.round(fbStatsProb.correct / fbStatsProb.total * 100);
                 }
@@ -4745,7 +4825,7 @@ function AlertasTab({ S, predictions }) {
                     probPct = basePct;
                 }
             }
-            // Guardar operación bot solo si confluencia y ratio ok
+            // Guardar operación bot solo si confluencia aprendida y ratio ok, y no bloqueado
             if (hasConfluence) {
                 var botOp = { id: Date.now(), date: new Date().toLocaleDateString("es-ES"), time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }), asset: label, interval: tf, signal: type, dir: sugDir, entry: parseFloat(entryPrice.toFixed(4)), sl: parseFloat(slPrice.toFixed(4)), tp: parseFloat(tpPrice.toFixed(4)), ratio: parseFloat(ratioBot), tpNote: tpNote, result: null, hit: null };
                 try {
@@ -4762,30 +4842,9 @@ function AlertasTab({ S, predictions }) {
             tgLines.push("📅 Temporalidad: " + tf + "  |  " + label);
             if (isEMACross)
                 tgLines.push("🔀 Cruce EMAs: " + emaCrossLabel);
-            tgLines.push("📊 RSI: " + (rsi != null ? rsi.toFixed(1) : "--") + " | " + divConvLine);
+            tgLines.push("📊 RSI: " + (rsi != null ? rsi.toFixed(1) : "--") + (type !== "rsi_oversold" && type !== "rsi_overbought" && type !== "rsi_custom" && type !== "rsi_div_bull" && type !== "rsi_div_bear" && type !== "rsi_conv_bull" && type !== "rsi_conv_bear" ? " | " + divConvLine : ""));
             tgLines.push("💰 Precio mercado: $" + parseFloat(price || 0).toLocaleString("es-ES", { maximumFractionDigits: 4 }));
             tgLines.push("📈 Volumen: " + (extra.volDir || "Desconocido"));
-            // Pennant-specific detail block
-            if (extra.pennantResult) {
-                var pr2 = extra.pennantResult;
-                tgLines.push("");
-                var isBearPennant = (type === "pennant_bear" || type === "pennant_bear_fake");
-                tgLines.push(isBearPennant ? "🔻 BANDERÍN BAJISTA:" : "🚩 BANDERÍN ALCISTA:");
-                if (isBearPennant) {
-                    tgLines.push("   📏 Mástil: −" + (pr2.poleDropPct * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
-                    tgLines.push("   📐 Triángulo: línea sup $" + pr2.upperLine.toFixed(2) + " | línea inf $" + pr2.lowerLine.toFixed(2));
-                    tgLines.push("   🎯 Objetivo (proyección mástil): $" + pr2.targetPrice.toFixed(2));
-                    tgLines.push("   ⚠️ Ruptura por DEBAJO del triángulo — continuación bajista");
-                }
-                else {
-                    tgLines.push("   📏 Asta: +" + (pr2.poleGainPct * 100).toFixed(1) + "% | Consolidación: " + pr2.consLength + " velas");
-                    tgLines.push("   📐 Triángulo: línea sup $" + pr2.upperLine.toFixed(2) + " | línea inf $" + pr2.lowerLine.toFixed(2));
-                    tgLines.push("   🎯 Objetivo (altura asta): $" + pr2.targetPrice.toFixed(2));
-                }
-                if ((type === "pennant_fake" || type === "pennant_bear_fake") && pr2.falseBrkReasons && pr2.falseBrkReasons.length > 0) {
-                    tgLines.push("   ⚠️ Señales falsa ruptura: " + pr2.falseBrkReasons.join(" · "));
-                }
-            }
             // ─── Confluencia en el mensaje ───
             tgLines.push("");
             if (activeSignals.length > 0) {
@@ -4794,22 +4853,29 @@ function AlertasTab({ S, predictions }) {
                 signalNames.forEach(function (s) { tgLines.push("   ✅ " + s); });
             }
             tgLines.push("");
-            if (hasConfluence) {
-                tgLines.push("💡 Operación Bot (" + sugDir + ") — " + confluenceCount + " señales alineadas:");
+            if (fbBlocked) {
+                tgLines.push("🚫 Operación Bot BLOQUEADA por mal historial:");
+                tgLines.push("   Señal '" + type + "': " + fbStatsProb.correct + "/" + fbStatsProb.total + " aciertos (" + (fbRate !== null ? Math.round(fbRate * 100) : 0) + "%) — umbral mínimo 35%");
+                tgLines.push("   No se enviará operación hasta que el historial mejore.");
+            }
+            else if (hasConfluence) {
+                var confLabel = learnedThreshold === 1 ? "1 señal (umbral reducido por buen historial)" : confluenceCount + " señales alineadas";
+                tgLines.push("💡 Operación Bot (" + sugDir + ") — " + confLabel + ":");
+                if (learnedThreshold === 1 && fbStatsProb.total >= 5) {
+                    tgLines.push("   📚 Historial: " + fbStatsProb.correct + "/" + fbStatsProb.total + " aciertos (" + Math.round(fbRate * 100) + "%) — umbral reducido");
+                }
+                if (fbLowPerf) {
+                    tgLines.push("   ⚠️ AVISO: rendimiento bajo (" + Math.round(fbRate * 100) + "% de " + fbStatsProb.total + " señales) — opera con precaución");
+                }
                 tgLines.push("   📍 Entrada: $" + parseFloat(entryPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + (entryNote ? " [" + entryNote + "]" : ""));
                 tgLines.push("   🎯 TP: $" + parseFloat(tpPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (+" + tpPctShow + "%) [" + tpNote + "]");
                 tgLines.push("   🛑 SL: $" + parseFloat(slPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (-" + slPctShow + "%)");
                 tgLines.push("   ⚖️ Ratio: 1:" + ratioBot);
-                var fbStatsTg = {};
-                try {
-                    fbStatsTg = (JSON.parse(localStorage.getItem("td-pattern-fb") || "{}"))[type] || { total: 0 };
-                }
-                catch (e) { }
-                var probSrc = fbStatsTg.total >= 3 ? "basada en " + fbStatsTg.total + " señales previas" : "base estadística";
+                var probSrc = fbStatsProb.total >= 3 ? "basada en " + fbStatsProb.total + " señales previas" : "base estadística";
                 tgLines.push("   🧠 Probabilidad: " + probPct + "% (" + probSrc + ")");
             }
             else {
-                tgLines.push("⚠️ Sin operación bot — confluencia insuficiente (" + confluenceCount + "/2 señales alineadas)");
+                tgLines.push("⚠️ Sin operación bot — confluencia insuficiente (" + confluenceCount + "/" + learnedThreshold + " señales alineadas)");
                 tgLines.push("   Espera más señales " + sugDir + " en " + tf + " para entrada de calidad");
             }
             tgLines.push("");
@@ -4909,9 +4975,9 @@ function AlertasTab({ S, predictions }) {
     function startStockAlertFinnhub(alert) {
         requestWakeLock();
         var sid = alert.id.toString();
-        // NO restaurar zona — siempre empezar en neutral para disparar si ya está en zona extrema
+        // Primer tick tras inicio/reconexión → sincronizar zona silenciosamente sin disparar alerta
         var ak0FH = sid + "_";
-        lastTrigRef.current[ak0FH + "rsizone"] = "neutral";
+        lastTrigRef.current[ak0FH + "firstTick"] = true;
         delete lastTrigRef.current[ak0FH + "rsicustom"];
         var fhKey2 = localStorage.getItem("td-finnhub-key");
         if (!fhKey2) {
@@ -4954,23 +5020,85 @@ function AlertasTab({ S, predictions }) {
             if (rsi !== null) {
                 var ovThr2 = alert.rsiOversoldTarget != null ? alert.rsiOversoldTarget : 30;
                 var obThr2 = alert.rsiOverboughtTarget != null ? alert.rsiOverboughtTarget : 70;
-                var rsiZone2 = rsi <= ovThr2 ? "oversold" : rsi >= obThr2 ? "overbought" : "neutral";
-                var prevZone2 = lastTrigRef.current[ak + "rsizone"] || "neutral";
-                if (rsiZone2 !== prevZone2) {
+                var rsiCdMs2 = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 3600000;
+                var prevZoneH2 = lastTrigRef.current[ak + "rsizone"] || "neutral";
+                var rsiZone2;
+                if (rsi <= ovThr2)
+                    rsiZone2 = "oversold";
+                else if (rsi >= obThr2)
+                    rsiZone2 = "overbought";
+                else if (prevZoneH2 === "overbought" && rsi < obThr2 - 2)
+                    rsiZone2 = "neutral";
+                else if (prevZoneH2 === "oversold" && rsi > ovThr2 + 2)
+                    rsiZone2 = "neutral";
+                else
+                    rsiZone2 = prevZoneH2;
+                if (lastTrigRef.current[ak + "firstTick"]) {
+                    lastTrigRef.current[ak + "firstTick"] = false;
                     lastTrigRef.current[ak + "rsizone"] = rsiZone2;
                     try {
-                        var szFh = {};
-                        var szFhStr = localStorage.getItem("td-alert-zones");
-                        if (szFhStr)
-                            szFh = JSON.parse(szFhStr);
-                        szFh[ak + "rsizone"] = rsiZone2;
-                        localStorage.setItem("td-alert-zones", JSON.stringify(szFh));
+                        var szFhI = JSON.parse(localStorage.getItem("td-alert-zones") || "{}");
+                        szFhI[ak + "rsizone"] = rsiZone2;
+                        if (szFhI[ak + "rsi_ob_ts"])
+                            lastTrigRef.current[ak + "rsi_ob_ts"] = szFhI[ak + "rsi_ob_ts"];
+                        if (szFhI[ak + "rsi_os_ts"])
+                            lastTrigRef.current[ak + "rsi_os_ts"] = szFhI[ak + "rsi_os_ts"];
+                        localStorage.setItem("td-alert-zones", JSON.stringify(szFhI));
                     }
                     catch (e) { }
-                    if (rsiZone2 === "oversold" && (alert.rsiOversoldEnabled !== false))
-                        sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc });
-                    else if (rsiZone2 === "overbought" && (alert.rsiOverboughtEnabled !== false))
-                        sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc });
+                    if (rsiZone2 === "overbought" || rsiZone2 === "oversold") {
+                        var cdKeyI2 = rsiZone2 === "overbought" ? (ak + "rsi_ob_ts") : (ak + "rsi_os_ts");
+                        var lastCdI2 = lastTrigRef.current[cdKeyI2] || 0;
+                        if (Date.now() - lastCdI2 > rsiCdMs2) {
+                            lastTrigRef.current[cdKeyI2] = Date.now();
+                            try {
+                                var szFire2 = JSON.parse(localStorage.getItem("td-alert-zones") || "{}");
+                                szFire2[cdKeyI2] = Date.now();
+                                localStorage.setItem("td-alert-zones", JSON.stringify(szFire2));
+                            }
+                            catch (e) { }
+                            if (rsiZone2 === "oversold" && alert.rsiOversoldEnabled !== false)
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc });
+                            else if (rsiZone2 === "overbought" && alert.rsiOverboughtEnabled !== false)
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc });
+                        }
+                    }
+                }
+                else {
+                    var prevZone2 = lastTrigRef.current[ak + "rsizone"] || "neutral";
+                    lastTrigRef.current[ak + "rsizone"] = rsiZone2;
+                    if ((rsiZone2 === "overbought" || rsiZone2 === "oversold") && rsiZone2 !== prevZone2) {
+                        var cdKey2 = rsiZone2 === "overbought" ? (ak + "rsi_ob_ts") : (ak + "rsi_os_ts");
+                        var lastCd2 = lastTrigRef.current[cdKey2] || 0;
+                        if (Date.now() - lastCd2 > rsiCdMs2) {
+                            lastTrigRef.current[cdKey2] = Date.now();
+                            try {
+                                var szFh = {};
+                                var szFhStr = localStorage.getItem("td-alert-zones");
+                                if (szFhStr)
+                                    szFh = JSON.parse(szFhStr);
+                                szFh[ak + "rsizone"] = rsiZone2;
+                                szFh[cdKey2] = Date.now();
+                                localStorage.setItem("td-alert-zones", JSON.stringify(szFh));
+                            }
+                            catch (e) { }
+                            if (rsiZone2 === "oversold" && alert.rsiOversoldEnabled !== false)
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc });
+                            else if (rsiZone2 === "overbought" && alert.rsiOverboughtEnabled !== false)
+                                sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc });
+                        }
+                    }
+                    else if (rsiZone2 !== prevZone2) {
+                        try {
+                            var szFhN = {};
+                            var szFhNStr = localStorage.getItem("td-alert-zones");
+                            if (szFhNStr)
+                                szFhN = JSON.parse(szFhNStr);
+                            szFhN[ak + "rsizone"] = rsiZone2;
+                            localStorage.setItem("td-alert-zones", JSON.stringify(szFhN));
+                        }
+                        catch (e) { }
+                    }
                 }
                 if (alert.rsiCustomEnabled && alert.rsiCustomTarget) {
                     var rsiKey2 = ak + "rsicustom";
@@ -5045,24 +5173,32 @@ function AlertasTab({ S, predictions }) {
                     }
                 }
             }
-            // Divergencias/Convergencias RSI — todas las temporalidades
+            // Divergencias/Convergencias RSI — se detectan en cada poll (excepción: locks se liberan solo cuando cierra vela nueva)
             if (alert.rsiDivEnabled === false) {
                 return;
             }
             var rsiSeriesFH = calcRSISeries(closes, 14);
             var divResultFH = rsiSeriesFH.length >= 12 && ohlc.length >= 12 ? detectRSIDivergence(ohlc, rsiSeriesFH) : null;
+            var fhCandleCountKey = ak + "fhCandleCount";
+            var prevFHCount = lastTrigRef.current[fhCandleCountKey] || 0;
+            var isFreshFHCandle = ohlc.length > prevFHCount;
+            if (isFreshFHCandle)
+                lastTrigRef.current[fhCandleCountKey] = ohlc.length;
             if (divResultFH) {
                 var divKindFH = divResultFH.kind || "divergence";
                 var divAlertFH = divKindFH === "convergence"
                     ? (divResultFH.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
                     : (divResultFH.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
-                var divKeyFH = ak + divKindFH + "_" + divResultFH.type + "_" + Math.round(closePrice / 50);
-                if (!lastTrigRef.current[divKeyFH]) {
-                    lastTrigRef.current[divKeyFH] = true;
+                var divLockKeyFH = ak + divKindFH + "_" + divResultFH.type + "_lock";
+                var divCooldownFH = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 14400000;
+                var prevDivFiredFH = lastTrigRef.current[divLockKeyFH] || 0;
+                if (Date.now() - prevDivFiredFH > divCooldownFH) {
+                    lastTrigRef.current[divLockKeyFH] = Date.now();
                     sendAlert(alert.label, alert.interval, rsi, divAlertFH, ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResultFH });
                 }
             }
-            else {
+            else if (isFreshFHCandle) {
+                // Liberar locks de divergencia cuando nueva vela cierra sin divergencia
                 var pzFH = Math.round(closePrice / 50);
                 ["divergence_bullish", "divergence_bearish", "convergence_bullish", "convergence_bearish"].forEach(function (dt) {
                     delete lastTrigRef.current[ak + dt + "_" + pzFH];
@@ -5093,20 +5229,37 @@ function AlertasTab({ S, predictions }) {
         });
     }
     function startAlert(alert) {
-        // Siempre empezar en "neutral" — así el primer candle dispara si RSI ya está en zona extrema
+        // Primer tick tras inicio/reconexión → sincronizar zona silenciosamente sin disparar alerta
         var ak0Init = alert.id.toString() + "_";
-        lastTrigRef.current[ak0Init + "rsizone"] = "neutral";
+        lastTrigRef.current[ak0Init + "firstTick"] = true;
         delete lastTrigRef.current[ak0Init + "rsicustom"];
-        // También limpiar localStorage para que un reinicio de página no restaure zona antigua
+        // Reset channel state — channel type uses localStorage cooldown to prevent reconnect re-fires
+        lastTrigRef.current[ak0Init + "chan_type"] = null;
+        lastTrigRef.current[ak0Init + "chan_zone"] = null;
+        lastTrigRef.current[ak0Init + "chan_was_out"] = false;
+        lastTrigRef.current[ak0Init + "chan_hp_done"] = false;
+        // Restaurar estados desde localStorage para no re-disparar tras recarga/reconexión
         try {
-            var szClr = {};
-            var szClrStr = localStorage.getItem("td-alert-zones");
-            if (szClrStr)
-                szClr = JSON.parse(szClrStr);
-            szClr[ak0Init + "rsizone"] = "neutral";
-            localStorage.setItem("td-alert-zones", JSON.stringify(szClr));
+            var alZsInit = JSON.parse(localStorage.getItem("td-alert-zones") || "{}");
+            var intrMsInit = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 3600000;
+            var nowInit = Date.now();
+            // FVG: si notificó en los últimos 3 períodos, suprimir re-disparo
+            lastTrigRef.current[ak0Init + "fvg"] = (alZsInit[ak0Init + "fvg_ts"] && (nowInit - alZsInit[ak0Init + "fvg_ts"]) < intrMsInit * 3) ? true : false;
+            // EMA cruces: si notificó en los últimos 5 períodos, suprimir re-disparo
+            lastTrigRef.current[ak0Init + "g725"] = (alZsInit[ak0Init + "g725_ts"] && (nowInit - alZsInit[ak0Init + "g725_ts"]) < intrMsInit * 5) ? true : false;
+            lastTrigRef.current[ak0Init + "d725"] = (alZsInit[ak0Init + "d725_ts"] && (nowInit - alZsInit[ak0Init + "d725_ts"]) < intrMsInit * 5) ? true : false;
+            lastTrigRef.current[ak0Init + "g200"] = (alZsInit[ak0Init + "g200_ts"] && (nowInit - alZsInit[ak0Init + "g200_ts"]) < intrMsInit * 5) ? true : false;
+            lastTrigRef.current[ak0Init + "d200"] = (alZsInit[ak0Init + "d200_ts"] && (nowInit - alZsInit[ak0Init + "d200_ts"]) < intrMsInit * 5) ? true : false;
+            // Divergencia: restaurar timestamps de cooldown
+            ["divergence_bullish", "divergence_bearish", "convergence_bullish", "convergence_bearish"].forEach(function (dt) {
+                var dKey = ak0Init + dt + "_lock";
+                if (alZsInit[dKey])
+                    lastTrigRef.current[dKey] = alZsInit[dKey];
+            });
         }
-        catch (e) { }
+        catch (e) {
+            lastTrigRef.current[ak0Init + "fvg"] = false;
+        }
         // Acciones/ETFs (no Binance) → usar Finnhub polling
         var isBinancePair = /USDT$|BTC$|ETH$|BNB$|BUSD$/i.test(alert.symbol);
         if (!isBinancePair) {
@@ -5207,23 +5360,91 @@ function AlertasTab({ S, predictions }) {
                         }
                         var ovThr = alert.rsiOversoldTarget != null ? alert.rsiOversoldTarget : 30;
                         var obThr = alert.rsiOverboughtTarget != null ? alert.rsiOverboughtTarget : 70;
-                        var rsiZone = rsi <= ovThr ? "oversold" : rsi >= obThr ? "overbought" : "neutral";
-                        var prevZone = lastTrigRef.current[ak + "rsizone"] || "neutral";
-                        if (rsiZone !== prevZone) {
+                        // Cooldown: one notification per candle period per zone (prevents spam when RSI oscillates)
+                        var rsiCdMs = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 3600000;
+                        // Hysteresis: zone resets to neutral only after RSI crosses 2pts past threshold
+                        var prevZoneH = lastTrigRef.current[ak + "rsizone"] || "neutral";
+                        var rsiZone;
+                        if (rsi <= ovThr)
+                            rsiZone = "oversold";
+                        else if (rsi >= obThr)
+                            rsiZone = "overbought";
+                        else if (prevZoneH === "overbought" && rsi < obThr - 2)
+                            rsiZone = "neutral";
+                        else if (prevZoneH === "oversold" && rsi > ovThr + 2)
+                            rsiZone = "neutral";
+                        else
+                            rsiZone = prevZoneH;
+                        if (lastTrigRef.current[ak + "firstTick"]) {
+                            // Primer tick: sincronizar zona y restaurar timestamps de cooldown desde localStorage
+                            lastTrigRef.current[ak + "firstTick"] = false;
                             lastTrigRef.current[ak + "rsizone"] = rsiZone;
                             try {
-                                var szWs = {};
-                                var szWsStr = localStorage.getItem("td-alert-zones");
-                                if (szWsStr)
-                                    szWs = JSON.parse(szWsStr);
-                                szWs[ak + "rsizone"] = rsiZone;
-                                localStorage.setItem("td-alert-zones", JSON.stringify(szWs));
+                                var szWsI = JSON.parse(localStorage.getItem("td-alert-zones") || "{}");
+                                szWsI[ak + "rsizone"] = rsiZone;
+                                if (szWsI[ak + "rsi_ob_ts"])
+                                    lastTrigRef.current[ak + "rsi_ob_ts"] = szWsI[ak + "rsi_ob_ts"];
+                                if (szWsI[ak + "rsi_os_ts"])
+                                    lastTrigRef.current[ak + "rsi_os_ts"] = szWsI[ak + "rsi_os_ts"];
+                                localStorage.setItem("td-alert-zones", JSON.stringify(szWsI));
                             }
                             catch (e) { }
-                            if (rsiZone === "oversold" && (alert.rsiOversoldEnabled !== false))
-                                sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200 });
-                            else if (rsiZone === "overbought" && (alert.rsiOverboughtEnabled !== false))
-                                sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200 });
+                            // Si ya estamos en zona extrema y no hay cooldown activo, notificar inmediatamente
+                            if (rsiZone === "overbought" || rsiZone === "oversold") {
+                                var cdKeyI = rsiZone === "overbought" ? (ak + "rsi_ob_ts") : (ak + "rsi_os_ts");
+                                var lastCdI = lastTrigRef.current[cdKeyI] || 0;
+                                if (Date.now() - lastCdI > rsiCdMs) {
+                                    lastTrigRef.current[cdKeyI] = Date.now();
+                                    try {
+                                        var szFire = JSON.parse(localStorage.getItem("td-alert-zones") || "{}");
+                                        szFire[cdKeyI] = Date.now();
+                                        localStorage.setItem("td-alert-zones", JSON.stringify(szFire));
+                                    }
+                                    catch (e) { }
+                                    if (rsiZone === "oversold" && alert.rsiOversoldEnabled !== false)
+                                        sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, ema50: ema50, ema200: ema200 });
+                                    else if (rsiZone === "overbought" && alert.rsiOverboughtEnabled !== false)
+                                        sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, ema50: ema50, ema200: ema200 });
+                                }
+                            }
+                        }
+                        else {
+                            var prevZone = lastTrigRef.current[ak + "rsizone"] || "neutral";
+                            lastTrigRef.current[ak + "rsizone"] = rsiZone;
+                            if ((rsiZone === "overbought" || rsiZone === "oversold") && rsiZone !== prevZone) {
+                                // Zona extrema recién alcanzada — verificar cooldown antes de notificar
+                                var cdKey = rsiZone === "overbought" ? (ak + "rsi_ob_ts") : (ak + "rsi_os_ts");
+                                var lastCd = lastTrigRef.current[cdKey] || 0;
+                                if (Date.now() - lastCd > rsiCdMs) {
+                                    lastTrigRef.current[cdKey] = Date.now();
+                                    try {
+                                        var szWs = {};
+                                        var szWsStr = localStorage.getItem("td-alert-zones");
+                                        if (szWsStr)
+                                            szWs = JSON.parse(szWsStr);
+                                        szWs[ak + "rsizone"] = rsiZone;
+                                        szWs[cdKey] = Date.now();
+                                        localStorage.setItem("td-alert-zones", JSON.stringify(szWs));
+                                    }
+                                    catch (e) { }
+                                    if (rsiZone === "oversold" && alert.rsiOversoldEnabled !== false)
+                                        sendAlert(alert.label, alert.interval, rsi, "rsi_oversold", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, ema50: ema50, ema200: ema200 });
+                                    else if (rsiZone === "overbought" && alert.rsiOverboughtEnabled !== false)
+                                        sendAlert(alert.label, alert.interval, rsi, "rsi_overbought", ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, ema50: ema50, ema200: ema200 });
+                                }
+                            }
+                            else if (rsiZone !== prevZone) {
+                                // Zona cambió a neutral — actualizar estado, sin alerta
+                                try {
+                                    var szWsN = {};
+                                    var szWsNStr = localStorage.getItem("td-alert-zones");
+                                    if (szWsNStr)
+                                        szWsN = JSON.parse(szWsNStr);
+                                    szWsN[ak + "rsizone"] = rsiZone;
+                                    localStorage.setItem("td-alert-zones", JSON.stringify(szWsN));
+                                }
+                                catch (e) { }
+                            }
                         }
                         // RSI personalizado (nivel configurado por el usuario)
                         if (alert.rsiCustomEnabled && alert.rsiCustomTarget) {
@@ -5256,276 +5477,280 @@ function AlertasTab({ S, predictions }) {
                                 catch (e) { }
                             }
                         }
-                        // Divergencias/Convergencias RSI — todas las temporalidades, solo vela cerrada
-                        if (k.x && (alert.rsiDivEnabled !== false)) {
+                        // Divergencias/Convergencias RSI — se detectan en cada tick (excepción: forman antes de que cierre la vela)
+                        if (alert.rsiDivEnabled !== false) {
                             if (divResult) {
                                 var divKind = divResult.kind || "divergence";
                                 var divAlertType = divKind === "convergence"
                                     ? (divResult.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
                                     : (divResult.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
-                                var divKey = ak + divKind + "_" + divResult.type + "_" + Math.round(closePrice / 50);
-                                if (!lastTrigRef.current[divKey]) {
-                                    lastTrigRef.current[divKey] = true;
+                                // Time-based lock: don't re-fire same divergence type within one candle period
+                                var divLockKey = ak + divKind + "_" + divResult.type + "_lock";
+                                var divCooldownMs = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 14400000;
+                                var prevDivFired = lastTrigRef.current[divLockKey] || 0;
+                                if (Date.now() - prevDivFired > divCooldownMs) {
+                                    lastTrigRef.current[divLockKey] = Date.now();
+                                    try {
+                                        var dzWs = {};
+                                        var dzWsStr = localStorage.getItem("td-alert-zones");
+                                        if (dzWsStr)
+                                            dzWs = JSON.parse(dzWsStr);
+                                        dzWs[divLockKey] = Date.now();
+                                        localStorage.setItem("td-alert-zones", JSON.stringify(dzWs));
+                                    }
+                                    catch (e) { }
                                     sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200 });
                                 }
                             }
-                            else {
-                                // Sin divergencia → liberar locks de la zona actual para poder re-detectar
-                                var pzD = Math.round(closePrice / 50);
-                                ["divergence_bullish", "divergence_bearish", "convergence_bullish", "convergence_bearish"].forEach(function (dt) {
-                                    delete lastTrigRef.current[ak + dt + "_" + pzD];
-                                });
-                            }
                         }
-                    }
-                    // ─── PATRONES CHARTISTAS: registran confluencia Y disparan notificación propia ───
-                    if (k.x) {
-                        var confKeyPat = alert.label + "|" + alert.interval;
-                        if (!confluenceRef.current[confKeyPat])
-                            confluenceRef.current[confKeyPat] = {};
-                        // Banderín alcista
-                        var pennantResult = detectBullishPennant(ohlc);
-                        if (!pennantResult || !pennantResult.breakout) {
-                            lastTrigRef.current[ak + "pennant_bull"] = false;
-                            lastTrigRef.current[ak + "pennant_fake"] = false;
-                            delete confluenceRef.current[confKeyPat]["pennant_bull"];
-                        }
-                        if (pennantResult && pennantResult.breakout) {
-                            if (!pennantResult.falseBrkWarning) {
-                                // Ruptura limpia → notificar si es primera vez en este estado
-                                if (!lastTrigRef.current[ak + "pennant_bull"]) {
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bull", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
+                        // ─── PATRONES CHARTISTAS (SOLO CANALES) ───
+                        if (k.x) {
+                            var confKeyPat = alert.label + "|" + alert.interval;
+                            if (!confluenceRef.current[confKeyPat])
+                                confluenceRef.current[confKeyPat] = {};
+                            // ─── CANAL: máquina de estados con notificaciones ───
+                            var chanResult = detectChannelAlert(ohlc);
+                            var prevCT = lastTrigRef.current[ak + "chan_type"] || null;
+                            var prevCZ = lastTrigRef.current[ak + "chan_zone"] || null;
+                            var chanIntervalMs = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 14400000;
+                            var ALL_CHAN_KEYS = ["canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista", "canal_bajista_soporte", "canal_bajista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista", "canal_alcista_soporte", "canal_alcista_resistencia"];
+                            if (!chanResult) {
+                                if (prevCT) {
+                                    lastTrigRef.current[ak + "chan_type"] = null;
+                                    lastTrigRef.current[ak + "chan_zone"] = null;
+                                    lastTrigRef.current[ak + "chan_was_out"] = false;
+                                    lastTrigRef.current[ak + "chan_hp_done"] = false;
+                                    ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
                                 }
-                                confluenceRef.current[confKeyPat]["pennant_bull"] = Date.now();
-                                lastTrigRef.current[ak + "pennant_bull"] = true;
-                                lastTrigRef.current[ak + "pennant_fake"] = false;
                             }
                             else {
-                                // Fakeout → notificar si es primera vez
-                                if (!lastTrigRef.current[ak + "pennant_fake"]) {
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_fake", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: pennantResult, divResult: divResult });
+                                var curCT = chanResult.canalType;
+                                var curCZ;
+                                if (chanResult.breakout) {
+                                    curCZ = chanResult.breakoutDir === "alcista" ? "out_above" : "out_below";
                                 }
-                                lastTrigRef.current[ak + "pennant_fake"] = true;
-                                delete confluenceRef.current[confKeyPat]["pennant_bull"];
-                            }
-                        }
-                        // Banderín bajista
-                        var bearPennantResult = detectBearishPennant(ohlc);
-                        if (!bearPennantResult || !bearPennantResult.breakout) {
-                            lastTrigRef.current[ak + "pennant_bear"] = false;
-                            lastTrigRef.current[ak + "pennant_bear_fake"] = false;
-                            delete confluenceRef.current[confKeyPat]["pennant_bear"];
-                        }
-                        if (bearPennantResult && bearPennantResult.breakout) {
-                            if (!bearPennantResult.falseBrkWarning) {
-                                if (!lastTrigRef.current[ak + "pennant_bear"]) {
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bear", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: bearPennantResult, divResult: divResult });
+                                else if (chanResult.pos < 0.18) {
+                                    curCZ = "support";
                                 }
-                                confluenceRef.current[confKeyPat]["pennant_bear"] = Date.now();
-                                lastTrigRef.current[ak + "pennant_bear"] = true;
-                                lastTrigRef.current[ak + "pennant_bear_fake"] = false;
-                            }
-                            else {
-                                if (!lastTrigRef.current[ak + "pennant_bear_fake"]) {
-                                    sendAlert(alert.label, alert.interval, rsi, "pennant_bear_fake", ema7, ema25, null, closePrice, { ohlc: ohlc, pennantResult: bearPennantResult, divResult: divResult });
+                                else if (chanResult.pos > 0.82) {
+                                    curCZ = "resistance";
                                 }
-                                lastTrigRef.current[ak + "pennant_bear_fake"] = true;
-                                delete confluenceRef.current[confKeyPat]["pennant_bear"];
-                            }
-                        }
-                        // ─── CANAL: máquina de estados con notificaciones ───
-                        var chanResult = detectChannelAlert(ohlc);
-                        var prevCT = lastTrigRef.current[ak + "chan_type"] || null;
-                        var prevCZ = lastTrigRef.current[ak + "chan_zone"] || null;
-                        var ALL_CHAN_KEYS = ["canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista", "canal_bajista_soporte", "canal_bajista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista", "canal_alcista_soporte", "canal_alcista_resistencia"];
-                        if (!chanResult) {
-                            // Canal desaparecido — limpiar estado
-                            if (prevCT) {
-                                lastTrigRef.current[ak + "chan_type"] = null;
-                                lastTrigRef.current[ak + "chan_zone"] = null;
-                                lastTrigRef.current[ak + "chan_was_out"] = false;
-                                lastTrigRef.current[ak + "chan_hp_done"] = false;
-                                ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
-                            }
-                        }
-                        else {
-                            var curCT = chanResult.canalType;
-                            // Determinar zona actual del precio
-                            var curCZ;
-                            if (chanResult.breakout) {
-                                curCZ = chanResult.breakoutDir === "alcista" ? "out_above" : "out_below";
-                            }
-                            else if (chanResult.pos < 0.18) {
-                                curCZ = "support";
-                            }
-                            else if (chanResult.pos > 0.82) {
-                                curCZ = "resistance";
-                            }
-                            else {
-                                curCZ = "mid";
-                            }
-                            if (curCT !== prevCT) {
-                                // ─── Nuevo canal detectado (tipo cambió o primera vez) ───
-                                lastTrigRef.current[ak + "chan_was_out"] = false;
-                                lastTrigRef.current[ak + "chan_hp_done"] = false;
-                                ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
-                                if (!chanResult.falseBrk) {
-                                    // Notificar detección con posición actual
-                                    var newNotifType;
-                                    if (curCZ === "out_above") {
-                                        newNotifType = "canal_" + curCT + "_ruptura_alcista";
+                                else {
+                                    curCZ = "mid";
+                                }
+                                if (curCT !== prevCT) {
+                                    // ─── Nuevo canal (incluye primera detección tras inicio, prevCT=null) ───
+                                    lastTrigRef.current[ak + "chan_was_out"] = false;
+                                    lastTrigRef.current[ak + "chan_hp_done"] = false;
+                                    ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
+                                    // localStorage cooldown prevents re-notification on WS reconnect
+                                    var chanLsKey = "td-chan-" + ak + curCT;
+                                    var chanLsTs = 0;
+                                    try {
+                                        chanLsTs = parseInt(localStorage.getItem(chanLsKey) || "0");
                                     }
-                                    else if (curCZ === "out_below") {
-                                        newNotifType = "canal_" + curCT + "_ruptura_bajista";
+                                    catch (e) { }
+                                    var chanRecentNotif = Date.now() - chanLsTs < chanIntervalMs * 3;
+                                    if (!chanResult.falseBrk && !chanRecentNotif) {
+                                        var newNotifType;
+                                        if (curCZ === "out_above") {
+                                            newNotifType = "canal_" + curCT + "_ruptura_alcista";
+                                        }
+                                        else if (curCZ === "out_below") {
+                                            newNotifType = "canal_" + curCT + "_ruptura_bajista";
+                                        }
+                                        else if (curCZ === "resistance") {
+                                            newNotifType = "canal_" + curCT + "_resistencia";
+                                        }
+                                        else {
+                                            newNotifType = "canal_" + curCT + "_soporte";
+                                        }
+                                        sendAlert(alert.label, alert.interval, rsi, newNotifType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "🆕 Canal " + curCT + " detectado. " + chanResult.desc, channelResult: chanResult });
+                                        confluenceRef.current[confKeyPat][newNotifType] = Date.now();
+                                        try {
+                                            localStorage.setItem(chanLsKey, Date.now().toString());
+                                        }
+                                        catch (e) { }
                                     }
-                                    else if (curCZ === "resistance") {
-                                        newNotifType = "canal_" + curCT + "_resistencia";
+                                    lastTrigRef.current[ak + "chan_type"] = curCT;
+                                    lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                }
+                                else {
+                                    // ─── Mismo canal: procesar transición de zona ───
+                                    var wasOut = lastTrigRef.current[ak + "chan_was_out"] || false;
+                                    var hpDone = lastTrigRef.current[ak + "chan_hp_done"] || false;
+                                    if (curCZ === "out_above" || curCZ === "out_below") {
+                                        if (chanResult.falseBrk) {
+                                            lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                        }
+                                        else {
+                                            var isHP = (curCT === "bajista" && curCZ === "out_above") || (curCT === "alcista" && curCZ === "out_below");
+                                            if (isHP && !hpDone) {
+                                                var hpType = "canal_" + curCT + "_ruptura_" + (curCZ === "out_above" ? "alcista" : "bajista");
+                                                sendAlert(alert.label, alert.interval, rsi, hpType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
+                                                confluenceRef.current[confKeyPat][hpType] = Date.now();
+                                                lastTrigRef.current[ak + "chan_hp_done"] = true;
+                                            }
+                                            else if (!isHP && prevCZ !== curCZ) {
+                                                lastTrigRef.current[ak + "chan_was_out"] = true;
+                                            }
+                                            lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                        }
                                     }
                                     else {
-                                        newNotifType = "canal_" + curCT + "_soporte";
+                                        var reEntry = wasOut && (prevCZ === "out_above" || prevCZ === "out_below" || prevCZ === null);
+                                        if (reEntry) {
+                                            var reEntryType = "canal_" + curCT + (curCZ === "resistance" ? "_resistencia" : "_soporte");
+                                            sendAlert(alert.label, alert.interval, rsi, reEntryType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "↩️ RE-ENTRADA al canal " + curCT + ". " + chanResult.desc, channelResult: chanResult });
+                                            confluenceRef.current[confKeyPat][reEntryType] = Date.now();
+                                            lastTrigRef.current[ak + "chan_was_out"] = false;
+                                        }
+                                        else if (curCZ === "support" && prevCZ !== "support") {
+                                            sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_soporte", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
+                                            confluenceRef.current[confKeyPat]["canal_" + curCT + "_soporte"] = Date.now();
+                                        }
+                                        else if (curCZ === "resistance" && prevCZ !== "resistance") {
+                                            sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_resistencia", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
+                                            confluenceRef.current[confKeyPat]["canal_" + curCT + "_resistencia"] = Date.now();
+                                        }
+                                        lastTrigRef.current[ak + "chan_zone"] = curCZ;
                                     }
-                                    sendAlert(alert.label, alert.interval, rsi, newNotifType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "🆕 Canal " + curCT + " detectado. " + chanResult.desc, channelResult: chanResult });
-                                    confluenceRef.current[confKeyPat][newNotifType] = Date.now();
                                 }
-                                lastTrigRef.current[ak + "chan_type"] = curCT;
-                                lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                            }
+                            // FVG
+                            var fvgResult = checkFVGCovered(ohlc, closePrice);
+                            if (fvgResult) {
+                                if (alert.fvgEnabled && !lastTrigRef.current[ak + "fvg"]) {
+                                    lastTrigRef.current[ak + "fvg"] = true;
+                                    try {
+                                        var fvgZs = {};
+                                        var fvgZsStr = localStorage.getItem("td-alert-zones");
+                                        if (fvgZsStr)
+                                            fvgZs = JSON.parse(fvgZsStr);
+                                        fvgZs[ak + "fvg_ts"] = Date.now();
+                                        localStorage.setItem("td-alert-zones", JSON.stringify(fvgZs));
+                                    }
+                                    catch (e) { }
+                                    sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                }
+                                confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
                             }
                             else {
-                                // ─── Mismo canal: procesar transición de zona ───
-                                var wasOut = lastTrigRef.current[ak + "chan_was_out"] || false;
-                                var hpDone = lastTrigRef.current[ak + "chan_hp_done"] || false;
-                                if (curCZ === "out_above" || curCZ === "out_below") {
-                                    if (chanResult.falseBrk) {
-                                        // Fakeout → no notificar, actualizar zona para detectar re-entrada
-                                        lastTrigRef.current[ak + "chan_zone"] = curCZ;
-                                    }
-                                    else {
-                                        var isHP = (curCT === "bajista" && curCZ === "out_above") || (curCT === "alcista" && curCZ === "out_below");
-                                        if (isHP && !hpDone) {
-                                            // ─── ALTA PROBABILIDAD: ruptura contraria al canal ─── siempre notificar
-                                            var hpType = "canal_" + curCT + "_ruptura_" + (curCZ === "out_above" ? "alcista" : "bajista");
-                                            sendAlert(alert.label, alert.interval, rsi, hpType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                            confluenceRef.current[confKeyPat][hpType] = Date.now();
-                                            lastTrigRef.current[ak + "chan_hp_done"] = true;
+                                lastTrigRef.current[ak + "fvg"] = false;
+                                delete confluenceRef.current[confKeyPat]["patron_fvg"];
+                            }
+                        }
+                        // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
+                        // Semanal no tiene cruces (muy raros, generarían ruido)
+                        if (k.x && alert.interval !== "1w") {
+                            if (alert.emaCross725Enabled !== false) {
+                                if (cross7_25 === "golden") {
+                                    if (!lastTrigRef.current[ak + "g725"]) {
+                                        lastTrigRef.current[ak + "g725"] = true;
+                                        try {
+                                            var g725Zs = {};
+                                            var g725ZsStr = localStorage.getItem("td-alert-zones");
+                                            if (g725ZsStr)
+                                                g725Zs = JSON.parse(g725ZsStr);
+                                            g725Zs[ak + "g725_ts"] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(g725Zs));
                                         }
-                                        else if (!isHP && prevCZ !== curCZ) {
-                                            // Salida en dirección del canal (continuación) → marcar para detectar re-entrada
-                                            lastTrigRef.current[ak + "chan_was_out"] = true;
-                                        }
-                                        lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                        catch (e) { }
+                                        sendAlert(alert.label, alert.interval, rsi, "golden", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, ema50: ema50, ema200: ema200 });
                                     }
                                 }
                                 else {
-                                    // Precio dentro del canal
-                                    var reEntry = wasOut && (prevCZ === "out_above" || prevCZ === "out_below" || prevCZ === null);
-                                    if (reEntry) {
-                                        // Re-entrada real tras salida (no fakeout)
-                                        var reEntryType = "canal_" + curCT + (curCZ === "resistance" ? "_resistencia" : "_soporte");
-                                        sendAlert(alert.label, alert.interval, rsi, reEntryType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "↩️ RE-ENTRADA al canal " + curCT + ". " + chanResult.desc, channelResult: chanResult });
-                                        confluenceRef.current[confKeyPat][reEntryType] = Date.now();
-                                        lastTrigRef.current[ak + "chan_was_out"] = false;
+                                    lastTrigRef.current[ak + "g725"] = false;
+                                }
+                                if (cross7_25 === "death") {
+                                    if (!lastTrigRef.current[ak + "d725"]) {
+                                        lastTrigRef.current[ak + "d725"] = true;
+                                        try {
+                                            var d725Zs = {};
+                                            var d725ZsStr = localStorage.getItem("td-alert-zones");
+                                            if (d725ZsStr)
+                                                d725Zs = JSON.parse(d725ZsStr);
+                                            d725Zs[ak + "d725_ts"] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(d725Zs));
+                                        }
+                                        catch (e) { }
+                                        sendAlert(alert.label, alert.interval, rsi, "death", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, ema50: ema50, ema200: ema200 });
                                     }
-                                    else if (curCZ === "support" && prevCZ !== "support") {
-                                        // Llegada al soporte dinámico
-                                        sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_soporte", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                        confluenceRef.current[confKeyPat]["canal_" + curCT + "_soporte"] = Date.now();
+                                }
+                                else {
+                                    lastTrigRef.current[ak + "d725"] = false;
+                                }
+                            }
+                            // EMA 50/200 solo en 4H y superiores (no 1H — cruces muy frecuentes)
+                            if (alert.emaCross50200Enabled !== false && alert.interval !== "1h") {
+                                if (cross50_200 === "golden") {
+                                    if (!lastTrigRef.current[ak + "g200"]) {
+                                        lastTrigRef.current[ak + "g200"] = true;
+                                        try {
+                                            var g200Zs = {};
+                                            var g200ZsStr = localStorage.getItem("td-alert-zones");
+                                            if (g200ZsStr)
+                                                g200Zs = JSON.parse(g200ZsStr);
+                                            g200Zs[ak + "g200_ts"] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(g200Zs));
+                                        }
+                                        catch (e) { }
+                                        sendAlert(alert.label, alert.interval, rsi, "ema200_golden", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
                                     }
-                                    else if (curCZ === "resistance" && prevCZ !== "resistance") {
-                                        // Llegada a la resistencia dinámica
-                                        sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_resistencia", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                        confluenceRef.current[confKeyPat]["canal_" + curCT + "_resistencia"] = Date.now();
+                                }
+                                else {
+                                    lastTrigRef.current[ak + "g200"] = false;
+                                }
+                                if (cross50_200 === "death") {
+                                    if (!lastTrigRef.current[ak + "d200"]) {
+                                        lastTrigRef.current[ak + "d200"] = true;
+                                        try {
+                                            var d200Zs = {};
+                                            var d200ZsStr = localStorage.getItem("td-alert-zones");
+                                            if (d200ZsStr)
+                                                d200Zs = JSON.parse(d200ZsStr);
+                                            d200Zs[ak + "d200_ts"] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(d200Zs));
+                                        }
+                                        catch (e) { }
+                                        sendAlert(alert.label, alert.interval, rsi, "ema200_death", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
                                     }
-                                    lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                }
+                                else {
+                                    lastTrigRef.current[ak + "d200"] = false;
                                 }
                             }
                         }
-                        // FVG
-                        var fvgResult = checkFVGCovered(ohlc, closePrice);
-                        if (fvgResult) {
-                            if (alert.fvgEnabled && !lastTrigRef.current[ak + "fvg"]) {
-                                lastTrigRef.current[ak + "fvg"] = true;
-                                sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
-                            }
-                            confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
-                        }
-                        else {
-                            lastTrigRef.current[ak + "fvg"] = false;
-                            delete confluenceRef.current[confKeyPat]["patron_fvg"];
-                        }
+                        // Nota: el reseteo del cruce EMA se hace solo en vela CERRADA (dentro del if k.x de arriba)
+                        // No se resetea en ticks intermedios para evitar re-disparar cuando el precio fluctúa
                     }
-                    // ─── EMA CRUCES: solo en vela CONFIRMADA (k.x) para evitar falsas señales ───
-                    // Semanal no tiene cruces (muy raros, generarían ruido)
-                    if (k.x && alert.interval !== "1w") {
-                        if (alert.emaCross725Enabled !== false) {
-                            if (cross7_25 === "golden") {
-                                if (!lastTrigRef.current[ak + "g725"]) {
-                                    lastTrigRef.current[ak + "g725"] = true;
-                                    sendAlert(alert.label, alert.interval, rsi, "golden", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, ema50: ema50, ema200: ema200 });
-                                }
-                            }
-                            else {
-                                lastTrigRef.current[ak + "g725"] = false;
-                            }
-                            if (cross7_25 === "death") {
-                                if (!lastTrigRef.current[ak + "d725"]) {
-                                    lastTrigRef.current[ak + "d725"] = true;
-                                    sendAlert(alert.label, alert.interval, rsi, "death", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, ema50: ema50, ema200: ema200 });
-                                }
-                            }
-                            else {
-                                lastTrigRef.current[ak + "d725"] = false;
-                            }
+                    ;
+                    ws.onerror = function () {
+                        // will be followed by onclose, handle reconnect there
+                    };
+                    ws.onclose = function () {
+                        // If the alert is still supposed to be active, auto-reconnect
+                        const stillActive = alertsRef.current.find(function (a) { return a.id === alert.id && a.active; });
+                        if (!stillActive)
+                            return; // user stopped it
+                        const cnt = (reconnectCountRef.current[sid] || 0) + 1;
+                        reconnectCountRef.current[sid] = cnt;
+                        if (cnt > 10) {
+                            // too many retries, mark error
+                            setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
+                            reconnectCountRef.current[sid] = 0;
+                            return;
                         }
-                        // EMA 50/200 solo en 4H y superiores (no 1H — cruces muy frecuentes)
-                        if (alert.emaCross50200Enabled !== false && alert.interval !== "1h") {
-                            if (cross50_200 === "golden") {
-                                if (!lastTrigRef.current[ak + "g200"]) {
-                                    lastTrigRef.current[ak + "g200"] = true;
-                                    sendAlert(alert.label, alert.interval, rsi, "ema200_golden", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
-                                }
-                            }
-                            else {
-                                lastTrigRef.current[ak + "g200"] = false;
-                            }
-                            if (cross50_200 === "death") {
-                                if (!lastTrigRef.current[ak + "d200"]) {
-                                    lastTrigRef.current[ak + "d200"] = true;
-                                    sendAlert(alert.label, alert.interval, rsi, "ema200_death", ema50, ema200, null, closePrice, { ohlc: ohlc, divResult: divResult });
-                                }
-                            }
-                            else {
-                                lastTrigRef.current[ak + "d200"] = false;
-                            }
-                        }
-                    }
-                    // Nota: el reseteo del cruce EMA se hace solo en vela CERRADA (dentro del if k.x de arriba)
-                    // No se resetea en ticks intermedios para evitar re-disparar cuando el precio fluctúa
+                        const delay = Math.min(30000, 3000 * cnt);
+                        setTimeout(function () {
+                            const check = alertsRef.current.find(function (a) { return a.id === alert.id && a.active; });
+                            if (check)
+                                startAlert(check);
+                        }, delay);
+                    };
+                    wsRefs.current[sid] = ws;
+                    reconnectCountRef.current[sid] = 0;
                 };
-                ws.onerror = function () {
-                    // will be followed by onclose, handle reconnect there
-                };
-                ws.onclose = function () {
-                    // If the alert is still supposed to be active, auto-reconnect
-                    const stillActive = alertsRef.current.find(function (a) { return a.id === alert.id && a.active; });
-                    if (!stillActive)
-                        return; // user stopped it
-                    const cnt = (reconnectCountRef.current[sid] || 0) + 1;
-                    reconnectCountRef.current[sid] = cnt;
-                    if (cnt > 10) {
-                        // too many retries, mark error
-                        setAlerts(function (prev) { return prev.map(function (a) { return a.id === alert.id ? { ...a, active: false, error: true } : a; }); });
-                        reconnectCountRef.current[sid] = 0;
-                        return;
-                    }
-                    const delay = Math.min(30000, 3000 * cnt);
-                    setTimeout(function () {
-                        const check = alertsRef.current.find(function (a) { return a.id === alert.id && a.active; });
-                        if (check)
-                            startAlert(check);
-                    }, delay);
-                };
-                wsRefs.current[sid] = ws;
-                reconnectCountRef.current[sid] = 0;
             })
                 .catch(function () {
                 if ((attempt || 0) < 2) {
@@ -6213,7 +6438,6 @@ function AlertasTab({ S, predictions }) {
         })(),
         (function () {
             var FB_LABELS = {
-                pennant_bull: "🚩 Banderín Alcista", pennant_fake: "⚠️ Banderín Falso",
                 rsi_div_bull: "🟢 Div. Alcista RSI", rsi_div_bear: "🔴 Div. Bajista RSI",
                 rsi_conv_bull: "📈 Conv. Alcista RSI", rsi_conv_bear: "📉 Conv. Bajista RSI",
                 canal_bajista_ruptura_alcista: "🚀 Canal Baj. Ruptura ↑", canal_bajista_ruptura_bajista: "📐 Canal Baj. Ruptura ↓",
@@ -6234,7 +6458,7 @@ function AlertasTab({ S, predictions }) {
                             if (!tk2 || !cid2)
                                 return null;
                             return React.createElement("button", { onClick: function () {
-                                    var LABELS2 = { rsi_oversold: "📉 RSI Sobreventa", rsi_overbought: "📈 RSI Sobrecompra", rsi_custom: "🎯 RSI Personalizado", golden: "🌟 Cruce Dorado 7/25", death: "💀 Cruce Muerte 7/25", ema200_golden: "🌟 Cruce Dorado 50/200", ema200_death: "💀 Cruce Muerte 50/200", rsi_div_bull: "🟢 Div Alcista RSI", rsi_div_bear: "🔴 Div Bajista RSI", rsi_conv_bull: "📈 Conv Alcista", rsi_conv_bear: "📉 Conv Bajista", pennant_bull: "🚩 Banderín Alcista", pennant_fake: "⚠️ Banderín Alc. Falso", pennant_bear: "🔻 Banderín Bajista", pennant_bear_fake: "⚠️ Banderín Baj. Falso", canal_bajista_ruptura_alcista: "📐 Canal Baj. Rup↑", canal_alcista_ruptura_bajista: "📐 Canal Alc. Rup↓", canal_alcista_soporte: "📐 Canal Alc. Soporte", patron_fvg: "⚡ FVG Cubierta", patron_combo: "🔥 Patrón Combo" };
+                                    var LABELS2 = { rsi_oversold: "📉 RSI Sobreventa", rsi_overbought: "📈 RSI Sobrecompra", rsi_custom: "🎯 RSI Personalizado", golden: "🌟 Cruce Dorado 7/25", death: "💀 Cruce Muerte 7/25", ema200_golden: "🌟 Cruce Dorado 50/200", ema200_death: "💀 Cruce Muerte 50/200", rsi_div_bull: "🟢 Div Alcista RSI", rsi_div_bear: "🔴 Div Bajista RSI", rsi_conv_bull: "📈 Conv Alcista", rsi_conv_bear: "📉 Conv Bajista", canal_bajista_ruptura_alcista: "📐 Canal Baj. Rup↑", canal_alcista_ruptura_bajista: "📐 Canal Alc. Rup↓", canal_alcista_soporte: "📐 Canal Alc. Soporte", patron_fvg: "⚡ FVG Cubierta", patron_combo: "🔥 Patrón Combo" };
                                     var fb2 = {};
                                     try {
                                         fb2 = JSON.parse(localStorage.getItem("td-pattern-fb") || "{}");
@@ -6325,19 +6549,11 @@ function AlertasTab({ S, predictions }) {
                     icon = "📉";
                     color = "#ff8844";
                 }
-                else if (log.type === "pennant_bull") {
-                    icon = "🚩";
-                    color = "#00ff88";
-                }
-                else if (log.type === "pennant_bear" || log.type === "pennant_bear_fake") {
-                    icon = "🔻";
-                    color = "#ff4444";
-                }
                 var fb = patternStats[log.type] || null;
                 var fbPct = fb && fb.total > 0 ? Math.round(fb.correct / fb.total * 100) : null;
                 var rated = ratedLogs[log.id];
                 var ALL_FB_TYPES = ["rsi_oversold", "rsi_overbought", "rsi_custom", "golden", "death", "ema200_golden", "ema200_death",
-                    "rsi_div_bull", "rsi_div_bear", "rsi_conv_bull", "rsi_conv_bear", "pennant_bull", "pennant_fake", "pennant_bear", "pennant_bear_fake",
+                    "rsi_div_bull", "rsi_div_bear", "rsi_conv_bull", "rsi_conv_bear",
                     "canal_bajista_soporte", "canal_bajista_resistencia", "canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista",
                     "canal_alcista_soporte", "canal_alcista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista",
                     "patron_combo", "patron_fvg"];
@@ -7429,230 +7645,6 @@ function linReg(pts) {
     var b = (sy - m * sx) / n;
     return { slope: m, intercept: b };
 }
-// ─── BULLISH PENNANT DETECTION ───
-// Structure: strong upward pole → small triangular consolidation (descending highs, ascending lows,
-// decreasing volume) → bullish breakout above upper trendline with volume
-function detectBullishPennant(ohlc) {
-    if (!ohlc || ohlc.length < 30)
-        return null;
-    // Try consolidation windows from 5 to 20 candles (most recent), largest valid wins
-    var best = null;
-    for (var consLen = 15; consLen >= 5; consLen--) {
-        var consEnd = ohlc.length - 1;
-        var consStart = consEnd - consLen + 1;
-        if (consStart < 8)
-            continue;
-        var consSlice = ohlc.slice(consStart, consEnd + 1);
-        // Build regression on highs and lows of consolidation
-        var highPts = consSlice.map(function (c, i) { return { x: i, y: c.h }; });
-        var lowPts = consSlice.map(function (c, i) { return { x: i, y: c.l }; });
-        var rH = linReg(highPts);
-        var rL = linReg(lowPts);
-        if (!rH || !rL)
-            continue;
-        // Pennant: highs slope DOWN, lows slope UP (converging)
-        if (rH.slope >= 0 || rL.slope <= 0)
-            continue;
-        // Lines must be converging (spread narrowing over the consolidation)
-        var spreadStart = rH.intercept - rL.intercept;
-        var spreadEnd = (rH.slope * (consLen - 1) + rH.intercept) - (rL.slope * (consLen - 1) + rL.intercept);
-        if (spreadEnd <= 0 || spreadEnd >= spreadStart * 0.9)
-            continue; // must narrow at least 10%
-        // Volume declining: avg of first half > avg of second half of consolidation
-        var vols = consSlice.map(function (c) { return c.v || 0; });
-        var halfLen = Math.floor(consLen / 2);
-        var firstHalfVol = vols.slice(0, halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(halfLen, 1);
-        var secondHalfVol = vols.slice(halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(vols.slice(halfLen).length, 1);
-        var avgConsVol = vols.reduce(function (a, v) { return a + v; }, 0) / vols.length;
-        if (firstHalfVol > 0 && secondHalfVol > firstHalfVol * 1.1)
-            continue; // volume increasing — not a pennant
-        // Find the pole: look back before consStart for the bullish impulse (3-20 candles)
-        var poleFound = false;
-        var poleData = null;
-        for (var pLen = 3; pLen <= 20; pLen++) {
-            var ps = consStart - pLen;
-            if (ps < 0)
-                break;
-            var pSlice = ohlc.slice(ps, consStart + 1);
-            var poleOpen = pSlice[0].o;
-            var poleClose = pSlice[pSlice.length - 1].c;
-            var gain = (poleClose - poleOpen) / poleOpen;
-            if (gain < 0.03)
-                continue; // pole must be at least 3% gain
-            var bullCount = pSlice.filter(function (c) { return c.c > c.o; }).length;
-            if (bullCount < pLen * 0.5)
-                continue; // majority bullish candles
-            // Pole volume should be higher than consolidation volume
-            var poleVols = pSlice.map(function (c) { return c.v || 0; });
-            var avgPoleVol = poleVols.reduce(function (a, v) { return a + v; }, 0) / pSlice.length;
-            if (avgConsVol > 0 && avgPoleVol < avgConsVol)
-                continue; // pole volume must be >= consolidation
-            poleFound = true;
-            poleData = { start: ps, end: consStart, gainPct: gain, height: poleClose - poleOpen, poleClose: poleClose };
-            break;
-        }
-        if (!poleFound)
-            continue;
-        // Compute projected upper/lower trendlines at current bar
-        var n = consLen - 1; // index of last bar in consolidation
-        var upperNow = rH.slope * n + rH.intercept;
-        var lowerNow = rL.slope * n + rL.intercept;
-        var lastC = ohlc[consEnd];
-        var curPrice = lastC.c;
-        // Breakout: close above upper trendline
-        var breakout = curPrice > upperNow;
-        // Target: pole height projected from breakout point (or from upper line if not yet broken)
-        var projBase = breakout ? curPrice : upperNow;
-        var targetPrice = projBase + poleData.height;
-        // False-breakout evaluation
-        var falseBrkWarning = false;
-        var falseBrkReasons = [];
-        if (breakout) {
-            var body = Math.abs(lastC.c - lastC.o);
-            var upperWick = lastC.h - Math.max(lastC.c, lastC.o);
-            var totalRange = lastC.h - lastC.l;
-            // 1. Long upper wick relative to body
-            if (totalRange > 0 && body > 0 && upperWick > body) {
-                falseBrkWarning = true;
-                falseBrkReasons.push("mecha superior > cuerpo (cierre débil)");
-            }
-            // 2. Close barely above or back below upper trendline
-            if (lastC.c < upperNow) {
-                falseBrkWarning = true;
-                falseBrkReasons.push("cierre por debajo de línea de ruptura");
-            }
-            // 3. Breakout volume below 1.2x consolidation average
-            var brkVol = lastC.v || 0;
-            if (avgConsVol > 0 && brkVol < avgConsVol * 1.2) {
-                falseBrkWarning = true;
-                falseBrkReasons.push("volumen de ruptura insuficiente");
-            }
-        }
-        best = {
-            type: "pennant_bull",
-            poleStart: poleData.start, poleEnd: poleData.end,
-            consStart: consStart, consEnd: consEnd,
-            breakout: breakout, falseBrkWarning: falseBrkWarning, falseBrkReasons: falseBrkReasons,
-            targetPrice: targetPrice, upperLine: upperNow, lowerLine: lowerNow,
-            poleGainPct: poleData.gainPct, poleHeight: poleData.height,
-            consLength: consLen, avgConsVol: avgConsVol
-        };
-        break;
-    }
-    return best;
-}
-// ─── BEARISH PENNANT DETECTION ───
-// Structure: strong downward pole → converging triangle consolidation (descending highs,
-// ascending lows, decreasing volume) → bearish breakout below lower trendline with volume
-function detectBearishPennant(ohlc) {
-    if (!ohlc || ohlc.length < 30)
-        return null;
-    var best = null;
-    for (var consLen = 15; consLen >= 5; consLen--) {
-        var consEnd = ohlc.length - 1;
-        var consStart = consEnd - consLen + 1;
-        if (consStart < 8)
-            continue;
-        var consSlice = ohlc.slice(consStart, consEnd + 1);
-        var highPts = consSlice.map(function (c, i) { return { x: i, y: c.h }; });
-        var lowPts = consSlice.map(function (c, i) { return { x: i, y: c.l }; });
-        var rH = linReg(highPts);
-        var rL = linReg(lowPts);
-        if (!rH || !rL)
-            continue;
-        // Pennant consolidation: highs slope DOWN, lows slope UP (symmetric converging triangle)
-        if (rH.slope >= 0 || rL.slope <= 0)
-            continue;
-        // Lines must be converging (spread narrowing by at least 10%)
-        var spreadStart = rH.intercept - rL.intercept;
-        var spreadEnd = (rH.slope * (consLen - 1) + rH.intercept) - (rL.slope * (consLen - 1) + rL.intercept);
-        if (spreadEnd <= 0 || spreadEnd >= spreadStart * 0.9)
-            continue;
-        // Volume declining during consolidation (pause before continuation)
-        var vols = consSlice.map(function (c) { return c.v || 0; });
-        var halfLen = Math.floor(consLen / 2);
-        var firstHalfVol = vols.slice(0, halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(halfLen, 1);
-        var secondHalfVol = vols.slice(halfLen).reduce(function (a, v) { return a + v; }, 0) / Math.max(vols.slice(halfLen).length, 1);
-        var avgConsVol = vols.reduce(function (a, v) { return a + v; }, 0) / vols.length;
-        if (firstHalfVol > 0 && secondHalfVol > firstHalfVol * 1.1)
-            continue; // volume should not increase
-        // Find the pole: bearish impulse BEFORE consolidation
-        var poleFound = false;
-        var poleData = null;
-        for (var pLen = 3; pLen <= 20; pLen++) {
-            var ps = consStart - pLen;
-            if (ps < 0)
-                break;
-            var pSlice = ohlc.slice(ps, consStart + 1);
-            var poleOpen = pSlice[0].o;
-            var poleClose = pSlice[pSlice.length - 1].c;
-            var drop = (poleOpen - poleClose) / poleOpen; // positive value = downward move
-            if (drop < 0.03)
-                continue; // pole must drop at least 3%
-            var bearCount = pSlice.filter(function (c) { return c.c < c.o; }).length;
-            if (bearCount < pLen * 0.5)
-                continue; // majority bearish candles
-            // Pole volume must be higher than consolidation (strong impulse)
-            var poleVols = pSlice.map(function (c) { return c.v || 0; });
-            var avgPoleVol = poleVols.reduce(function (a, v) { return a + v; }, 0) / pSlice.length;
-            if (avgConsVol > 0 && avgPoleVol < avgConsVol)
-                continue;
-            poleFound = true;
-            poleData = { start: ps, end: consStart, dropPct: drop, height: poleOpen - poleClose, poleClose: poleClose };
-            break;
-        }
-        if (!poleFound)
-            continue;
-        // Project trendlines to current bar
-        var n = consLen - 1;
-        var upperNow = rH.slope * n + rH.intercept;
-        var lowerNow = rL.slope * n + rL.intercept;
-        var lastC = ohlc[consEnd];
-        var curPrice = lastC.c;
-        // Breakout: close BELOW the lower trendline
-        var breakout = curPrice < lowerNow;
-        // Target: project pole height downward from breakout
-        var projBase = breakout ? curPrice : lowerNow;
-        var targetPrice = projBase - poleData.height;
-        // False-breakout evaluation
-        var falseBrkWarning = false;
-        var falseBrkReasons = [];
-        if (breakout) {
-            var body = Math.abs(lastC.c - lastC.o);
-            var lowerWick = Math.min(lastC.c, lastC.o) - lastC.l;
-            var totalRange = lastC.h - lastC.l;
-            // 1. Long lower wick: price poked below but closed higher — trap
-            if (totalRange > 0 && body > 0 && lowerWick > body) {
-                falseBrkWarning = true;
-                falseBrkReasons.push("mecha inferior > cuerpo (cierre débil)");
-            }
-            // 2. Candle closed back above the lower trendline — inside the triangle
-            if (lastC.c > lowerNow) {
-                falseBrkWarning = true;
-                falseBrkReasons.push("cierre dentro del triángulo");
-            }
-            // 3. Low breakout volume
-            var brkVol = lastC.v || 0;
-            if (avgConsVol > 0 && brkVol < avgConsVol * 1.2) {
-                falseBrkWarning = true;
-                falseBrkReasons.push("volumen de ruptura insuficiente");
-            }
-            // 4. Breakout is in opposite direction to the pole (upward break after bearish pole = likely fake)
-            // Not applicable here — we check for downward break, same as pole direction
-        }
-        best = {
-            type: "pennant_bear",
-            poleStart: poleData.start, poleEnd: poleData.end,
-            consStart: consStart, consEnd: consEnd,
-            breakout: breakout, falseBrkWarning: falseBrkWarning, falseBrkReasons: falseBrkReasons,
-            targetPrice: targetPrice, upperLine: upperNow, lowerLine: lowerNow,
-            poleDropPct: poleData.dropPct, poleHeight: poleData.height,
-            consLength: consLen, avgConsVol: avgConsVol
-        };
-        break;
-    }
-    return best;
-}
 // ─── CANAL DETECTADO (descendente / ascendente) ───
 // Retorna null, o un objeto con tipo, posición, breakout y validación de falsa ruptura
 function detectChannelAlert(ohlc) {
@@ -7664,9 +7656,9 @@ function detectChannelAlert(ohlc) {
     var lows = recent.map(function (c) { return c.l; });
     var vols = recent.map(function (c) { return c.v || 0; });
     var price = recent[n].c;
-    // Pivot detection with window=3 (necesita al menos 3 pivots de cada lado)
-    var pivs = detectPivots(highs, lows, 3);
-    if (pivs.pH.length < 3 || pivs.pL.length < 3)
+    // Pivot detection with window=2 (2 candles each side — more pivots detected in crypto)
+    var pivs = detectPivots(highs, lows, 2);
+    if (pivs.pH.length < 2 || pivs.pL.length < 2)
         return null;
     var rH = linReg(pivs.pH);
     var rL = linReg(pivs.pL);
@@ -7687,47 +7679,24 @@ function detectChannelAlert(ohlc) {
         return null;
     var isDescending = rH.slope < 0; // canal bajista si ambas líneas bajan
     var canalType = isDescending ? "bajista" : "alcista";
-    // ─── Canal Ascendente: validaciones adicionales ───
-    // Verificar que los mínimos pivot son realmente ascendentes (no solo la regresión)
+    // Ascending channel: at least the regression slope must be positive on both lines (already guaranteed by sameSign)
     var ascLowsOk = true;
     var ascHighsOk = true;
-    if (!isDescending) {
-        // Al menos los últimos 3 mínimos deben ser ascendentes
-        var lastPL = pivs.pL.slice(-3);
-        for (var li = 1; li < lastPL.length; li++) {
-            if (lastPL[li][1] <= lastPL[li - 1][1]) {
-                ascLowsOk = false;
-                break;
-            }
-        }
-        // Al menos los últimos 3 máximos deben ser ascendentes
-        var lastPH = pivs.pH.slice(-3);
-        for (var hi2 = 1; hi2 < lastPH.length; hi2++) {
-            if (lastPH[hi2][1] <= lastPH[hi2 - 1][1]) {
-                ascHighsOk = false;
-                break;
-            }
-        }
-        if (!ascLowsOk && !ascHighsOk)
-            return null; // ambas fallando → no es canal ascendente válido
-    }
     // Contar toques: pivot que alcanzó o superó la línea cuenta como toque
     // (incluyendo velas de ruptura — si rompió la resistencia, la tocó)
     var touchMargin = ch * 0.35;
     var supportTouches = pivs.pL.filter(function (pt) {
-        var lineVal = rL.slope * pt[0] + rL.intercept;
-        // mínimo tocó el soporte desde arriba (pt[1] <= lineVal+margin) o lo perforó hacia abajo
-        return pt[1] <= lineVal + touchMargin;
+        var lineVal = rL.slope * pt.x + rL.intercept;
+        return pt.y <= lineVal + touchMargin;
     }).length;
     var resistTouches = pivs.pH.filter(function (pt) {
-        var lineVal = rH.slope * pt[0] + rH.intercept;
-        // máximo tocó la resistencia desde abajo (pt[1] >= lineVal-margin) o la perforó hacia arriba
-        return pt[1] >= lineVal - touchMargin;
+        var lineVal = rH.slope * pt.x + rH.intercept;
+        return pt.y >= lineVal - touchMargin;
     }).length;
     // Calidad general: más toques = canal más fiable (mínimo 3 pivots de cada lado)
     var channelQuality = Math.min(100, Math.round((supportTouches + resistTouches) / 2 * 20));
-    // ─── Validación obligatoria: canal requiere toques en AMBOS lados ───
-    if (supportTouches < 2 || resistTouches < 2)
+    // ─── Validación obligatoria: canal requiere al menos 1 toque en cada lado ───
+    if (supportTouches < 1 || resistTouches < 1)
         return null;
     // Posición del precio dentro del canal (0 = soporte, 1 = resistencia)
     var pos = (price - botLine) / ch;
@@ -7740,8 +7709,8 @@ function detectChannelAlert(ohlc) {
     var prevCandle = n > 0 ? recent[n - 1] : recent[n];
     var prevTopLine = rH.slope * (n - 1) + rH.intercept;
     var prevBotLine = rL.slope * (n - 1) + rL.intercept;
-    var isBreakoutUp = price > topLine * 1.002 && prevCandle.c > prevTopLine * 1.002;
-    var isBreakoutDown = price < botLine * 0.998 && prevCandle.c < prevBotLine * 0.998;
+    var isBreakoutUp = price > topLine * 1.002;
+    var isBreakoutDown = price < botLine * 0.998;
     if (isBreakoutUp || isBreakoutDown) {
         // Validar: ¿es ruptura real o fakeout?
         var lastCandle = recent[n];
@@ -7751,12 +7720,9 @@ function detectChannelAlert(ohlc) {
         var totalRange = lastCandle.h - lastCandle.l;
         var falseBrkReasons = [];
         if (isBreakoutUp) {
-            // Ruptura alcista de canal bajista (lo más común) o canal alcista (continuación)
-            if (totalRange > 0 && body > 0 && upperWick > body) {
-                falseBrkReasons.push("mecha superior > cuerpo");
-            }
-            if (!highVolume) {
-                falseBrkReasons.push("volumen insuficiente");
+            // Ruptura alcista
+            if (totalRange > 0 && body > 0 && upperWick > body * 1.5) {
+                falseBrkReasons.push("mecha superior muy larga");
             }
             if (lastCandle.c < topLine) {
                 falseBrkReasons.push("cierre dentro del canal");
@@ -7764,17 +7730,15 @@ function detectChannelAlert(ohlc) {
         }
         else {
             // Ruptura bajista
-            if (totalRange > 0 && body > 0 && lowerWick > body) {
-                falseBrkReasons.push("mecha inferior > cuerpo");
-            }
-            if (!highVolume) {
-                falseBrkReasons.push("volumen insuficiente");
+            if (totalRange > 0 && body > 0 && lowerWick > body * 1.5) {
+                falseBrkReasons.push("mecha inferior muy larga");
             }
             if (lastCandle.c > botLine) {
                 falseBrkReasons.push("cierre dentro del canal");
             }
         }
-        var falseBrk = falseBrkReasons.length >= 2; // 2+ señales = posible fakeout
+        // False breakout only if BOTH structural signals present (no volume check — unreliable in crypto)
+        var falseBrk = falseBrkReasons.length >= 2;
         var dir = isBreakoutUp ? "alcista" : "bajista";
         var alertType = (isBreakoutUp ? "canal_" + canalType + "_ruptura_alcista" : "canal_" + canalType + "_ruptura_bajista");
         var desc = (isDescending && isBreakoutUp)
@@ -7902,11 +7866,10 @@ async function getBinanceData(selAsset, selTF, ASSETS, TFS) {
     var ohlcSeries = klines.map(function (k) { return { o: parseFloat(k[1]), h: parseFloat(k[2]), l: parseFloat(k[3]), c: parseFloat(k[4]), v: parseFloat(k[5] || 0) }; });
     var rsiSeries = calcRSISeries(closes, 14);
     var divResult = detectRSIDivergence(ohlcSeries, rsiSeries);
-    var pennantResult = detectBullishPennant(ohlcSeries);
     return { asset: assetLabel, tf: tfLabel, price: price.toFixed(4), change24h: ticker.priceChangePercent,
         rsi: rsi, ema7: ema7 ? ema7.toFixed(4) : null, ema25: ema25 ? ema25.toFixed(4) : null, ema50: ema50 ? ema50.toFixed(4) : null,
         emaRelation: emaRel, trend: trend, volRatio: volRatio, high24h: ticker.highPrice, low24h: ticker.lowPrice,
-        supports: sr.supports, resistances: sr.resistances, fvgs: fvgs, divResult: divResult, pennantResult: pennantResult };
+        supports: sr.supports, resistances: sr.resistances, fvgs: fvgs, divResult: divResult };
 }
 
     var root = ReactDOM.createRoot(document.getElementById("root"));

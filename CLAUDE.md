@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Personal trading journal for Miguel Garcia Parrado. Single-file React app (~330 KB compiled HTML) that tracks operations, monitors technical indicators in real time, fires smart alerts, and provides AI-powered analysis via Claude.
+Personal trading journal for Miguel Garcia Parrado. Single-file React app (~556 KB compiled HTML) that tracks operations, monitors technical indicators in real time, fires smart alerts, and provides AI-powered analysis via Claude.
 
 **Production URL:** `https://tradingday.netlify.app` (or Vercel — check current deploy target)
 **Supabase:** `https://ifqftuqkdgsepvtqwefp.supabase.co` (table: `trading_data`)
@@ -74,9 +74,13 @@ CLAUDE.md              ← This file
 ### Data Persistence
 
 ```
-Edit → localStorage (immediate) → Supabase (600ms debounce)
-Load → Supabase (priority) → localStorage (fallback)
+Edit → localStorage (immediate, _savedAt timestamp) → Supabase (600ms debounce)
+Load → fetch BOTH Supabase + localStorage → use whichever has newer _savedAt
 ```
+
+Every write to `td-user` (localStorage or Supabase payload) includes `_savedAt: Date.now()`.
+On load, both sources are fetched and compared by `_savedAt`; the fresher one wins.
+This prevents Supabase (slow async write) from overwriting a more recent localStorage save on page reload.
 
 Main data blob saved under key `td-user` / Supabase `trading_data`:
 ```javascript
@@ -85,19 +89,31 @@ Main data blob saved under key `td-user` / Supabase `trading_data`:
   pos:      [ ...open positions ],
   pats:     [ ...chart pattern book ],
   jnl:      [ ...psychological diary entries ],
-  ps:       { slOk, slBroken, earlyClose, tpAuto, tpManual, revenge, manualClose,
-               ratioSum, ratioCount },  // profile stats
+  ps:       { slOk, slBroken, slBreakeven, earlyClose, tpAuto, tpManual, revenge,
+               manualClose, ratioSum, ratioCount, tpStreak, bestTpStreak },
   xhist:    [ ...closed positions via app ],
-  horarios: [ ...hourly pattern records ],
-  ethClosed: false
+  ethClosed: false,
+  predictions: [...],
+  chatMsgs: [...],
+  _savedAt: 1713000000000   // timestamp ms — used to resolve Supabase vs localStorage conflicts
 }
+```
+
+### Critical: Immediate localStorage Writes
+
+`closePos`, `autoCheckPositions`, ETH close, and manual trade add ALL write to localStorage **synchronously** (before the debounced Supabase call). This prevents data loss if the page is closed within the 600ms debounce window.
+
+Pattern used everywhere:
+```javascript
+try{localStorage.setItem("td-user",JSON.stringify({...payload,_savedAt:Date.now()}));}catch(e){}
+save(); // debounced Supabase sync
 ```
 
 ### localStorage Keys
 
 | Key | Contents |
 |-----|----------|
-| `td-user` | Main data blob (all positions, history, profile stats) |
+| `td-user` | Main data blob (all positions, history, profile stats, `_savedAt`) |
 | `td-alerts-v2` | Alert configurations |
 | `td-tg-token` | Telegram bot token |
 | `td-tg-chatid` | Telegram chat ID |
@@ -106,6 +122,7 @@ Main data blob saved under key `td-user` / Supabase `trading_data`:
 | `td-predictions` | AI predictions |
 | `td-pinned-msgs` | Pinned chat messages |
 | `td-ai-profile` | Cached AI profile analysis |
+| `td-chan-{alertId}{canalType}` | Timestamp of last channel notification (reconnect anti-spam) |
 
 ---
 
@@ -116,17 +133,17 @@ All components live in `trading-diary.jsx` as a single flat file.
 ### Top-level helpers (outside App)
 | Function | Purpose |
 |----------|---------|
-| `calcScore(ps,pats,jnl)` | Trader score 0-100 |
-| `generateProfileSummary(ps,pats,jnl,hist,xhist,sc)` | Text profile analysis |
+| `calcScore(ps,pats,jnl,xhist,predictions)` | Trader score 0-100 |
+| `generateProfileSummary(ps,pats,jnl,hist,xhist,sc,predictions)` | Text profile analysis |
 | `calcRSI(closes, period)` | RSI with Wilder smoothing |
 | `calcEMA(closes, period)` | EMA with k=2/(n+1) |
 | `calcEMASeries(closes, period)` | Full EMA series |
 | `detectCross(closes)` | `"golden"` / `"death"` / `null` for EMA 7/25 |
 | `detectCross50_200(closes)` | Same for EMA 50/200 |
 | `detectRSIDivergence(ohlcArr, rsiArr)` | `{type:"bullish"\|"bearish"}` or `null` |
-| `detectPivots(highs, lows, win)` | Pivot high/low detection |
-| `linReg(pts)` | Linear regression (slope, intercept) |
-| `detectChannelAlert(ohlc)` | Channel boundary detection |
+| `detectPivots(highs, lows, win)` | Pivot high/low detection — returns `{pH:[{x,y}], pL:[{x,y}]}` |
+| `linReg(pts)` | Linear regression — input must be `[{x,y}]` objects |
+| `detectChannelAlert(ohlc)` | Channel boundary/breakout detection |
 | `checkFVGCovered(ohlc, price)` | Fair Value Gap coverage check |
 | `detectFVGs(klines, price)` | All open FVGs for a symbol |
 | `calcSRLevels(highs, lows, price)` | Support/resistance levels |
@@ -135,8 +152,8 @@ All components live in `trading-diary.jsx` as a single flat file.
 | Component | Tab / Role |
 |-----------|-----------|
 | `App` | Root — global state, save/load, price fetching |
-| `ChatTab` | Tab 10 — AI chat with market data context |
-| `AlertasTab` | Tab 9 — WebSocket monitor, alert management |
+| `ChatTab` | Tab 9 — AI chat with market data context |
+| `AlertasTab` | Tab 8 — WebSocket monitor, alert management |
 | `EmaDisplay` | EMA 7/25 + 50/200 visual in alerts |
 | `GoalTracker` | Recovery goal progress bar |
 | `PositionAdvisor` | Automatic risk management tips for open positions |
@@ -181,13 +198,17 @@ All components live in `trading-diary.jsx` as a single flat file.
 
 ### Auto-Close Logic (`autoCheckPositions`)
 Runs after every `fetchPrices()` cycle (~60s). Checks all open positions:
-- SL hit → closes position, saves to `xhist` with "🛑 SL auto" note
+- SL hit → closes position, saves to `xhist` with "🛑 SL auto" or "⚖️ BE auto" note
 - TP level hit → closes that % of position, marks level `hit:true`
-- All TP levels hit → removes position entirely
+- All TP levels hit → removes position entirely, one consolidated xhist entry
 - Sends Telegram + browser notification via `notifyAutoClose()`
+- Saves immediately via `saveRef.current()` (no debounce) + synchronous localStorage write
 
 ### Ratio R:R Tracking
-When a position closes (any method), `ratio` is saved in the `xhist` entry and accumulated in `ps.ratioSum` / `ps.ratioCount`. The Resumen tab shows "RATIO R:R MEDIO".
+When a position closes (any method), `ratio` is saved in the `xhist` entry and accumulated in `ps.ratioSum` / `ps.ratioCount`. The Resumen tab shows "RATIO R:R MEDIO". **SL hits do NOT count toward ratio average — only TPs.**
+
+### Manual Trade Add (Historial tab)
+"+ Añadir trade" button in Historial tab. Validates all fields and shows `alert()` on missing data (no silent failures). If close price is left empty, defaults to entry price (= breakeven). Writes to localStorage immediately on add.
 
 ---
 
@@ -201,21 +222,46 @@ RSI history stored in `rsiHistRef.current[symbol+interval]`.
 EMA state stored in `emaStateRef.current`.
 
 ### Automatic Triggers (no user toggle required)
-- RSI enters ≤30 zone → `"rsi_oversold"` (fires once on zone entry, not per-candle)
-- RSI enters ≥70 zone → `"rsi_overbought"`
+- RSI enters ≤30 zone → `"rsi_oversold"` (fires once on zone entry, **2-point hysteresis**: resets only when RSI > 32)
+- RSI enters ≥70 zone → `"rsi_overbought"` (resets only when RSI < 68)
 - EMA 7 crosses above EMA 25 → `"golden"`
 - EMA 7 crosses below EMA 25 → `"death"`
 - EMA 50 crosses above EMA 200 → `"ema200_golden"`
 - EMA 50 crosses below EMA 200 → `"ema200_death"`
-- RSI divergence on closed candle → `"rsi_div_bull"` or `"rsi_div_bear"`
+- RSI divergence on closed candle → `"rsi_div_bull"` or `"rsi_div_bear"` (time-based cooldown = 1 candle period)
+
+**RSI and divergence are fully independent signals** — RSI notifications do NOT show divergence data.
 
 ### Optional User-Configured Triggers
 - Custom RSI level (`rsiCustomEnabled`, `rsiCustomTarget`, `rsiCustomCondition`)
-- Channel boundary touch (`channelEnabled`)
 - FVG covered (`fvgEnabled`)
 
+### Channel Detection (`detectChannelAlert`)
+Detects ascending and descending parallel channels on closed candles only (`k.x === true`).
+
+**Algorithm:**
+1. Takes last 80 candles, detects pivot highs/lows with `detectPivots(highs, lows, 2)` (window=2 → 4-candle confirmation)
+2. `detectPivots` returns `{pH:[{x,y}], pL:[{x,y}]}` — **always use `.x`/`.y` accessors, never `[0]`/`[1]`**
+3. Runs `linReg` on pivot arrays → upper and lower trendlines
+4. Parallelism check: same slope direction + ratio 0.20–5.0
+5. Touch validation: pivot within 35% of channel height from its line counts as a touch (min 1 each side)
+6. Breakout: price > topLine×1.002 (up) or price < botLine×0.998 (down)
+7. False breakout: needs BOTH long wick AND close still inside channel
+8. Zone alerts: `pos < 0.18` → support, `pos > 0.82` → resistance, middle → no alert
+
+**State machine (WS handler):**
+- New channel type detected (including first detection from `prevCT=null`): fires immediately unless localStorage cooldown active (`td-chan-{ak}{canalType}`, cooldown = 3× interval period)
+- Same channel, zone transitions: support↔resistance fires on zone change; breakout fires once per channel (`chan_hp_done` flag)
+- Re-entry after breakout: fires re-entry alert
+- Channel lost (`detectChannelAlert` returns null): resets all state
+
+**`startAlert` initialises per alert:** `chan_type=null`, `chan_zone=null`, `chan_was_out=false`, `chan_hp_done=false`
+
 ### Cooldown / Anti-spam
-`lastTrigRef.current[key]` tracks fired state per alert+type. Fires once when condition becomes true, resets when it becomes false. Zone-based cooldown for RSI 30/70 (tracks `"oversold"/"overbought"/"neutral"` state).
+`lastTrigRef.current[key]` tracks fired state per alert+type. Fires once when condition becomes true, resets when it becomes false.
+- RSI zones: 2-point hysteresis buffer (overbought resets at <68, oversold resets at >32)
+- Divergence: time-based lock = one full candle period
+- Channels: localStorage timestamp, cooldown = 3× interval period (survives WS reconnect)
 
 ### Alert Object Schema
 ```javascript
@@ -227,7 +273,6 @@ EMA state stored in `emaStateRef.current`.
   rsiCustomEnabled: boolean,
   rsiCustomTarget: number,  // 31-69
   rsiCustomCondition: "above"|"below",
-  channelEnabled: boolean,
   fvgEnabled: boolean,
   active: boolean,
   currentRsi: number|null,
@@ -248,7 +293,7 @@ Every `sendAlert()` call:
 
 ## Profile Score System
 
-`calcScore(ps, pats, jnl)` returns 0-100:
+`calcScore(ps, pats, jnl, xhist, predictions)` returns 0-100:
 - **s1** (30 pts): SL discipline — `slOk / (slOk + slBroken)`
 - **s2** (20 pts): TP discipline — reaching objective vs early close
 - **s3** (20 pts): No revenge trading — `20 - revenge * 5`
@@ -284,14 +329,16 @@ git push -u origin <branch>
 
 ### Branch Strategy
 - Feature branches: `claude/fix-*` or `claude/feat-*`
+- Current active branch: `claude/fix-syntax-error-8RmAS`
 - Merge to `main` via PR (GitHub MCP tools available)
 - **Always build and commit both HTML files before pushing**
 
 ### Debugging Tips
 - If deployed app shows old version: hard refresh (Ctrl+Shift+R), check that `index.html` was rebuilt
-- If data appears lost: check browser localStorage (`td-user` key), may be browser cache issue
+- If data appears lost: check browser localStorage (`td-user` key) — compare `_savedAt` with Supabase
 - Runtime errors won't show in `node --check` — test in browser console
-- The `save()` function debounces 600ms to Supabase; `SPos()` writes localStorage synchronously first
+- `save()` debounces 600ms to Supabase; critical writes (close position, auto-close, manual add) also write localStorage synchronously first
+- Channel never firing? Check `detectPivots` returns `{x,y}` objects — touch filter must use `.x`/`.y` not `[0]`/`[1]`
 
 ---
 
@@ -301,7 +348,7 @@ git push -u origin <branch>
 const QUANTFURY_BASE = -7471.73;  // Total loss from 246 Quantfury operations
 // Recovery goal: $7,641
 // ETH legacy: 1.9521 ETH, avg entry $3,621.58, realized loss -$796.09
-const PS0 = {slOk:14,slBroken:2,earlyClose:8,tpAuto:0,tpManual:2,revenge:1,manualClose:4};
+const PS0 = {slOk:14,slBroken:2,slBreakeven:0,earlyClose:8,tpAuto:0,tpManual:2,revenge:1,manualClose:4,tpStreak:0,bestTpStreak:0};
 ```
 
 ---
@@ -314,4 +361,4 @@ const PS0 = {slOk:14,slBroken:2,earlyClose:8,tpAuto:0,tpManual:2,revenge:1,manua
 4. Structural trailing stop — move SL only on new HH in 4H/1D
 5. Never open without a technical thesis
 
-**Primary strategy:** Cover FVG inefficiencies + chartist patterns (wedges, pennants, channels)
+**Primary strategy:** Cover FVG inefficiencies + chartist patterns (channels)
