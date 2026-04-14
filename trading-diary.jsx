@@ -1886,8 +1886,13 @@ export default function App(){
                   <button onClick={function(){
                     var cap=parseFloat(manualForm.capital);
                     var en=parseFloat(manualForm.entry);
-                    var cl=parseFloat(manualForm.close);
-                    if(!manualForm.asset||!cap||!en||isNaN(cl))return;
+                    // Precio cierre: si vacío y es BE, usar entrada directamente
+                    var clRaw=manualForm.close===""?manualForm.entry:manualForm.close;
+                    var cl=parseFloat(clRaw);
+                    if(!manualForm.asset){alert("Indica el activo (ej: BTC, SOL...)");return;}
+                    if(!cap||isNaN(cap)){alert("Indica el capital ($)");return;}
+                    if(!en||isNaN(en)){alert("Indica el precio de entrada");return;}
+                    if(isNaN(cl)){alert("Indica el precio de cierre (usa el mismo que entrada para breakeven)");return;}
                     var res=manualForm.dir==="Long"?cap*(cl-en)/en:cap*(en-cl)/en;
                     var isBE=isNearBE(res,cap)||Math.abs(cl-en)<0.0001;
                     var dateStr=manualForm.date||new Date().toLocaleDateString("es-ES");
@@ -1900,6 +1905,8 @@ export default function App(){
                     else if(res<0){psU.slOk=(psU.slOk||0)+1;}
                     else{psU.tpManual=(psU.tpManual||0)+1;}
                     D.current.ps=psU;setPs(psU);
+                    // Escribir a localStorage inmediatamente
+                    try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:psU,xhist:newX,ethClosed:D.current.ethClosed||false}));}catch(e){}
                     save();
                     setManualForm({asset:"",dir:"Long",capital:"",entry:"",close:"",note:"",date:""});
                     setShowManualTrade(false);
