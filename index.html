@@ -1387,6 +1387,11 @@ function App() {
         setXhist(newX);
         setPos(newPos2);
         setPs(newPs);
+        // Escribir a localStorage INMEDIATAMENTE (antes del debounce de save) para no perder el trade si la página recarga en <600ms
+        try {
+            localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: newPos2, pats: D.current.pats, jnl: D.current.jnl, ps: newPs, xhist: newX, ethClosed: D.current.ethClosed || false }));
+        }
+        catch (e) { }
         // Actualizar stats de estrategia: win si ganó, fail si SL o perdida manual
         if (p.patternId) {
             var isPatWin = (type === "tp") || (type !== "sl" && type !== "be" && result > 0);
@@ -1696,6 +1701,10 @@ function App() {
         D.current.ethClosed = true;
         setXhist(newX);
         setEthClosed(true);
+        try {
+            localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: D.current.pos, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: newX, ethClosed: true }));
+        }
+        catch (e) { }
         save();
         setModal(m => ({ ...m, closeEth: false }));
     }
