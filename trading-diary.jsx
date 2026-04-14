@@ -468,8 +468,9 @@ export default function App(){
   useEffect(()=>{
     (async()=>{
       let rawData=null;
-      // 1. Intentar cargar desde Supabase (mas reciente, sincronizado)
+      // 1. Cargar desde Supabase y localStorage, usar el más reciente (_savedAt)
       const cfg=window.SUPABASE_CFG;
+      let supabaseRaw=null;
       if(cfg&&cfg.url&&cfg.key){
         try{
           const res=await fetch(cfg.url+"/rest/v1/trading_data?user_id=eq.miguel&select=data",{
@@ -477,12 +478,21 @@ export default function App(){
           });
           if(res.ok){
             const rows=await res.json();
-            if(rows&&rows.length>0)rawData=JSON.stringify(rows[0].data);
+            if(rows&&rows.length>0)supabaseRaw=JSON.stringify(rows[0].data);
           }
         }catch(e){console.warn("Supabase load failed, using localStorage");}
       }
-      // 2. Si no hay Supabase o fallo, usar localStorage
-      if(!rawData)rawData=localStorage.getItem("td-user");
+      var localRaw=localStorage.getItem("td-user");
+      // Comparar timestamps y usar la fuente más reciente
+      if(supabaseRaw&&localRaw){
+        try{
+          var sTs=(JSON.parse(supabaseRaw)._savedAt)||0;
+          var lTs=(JSON.parse(localRaw)._savedAt)||0;
+          rawData=lTs>sTs?localRaw:supabaseRaw;
+        }catch(e){rawData=supabaseRaw||localRaw;}
+      }else{
+        rawData=supabaseRaw||localRaw;
+      }
       try{
         if(rawData){
           const d=JSON.parse(rawData);
@@ -773,7 +783,8 @@ export default function App(){
       xhist:D.current.xhist||[],
       ethClosed:D.current.ethClosed||false,
       predictions:D.current.predictions||[],
-      chatMsgs:D.current.chatMsgs||[]
+      chatMsgs:D.current.chatMsgs||[],
+      _savedAt:Date.now()
     };
     const json=JSON.stringify(payload);
     // 1. Guardar siempre en localStorage (offline backup)
@@ -807,7 +818,7 @@ export default function App(){
 
   // - SETTERS (sync D ref then React state) -
   const SP=v=>{D.current.pats=v;setPats(v);save();};
-  const SPos=v=>{D.current.pos=v;setPos(v);try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:v,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:D.current.xhist||[],ethClosed:D.current.ethClosed||false}));}catch(e){}save();};
+  const SPos=v=>{D.current.pos=v;setPos(v);try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:v,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:D.current.xhist||[],ethClosed:D.current.ethClosed||false,_savedAt:Date.now()}));}catch(e){}save();};
   const SJ=v=>{D.current.jnl=v;setJnl(v);save();};
   const SPs=v=>{D.current.ps=v;setPs(v);save();};
   const SPr=v=>{D.current.pr=v;setPr(v);save();};
@@ -1110,7 +1121,7 @@ export default function App(){
     D.current.xhist=newX;D.current.pos=newPos2;D.current.ps=newPs;
     setXhist(newX);setPos(newPos2);setPs(newPs);
     // Escribir a localStorage INMEDIATAMENTE (antes del debounce de save) para no perder el trade si la página recarga en <600ms
-    try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:newPos2,pats:D.current.pats,jnl:D.current.jnl,ps:newPs,xhist:newX,ethClosed:D.current.ethClosed||false}));}catch(e){}
+    try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:newPos2,pats:D.current.pats,jnl:D.current.jnl,ps:newPs,xhist:newX,ethClosed:D.current.ethClosed||false,_savedAt:Date.now()}));}catch(e){}
     // Actualizar stats de estrategia: win si ganó, fail si SL o perdida manual
     if(p.patternId){
       var isPatWin=(type==="tp")||(type!=="sl"&&type!=="be"&&result>0);
@@ -1362,7 +1373,7 @@ export default function App(){
     D.current.ethClosed=true;
     setXhist(newX);
     setEthClosed(true);
-    try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:newX,ethClosed:true}));}catch(e){}
+    try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:newX,ethClosed:true,_savedAt:Date.now()}));}catch(e){}
     save();
     setModal(m=>({...m,closeEth:false}));
   }
@@ -1906,7 +1917,7 @@ export default function App(){
                     else{psU.tpManual=(psU.tpManual||0)+1;}
                     D.current.ps=psU;setPs(psU);
                     // Escribir a localStorage inmediatamente
-                    try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:psU,xhist:newX,ethClosed:D.current.ethClosed||false}));}catch(e){}
+                    try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:psU,xhist:newX,ethClosed:D.current.ethClosed||false,_savedAt:Date.now()}));}catch(e){}
                     save();
                     setManualForm({asset:"",dir:"Long",capital:"",entry:"",close:"",note:"",date:""});
                     setShowManualTrade(false);

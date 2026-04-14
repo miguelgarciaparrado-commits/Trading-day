@@ -604,8 +604,9 @@ function App() {
     useEffect(() => {
         (async () => {
             let rawData = null;
-            // 1. Intentar cargar desde Supabase (mas reciente, sincronizado)
+            // 1. Cargar desde Supabase y localStorage, usar el más reciente (_savedAt)
             const cfg = window.SUPABASE_CFG;
+            let supabaseRaw = null;
             if (cfg && cfg.url && cfg.key) {
                 try {
                     const res = await fetch(cfg.url + "/rest/v1/trading_data?user_id=eq.miguel&select=data", {
@@ -614,16 +615,28 @@ function App() {
                     if (res.ok) {
                         const rows = await res.json();
                         if (rows && rows.length > 0)
-                            rawData = JSON.stringify(rows[0].data);
+                            supabaseRaw = JSON.stringify(rows[0].data);
                     }
                 }
                 catch (e) {
                     console.warn("Supabase load failed, using localStorage");
                 }
             }
-            // 2. Si no hay Supabase o fallo, usar localStorage
-            if (!rawData)
-                rawData = localStorage.getItem("td-user");
+            var localRaw = localStorage.getItem("td-user");
+            // Comparar timestamps y usar la fuente más reciente
+            if (supabaseRaw && localRaw) {
+                try {
+                    var sTs = (JSON.parse(supabaseRaw)._savedAt) || 0;
+                    var lTs = (JSON.parse(localRaw)._savedAt) || 0;
+                    rawData = lTs > sTs ? localRaw : supabaseRaw;
+                }
+                catch (e) {
+                    rawData = supabaseRaw || localRaw;
+                }
+            }
+            else {
+                rawData = supabaseRaw || localRaw;
+            }
             try {
                 if (rawData) {
                     const d = JSON.parse(rawData);
@@ -999,7 +1012,8 @@ function App() {
             xhist: D.current.xhist || [],
             ethClosed: D.current.ethClosed || false,
             predictions: D.current.predictions || [],
-            chatMsgs: D.current.chatMsgs || []
+            chatMsgs: D.current.chatMsgs || [],
+            _savedAt: Date.now()
         };
         const json = JSON.stringify(payload);
         // 1. Guardar siempre en localStorage (offline backup)
@@ -1039,7 +1053,7 @@ function App() {
     // - SETTERS (sync D ref then React state) -
     const SP = v => { D.current.pats = v; setPats(v); save(); };
     const SPos = v => { D.current.pos = v; setPos(v); try {
-        localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: v, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: D.current.xhist || [], ethClosed: D.current.ethClosed || false }));
+        localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: v, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: D.current.xhist || [], ethClosed: D.current.ethClosed || false, _savedAt: Date.now() }));
     }
     catch (e) { } save(); };
     const SJ = v => { D.current.jnl = v; setJnl(v); save(); };
@@ -1389,7 +1403,7 @@ function App() {
         setPs(newPs);
         // Escribir a localStorage INMEDIATAMENTE (antes del debounce de save) para no perder el trade si la página recarga en <600ms
         try {
-            localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: newPos2, pats: D.current.pats, jnl: D.current.jnl, ps: newPs, xhist: newX, ethClosed: D.current.ethClosed || false }));
+            localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: newPos2, pats: D.current.pats, jnl: D.current.jnl, ps: newPs, xhist: newX, ethClosed: D.current.ethClosed || false, _savedAt: Date.now() }));
         }
         catch (e) { }
         // Actualizar stats de estrategia: win si ganó, fail si SL o perdida manual
@@ -1702,7 +1716,7 @@ function App() {
         setXhist(newX);
         setEthClosed(true);
         try {
-            localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: D.current.pos, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: newX, ethClosed: true }));
+            localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: D.current.pos, pats: D.current.pats, jnl: D.current.jnl, ps: D.current.ps, xhist: newX, ethClosed: true, _savedAt: Date.now() }));
         }
         catch (e) { }
         save();
@@ -2236,7 +2250,7 @@ function App() {
                                 setPs(psU);
                                 // Escribir a localStorage inmediatamente
                                 try {
-                                    localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: D.current.pos, pats: D.current.pats, jnl: D.current.jnl, ps: psU, xhist: newX, ethClosed: D.current.ethClosed || false }));
+                                    localStorage.setItem("td-user", JSON.stringify({ pr: D.current.pr, pos: D.current.pos, pats: D.current.pats, jnl: D.current.jnl, ps: psU, xhist: newX, ethClosed: D.current.ethClosed || false, _savedAt: Date.now() }));
                                 }
                                 catch (e) { }
                                 save();
