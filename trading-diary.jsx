@@ -4626,15 +4626,15 @@ function AlertasTab({S,predictions}){
       }
       if(alert.interval!=="1w"){
         if(alert.emaCross725Enabled!==false){
-          if(cross7_25==="golden"){if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
+          if(cross7_25==="golden"){if(!lastTrigRef.current[ak+"g725"]){lastTrigRef.current[ak+"g725"]=true;try{var fg725={};var fg725s=localStorage.getItem("td-alert-zones");if(fg725s)fg725=JSON.parse(fg725s);fg725[ak+"g725_ts"]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(fg725));}catch(e){}sendAlert(alert.label,alert.interval,rsi,"golden",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
           else{lastTrigRef.current[ak+"g725"]=false;}
-          if(cross7_25==="death"){if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
+          if(cross7_25==="death"){if(!lastTrigRef.current[ak+"d725"]){lastTrigRef.current[ak+"d725"]=true;try{var fd725={};var fd725s=localStorage.getItem("td-alert-zones");if(fd725s)fd725=JSON.parse(fd725s);fd725[ak+"d725_ts"]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(fd725));}catch(e){}sendAlert(alert.label,alert.interval,rsi,"death",ema7,ema25,null,closePrice,{ohlc:ohlc});}}
           else{lastTrigRef.current[ak+"d725"]=false;}
         }
         if(alert.emaCross50200Enabled!==false&&alert.interval!=="1h"){
-          if(cross50_200==="golden"){if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice,{ohlc:ohlc});}}
+          if(cross50_200==="golden"){if(!lastTrigRef.current[ak+"g200"]){lastTrigRef.current[ak+"g200"]=true;try{var fg200={};var fg200s=localStorage.getItem("td-alert-zones");if(fg200s)fg200=JSON.parse(fg200s);fg200[ak+"g200_ts"]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(fg200));}catch(e){}sendAlert(alert.label,alert.interval,rsi,"ema200_golden",ema50,ema200,null,closePrice,{ohlc:ohlc});}}
           else{lastTrigRef.current[ak+"g200"]=false;}
-          if(cross50_200==="death"){if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice,{ohlc:ohlc});}}
+          if(cross50_200==="death"){if(!lastTrigRef.current[ak+"d200"]){lastTrigRef.current[ak+"d200"]=true;try{var fd200={};var fd200s=localStorage.getItem("td-alert-zones");if(fd200s)fd200=JSON.parse(fd200s);fd200[ak+"d200_ts"]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(fd200));}catch(e){}sendAlert(alert.label,alert.interval,rsi,"ema200_death",ema50,ema200,null,closePrice,{ohlc:ohlc});}}
           else{lastTrigRef.current[ak+"d200"]=false;}
         }
       }
@@ -4656,6 +4656,7 @@ function AlertasTab({S,predictions}){
         var prevDivFiredFH=lastTrigRef.current[divLockKeyFH]||0;
         if(Date.now()-prevDivFiredFH>divCooldownFH){
           lastTrigRef.current[divLockKeyFH]=Date.now();
+          try{var fhDz={};var fhDzS=localStorage.getItem("td-alert-zones");if(fhDzS)fhDz=JSON.parse(fhDzS);fhDz[divLockKeyFH]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(fhDz));}catch(e){}
           sendAlert(alert.label,alert.interval,rsi,divAlertFH,ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResultFH});
         }
       }else if(isFreshFHCandle){
@@ -6738,14 +6739,6 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
       var posId=editId||Date.now();
       var reflText=preReflection?preReflection.trim():"";
       var finalStatus=f.status||"open";
-      if(finalStatus==="open"&&!editId){
-        var entryPx=+f.entry;
-        var base2=f.asset.replace(/\/.*$/,"").toUpperCase();
-        var mktPx=(pr&&pr[base2])||0;
-        if(mktPx>0&&entryPx>0&&Math.abs(mktPx-entryPx)/entryPx>0.005){
-          finalStatus="pending";
-        }
-      }
       var obj=Object.assign({},f,{id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus});
       var nv=editId?currentPos.map(function(x){return x.id===editId?obj:x;}):currentPos.concat([obj]);
       SPos(nv);
