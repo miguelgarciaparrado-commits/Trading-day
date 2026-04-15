@@ -5,10 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-  <meta name="theme-color" content="#0a0a0f"/>
+  <meta name="theme-color" content="#f0b429"/>
   <title>Trading Diary — Miguel Garcia</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
   <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico"/>
+  <link rel="manifest" href="/manifest.json"/>
+  <link rel="apple-touch-icon" href="https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png"/>
+  <script>
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',function(){
+        navigator.serviceWorker.register('/sw.js').then(function(reg){
+          reg.addEventListener('updatefound',function(){
+            var nw=reg.installing;
+            if(nw)nw.addEventListener('statechange',function(){
+              if(nw.state==='installed'&&navigator.serviceWorker.controller){
+                nw.postMessage({type:'SKIP_WAITING'});
+              }
+            });
+          });
+        }).catch(function(){});
+      });
+    }
+    // Captura el evento beforeinstallprompt para mostrarlo desde la app
+    window._pwaPrompt=null;
+    window.addEventListener('beforeinstallprompt',function(e){
+      e.preventDefault();
+      window._pwaPrompt=e;
+      window.dispatchEvent(new Event('pwa-installable'));
+    });
+    window.addEventListener('appinstalled',function(){
+      window._pwaPrompt=null;
+      window.dispatchEvent(new Event('pwa-installed'));
+    });
+  </script>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
     html,body{height:100%;background:#0a0a0f;font-family:monospace;color:#e0e0e0;}
@@ -581,6 +610,15 @@ function App() {
     // fotos eliminadas - se usan URLs externas
     const [tab, setTab] = useState("Resumen");
     const [modal, setModal] = useState({});
+    const [pwaInstallable, setPwaInstallable] = useState(typeof window !== "undefined" && !!window._pwaPrompt);
+    const [pwaInstalled, setPwaInstalled] = useState(false);
+    useEffect(function () {
+        function onInstallable() { setPwaInstallable(true); }
+        function onInstalled() { setPwaInstallable(false); setPwaInstalled(true); }
+        window.addEventListener("pwa-installable", onInstallable);
+        window.addEventListener("pwa-installed", onInstalled);
+        return function () { window.removeEventListener("pwa-installable", onInstallable); window.removeEventListener("pwa-installed", onInstalled); };
+    }, []);
     const [hSearch, setHSearch] = useState("");
     const [hFilter, setHFilter] = useState("all");
     const [hSort, setHSort] = useState("desc");
@@ -1798,6 +1836,25 @@ function App() {
                         " ",
                         sc,
                         "%")))),
+        pwaInstallable && !pwaInstalled && (React.createElement("div", { style: { background: "rgba(240,180,41,.1)", borderBottom: "1px solid rgba(240,180,41,.3)", padding: "6px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
+            React.createElement("div", { style: { fontSize: 9, color: "#f0b429" } },
+                "\uD83D\uDCF2 ",
+                React.createElement("b", null, "Instalar como app"),
+                " \u2014 recibe notificaciones aunque cierres el navegador"),
+            React.createElement("div", { style: { display: "flex", gap: 6 } },
+                React.createElement("button", { onClick: function () {
+                        if (window._pwaPrompt) {
+                            window._pwaPrompt.prompt();
+                            window._pwaPrompt.userChoice.then(function (r) { if (r.outcome === "accepted") {
+                                setPwaInstallable(false);
+                                setPwaInstalled(true);
+                            } window._pwaPrompt = null; });
+                        }
+                    }, style: { background: "#f0b429", border: "none", color: "#000", padding: "4px 12px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "INSTALAR"),
+                React.createElement("button", { onClick: function () { setPwaInstallable(false); }, style: { background: "transparent", border: "none", color: "#555", cursor: "pointer", fontSize: 12 } }, "\u2715")))),
+        pwaInstalled && (React.createElement("div", { style: { background: "rgba(0,255,136,.08)", borderBottom: "1px solid rgba(0,255,136,.2)", padding: "5px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" } },
+            React.createElement("div", { style: { fontSize: 9, color: "#00ff88" } }, "\u2705 App instalada correctamente"),
+            React.createElement("button", { onClick: function () { setPwaInstalled(false); }, style: { background: "transparent", border: "none", color: "#555", cursor: "pointer", fontSize: 12 } }, "\u2715"))),
         React.createElement("div", { style: S.tabs }, TABS.map(t => React.createElement("button", { key: t, onClick: () => setTab(t), style: S.tab(tab === t) }, t.toUpperCase()))),
         (tab === "Resumen" || tab === "Posiciones") && (React.createElement("div", { style: { background: "#080810", borderBottom: "1px solid #1a1a2a", padding: "5px 14px", display: "flex", justifyContent: "flex-end" } },
             React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
