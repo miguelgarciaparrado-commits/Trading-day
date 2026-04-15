@@ -4019,7 +4019,12 @@ function AlertasTab({S,predictions}){
       if(saved){
         const parsed=JSON.parse(saved);
         if(parsed.length>0){
-          var loaded=parsed.map(function(a){return{...a,currentRsi:null,currentPrice:null,error:false};});
+          var loaded=parsed.map(function(a){
+          var fixed={...a,currentRsi:null,currentPrice:null,error:false};
+          // Migración: fvgEnabled fue hardcodeado como false — los usuarios no pueden desactivarlo desde la UI
+          if(fixed.fvgEnabled===false)fixed.fvgEnabled=true;
+          return fixed;
+        });
           // Ensure BTC is always present
           var hasBtc=loaded.some(function(a){return a.symbol==="BTCUSDT";});
           if(!hasBtc){
@@ -4180,7 +4185,7 @@ function AlertasTab({S,predictions}){
       rsiCustomEnabled:addConfig.rsiCustomEnabled,
       rsiCustomTarget:isNaN(cuT)?50:cuT,
       rsiCustomCondition:addConfig.rsiCustomCondition||"below",
-      channelEnabled:false,fvgEnabled:false,
+      channelEnabled:true,fvgEnabled:true,
       active:true,currentRsi:null,currentPrice:null,error:false};
     var upd=[...alertsRef.current,na];
     saveAlerts(upd);
@@ -4998,7 +5003,7 @@ function AlertasTab({S,predictions}){
             // FVG
             var fvgResult=checkFVGCovered(ohlc,closePrice);
             if(fvgResult){
-              if(alert.fvgEnabled&&!lastTrigRef.current[ak+"fvg"]){
+              if(alert.fvgEnabled!==false&&!lastTrigRef.current[ak+"fvg"]){
                 lastTrigRef.current[ak+"fvg"]=true;
                 try{var fvgZs={};var fvgZsStr=localStorage.getItem("td-alert-zones");if(fvgZsStr)fvgZs=JSON.parse(fvgZsStr);fvgZs[ak+"fvg_ts"]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(fvgZs));}catch(e){}
                 sendAlert(alert.label,alert.interval,rsi,"patron_fvg",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult});
@@ -5083,6 +5088,8 @@ function AlertasTab({S,predictions}){
       const symInfo=SYMBOLS.find(function(s){return s.symbol===sym;})||{symbol:sym,label:sym};
       return{
         id:Date.now()+i,symbol:symInfo.symbol,label:symInfo.label,interval:draft.interval,
+        rsiOversoldEnabled:true,rsiOversoldTarget:30,rsiOverboughtEnabled:true,rsiOverboughtTarget:70,
+        emaCross725Enabled:true,emaCross50200Enabled:true,rsiDivEnabled:true,fvgEnabled:true,channelEnabled:true,
         rsiCustomEnabled:draft.rsiCustomEnabled,rsiCustomTarget:draft.rsiCustomTarget,rsiCustomCondition:draft.rsiCustomCondition,
         active:false,currentRsi:null,currentPrice:null,error:false
       };
@@ -5108,6 +5115,8 @@ function AlertasTab({S,predictions}){
         toAdd.push({
           id:Date.now()+i+1,
           symbol:alert.symbol,label:alert.label,interval:tf,
+          rsiOversoldEnabled:true,rsiOversoldTarget:30,rsiOverboughtEnabled:true,rsiOverboughtTarget:70,
+          emaCross725Enabled:true,emaCross50200Enabled:true,rsiDivEnabled:true,fvgEnabled:true,channelEnabled:true,
           rsiCustomEnabled:alert.rsiCustomEnabled||false,
           rsiCustomTarget:alert.rsiCustomTarget||50,
           rsiCustomCondition:alert.rsiCustomCondition||"below",
