@@ -5124,7 +5124,8 @@ function AlertasTab({ S, predictions }) {
                 else {
                     var prevZone2 = lastTrigRef.current[ak + "rsizone"] || "neutral";
                     lastTrigRef.current[ak + "rsizone"] = rsiZone2;
-                    if ((rsiZone2 === "overbought" || rsiZone2 === "oversold") && rsiZone2 !== prevZone2) {
+                    if (rsiZone2 === "overbought" || rsiZone2 === "oversold") {
+                        // Zona extrema — notificar si cooldown expirado (cada período aunque RSI no salga de zona)
                         var cdKey2 = rsiZone2 === "overbought" ? (ak + "rsi_ob_ts") : (ak + "rsi_os_ts");
                         var lastCd2 = lastTrigRef.current[cdKey2] || 0;
                         if (Date.now() - lastCd2 > rsiCdMs2) {
@@ -5513,8 +5514,8 @@ function AlertasTab({ S, predictions }) {
                         else {
                             var prevZone = lastTrigRef.current[ak + "rsizone"] || "neutral";
                             lastTrigRef.current[ak + "rsizone"] = rsiZone;
-                            if ((rsiZone === "overbought" || rsiZone === "oversold") && rsiZone !== prevZone) {
-                                // Zona extrema recién alcanzada — verificar cooldown antes de notificar
+                            if (rsiZone === "overbought" || rsiZone === "oversold") {
+                                // Zona extrema — notificar si cooldown expirado (cada período aunque RSI no salga de zona)
                                 var cdKey = rsiZone === "overbought" ? (ak + "rsi_ob_ts") : (ak + "rsi_os_ts");
                                 var lastCd = lastTrigRef.current[cdKey] || 0;
                                 if (Date.now() - lastCd > rsiCdMs) {
