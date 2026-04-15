@@ -448,6 +448,15 @@ export default function App(){
   // fotos eliminadas - se usan URLs externas
   const[tab,setTab]=useState("Resumen");
   const[modal,setModal]=useState({});
+  const[pwaInstallable,setPwaInstallable]=useState(typeof window!=="undefined"&&!!window._pwaPrompt);
+  const[pwaInstalled,setPwaInstalled]=useState(false);
+  useEffect(function(){
+    function onInstallable(){setPwaInstallable(true);}
+    function onInstalled(){setPwaInstallable(false);setPwaInstalled(true);}
+    window.addEventListener("pwa-installable",onInstallable);
+    window.addEventListener("pwa-installed",onInstalled);
+    return function(){window.removeEventListener("pwa-installable",onInstallable);window.removeEventListener("pwa-installed",onInstalled);};
+  },[]);
   const[hSearch,setHSearch]=useState("");
   const[hFilter,setHFilter]=useState("all");
   const[hSort,setHSort]=useState("desc");
@@ -1460,6 +1469,25 @@ export default function App(){
           </div>
         </div>
       </div>
+
+      {/* Banner PWA — instalar como app */}
+      {pwaInstallable&&!pwaInstalled&&(
+        <div style={{background:"rgba(240,180,41,.1)",borderBottom:"1px solid rgba(240,180,41,.3)",padding:"6px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <div style={{fontSize:9,color:"#f0b429"}}>📲 <b>Instalar como app</b> — recibe notificaciones aunque cierres el navegador</div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={function(){
+              if(window._pwaPrompt){window._pwaPrompt.prompt();window._pwaPrompt.userChoice.then(function(r){if(r.outcome==="accepted"){setPwaInstallable(false);setPwaInstalled(true);}window._pwaPrompt=null;});}
+            }} style={{background:"#f0b429",border:"none",color:"#000",padding:"4px 12px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>INSTALAR</button>
+            <button onClick={function(){setPwaInstallable(false);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:12}}>✕</button>
+          </div>
+        </div>
+      )}
+      {pwaInstalled&&(
+        <div style={{background:"rgba(0,255,136,.08)",borderBottom:"1px solid rgba(0,255,136,.2)",padding:"5px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontSize:9,color:"#00ff88"}}>✅ App instalada correctamente</div>
+          <button onClick={function(){setPwaInstalled(false);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:12}}>✕</button>
+        </div>
+      )}
 
       {/* TABS */}
       <div style={S.tabs}>{TABS.map(t=><button key={t} onClick={()=>setTab(t)} style={S.tab(tab===t)}>{t.toUpperCase()}</button>)}</div>
