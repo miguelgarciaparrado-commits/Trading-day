@@ -4138,32 +4138,35 @@ function AlertasTab({S,predictions}){
       setAddFound({sym:resolvedSym,label:lbl});
       setAddStatus("found");
     }
-    // Try Binance first
-    fetch("https://api.binance.com/api/v3/ticker/price?symbol="+sym)
-      .then(function(r){return r.json();})
-      .then(function(d){
-        if(d.price){
-          onFound(sym,sym.replace("USDT","/USD"));
-        }else{
-          // Try original (user may have typed full pair or stock)
-          if(sym!==raw){
-            fetch("https://api.binance.com/api/v3/ticker/price?symbol="+raw)
-              .then(function(r2){return r2.json();})
-              .then(function(d2){
-                if(d2.price){onFound(raw,raw.replace("USDT","/USD"));}
-                else{tryFinnhub(raw);}
-              }).catch(function(){tryFinnhub(raw);});
-          }else{tryFinnhub(raw);}
-        }
-      }).catch(function(){tryFinnhub(raw);});
+    // Try Binance (primary + fallback endpoint)
+    function tryBinance(endpoint,s,nextFn){
+      fetch(endpoint+s)
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d.price){onFound(s,s.replace(/USDT$/,"/USD"));}
+          else{nextFn();}
+        }).catch(function(){nextFn();});
+    }
     function tryFinnhub(s){
       var fhKeyQ=localStorage.getItem("td-finnhub-key");
-      if(!fhKeyQ){setAddStatus("error");return;}
+      if(!fhKeyQ){setAddStatus("nofinnhub");return;}
       fetch("https://finnhub.io/api/v1/quote?symbol="+s+"&token="+fhKeyQ)
         .then(function(r2){return r2.json();})
         .then(function(d2){if(d2.c&&d2.c>0){onFound(s,s);}else{setAddStatus("error");}})
         .catch(function(){setAddStatus("error");});
     }
+    // Cadena: api.binance.com → api1.binance.com → mismo raw → Finnhub
+    var BN1="https://api.binance.com/api/v3/ticker/price?symbol=";
+    var BN2="https://api1.binance.com/api/v3/ticker/price?symbol=";
+    tryBinance(BN1,sym,function(){
+      tryBinance(BN2,sym,function(){
+        if(sym!==raw){
+          tryBinance(BN1,raw,function(){
+            tryBinance(BN2,raw,function(){tryFinnhub(raw);});
+          });
+        }else{tryFinnhub(raw);}
+      });
+    });
   }
 
   function confirmAddAsset(){
@@ -5656,14 +5659,15 @@ function AlertasTab({S,predictions}){
           </select>
           <button onClick={addFound?confirmAddAsset:addQuickAsset}
             style={{padding:"7px 12px",
-              background:addStatus==="ok"?"rgba(0,255,136,.15)":addStatus==="error"?"rgba(255,68,68,.15)":addStatus==="found"?"rgba(0,255,136,.1)":"rgba(240,180,41,.15)",
-              border:"1px solid "+(addStatus==="ok"?"#00ff88":addStatus==="error"?"#ff4444":addStatus==="found"?"#00ff88":"#f0b429"),
-              color:addStatus==="ok"?"#00ff88":addStatus==="error"?"#ff4444":addStatus==="found"?"#00ff88":"#f0b429",
+              background:addStatus==="ok"?"rgba(0,255,136,.15)":(addStatus==="error"||addStatus==="nofinnhub")?"rgba(255,68,68,.15)":addStatus==="found"?"rgba(0,255,136,.1)":"rgba(240,180,41,.15)",
+              border:"1px solid "+(addStatus==="ok"?"#00ff88":(addStatus==="error"||addStatus==="nofinnhub")?"#ff4444":addStatus==="found"?"#00ff88":"#f0b429"),
+              color:addStatus==="ok"?"#00ff88":(addStatus==="error"||addStatus==="nofinnhub")?"#ff4444":addStatus==="found"?"#00ff88":"#f0b429",
               borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-            {addStatus==="checking"?"Buscando…":addStatus==="ok"?"✓ Añadido":addStatus==="error"?"✗ No encontrado":addStatus==="dup"?"Ya existe":addStatus==="found"?"✓ Confirmar":"Buscar"}
+            {addStatus==="checking"?"Buscando…":addStatus==="ok"?"✓ Añadido":addStatus==="error"?"✗ No encontrado":addStatus==="nofinnhub"?"✗ Sin clave Finnhub":addStatus==="dup"?"Ya existe":addStatus==="found"?"✓ Confirmar":"Buscar"}
           </button>
         </div>
-        <div style={{fontSize:7,color:"#333",marginTop:5}}>Crypto: BTC, SOL, ETH… o par completo BTCUSDT. Acciones: AAPL, TLT — requiere Finnhub (📈)</div>
+        <div style={{fontSize:7,color:"#333",marginTop:5}}>Crypto: BTC, SOL, ETH… o par completo BTCUSDT. Acciones/ETFs: AAPL, TLT — requiere Finnhub (📈 arriba)</div>
+        {addStatus==="nofinnhub"&&<div style={{fontSize:8,color:"#ff6666",marginTop:4}}>Para acciones y ETFs necesitas configurar la clave Finnhub — pulsa 📈 arriba para añadirla.</div>}
 
         {/* Config panel shown after asset is found */}
         {addFound&&(
