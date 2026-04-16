@@ -4655,6 +4655,18 @@ function AlertasTab({ S, predictions }) {
             var activeSignals = alignedTypes.filter(function (t) { return confMap[t] && (confNow - confMap[t]) < confWindow; });
             var confluenceCount = activeSignals.length;
             var sugDir = isLong ? "Long" : "Short";
+            // ─── CONFLUENCIA MULTI-TEMPORALIDAD ───
+            var MTF_ALL = ["1h", "4h", "1d", "1w"];
+            var tfConfs = [];
+            MTF_ALL.forEach(function (tfMtf) {
+                var tfW = confWindowMs[tfMtf] || 28800000;
+                var tfM = confluenceRef.current[label + "|" + tfMtf] || {};
+                var tfS = alignedTypes.filter(function (t2) { return tfM[t2] && (confNow - tfM[t2]) < tfW; });
+                if (tfS.length > 0)
+                    tfConfs.push({ tf: tfMtf, signals: tfS });
+            });
+            var crossTfCount = tfConfs.length;
+            var hasMultiTfConf = crossTfCount >= 2;
             // ─── HELPER: buscar FVG más cercano dentro de maxPct del precio ───
             var findNearFVG = function (ohlcArr, refPrice, bullish, maxPct) {
                 var best = null, scanStart = Math.max(2, ohlcArr.length - 80);
@@ -4708,22 +4720,86 @@ function AlertasTab({ S, predictions }) {
                 }
                 return null;
             };
-            // ─── PRECIO DE ENTRADA según estrategia ───
+            // FVG más LEJANO en dirección del trade — target máximo
+            var findFarFVG = function (ohlcArr, refPrice, bullish) {
+                var best = null, bestDist = 0;
+                var sc = Math.max(2, ohlcArr.length - 150);
+                for (var ffi = sc; ffi < ohlcArr.length; ffi++) {
+                    var ff0 = ohlcArr[ffi - 2], ff2 = ohlcArr[ffi];
+                    if (bullish && ff2.l > ff0.h) {
+                        var ffM = (ff2.l + ff0.h) / 2;
+                        if (ffM > refPrice && (ff2.l - ff0.h) / refPrice > 0.0005) {
+                            var ffD = ffM - refPrice;
+                            if (!best || ffD > bestDist) {
+                                best = { mid: ffM, top: ff2.l, bot: ff0.h };
+                                bestDist = ffD;
+                            }
+                        }
+                    }
+                    if (!bullish && ff2.h < ff0.l) {
+                        var ffM2 = (ff2.h + ff0.l) / 2;
+                        if (ffM2 < refPrice && (ff0.l - ff2.h) / refPrice > 0.0005) {
+                            var ffD2 = refPrice - ffM2;
+                            if (!best || ffD2 > bestDist) {
+                                best = { mid: ffM2, top: ff0.l, bot: ff2.h };
+                                bestDist = ffD2;
+                            }
+                        }
+                    }
+                }
+                return best;
+            };
+            // Recopilar OHLC de todas las temporalidades para este activo
+            var trigAlertFvg = alertsRef.current.find(function (a) { return a.label === label && a.interval === interval; });
+            var baseSymFvg = trigAlertFvg ? trigAlertFvg.symbol : "";
+            var ohlcByTf = {};
+            ["1h", "4h", "1d", "1w"].forEach(function (tfk) { ohlcByTf[tfk] = ohlcRef.current[baseSymFvg + tfk] || []; });
+            // FVG más cercano — buscar primero en TF actual, luego en otros si no hay
+            var fvgNearEntry = null;
+            var ohlcSrcEntry = ohlcData.length > 4 ? ohlcData : (ohlcByTf["1h"].length > 4 ? ohlcByTf["1h"] : []);
+            if (ohlcSrcEntry.length > 4)
+                fvgNearEntry = findNearFVG(ohlcSrcEntry, price || 0, isLong, 0.05);
+            if (!fvgNearEntry) {
+                var tfOrder = ["4h", "1d", "1h", "1w"];
+                for (var ti = 0; ti < tfOrder.length; ti++) {
+                    if (ohlcByTf[tfOrder[ti]].length > 4) {
+                        fvgNearEntry = findNearFVG(ohlcByTf[tfOrder[ti]], price || 0, isLong, 0.08);
+                        if (fvgNearEntry)
+                            break;
+                    }
+                }
+            }
+            // FVG más lejano — escanear TODAS las temporalidades y elegir el más lejano
+            var fvgFarExit = null, fvgFarDist = 0;
+            var fvgTfLabel = "";
+            var allFvgSrc = ohlcData.length > 4 ? [{ tf: interval, ohlc: ohlcData }] : [];
+            ["1h", "4h", "1d", "1w"].forEach(function (tfk2) {
+                if (ohlcByTf[tfk2].length > 4 && tfk2 !== interval)
+                    allFvgSrc.push({ tf: tfk2, ohlc: ohlcByTf[tfk2] });
+            });
+            allFvgSrc.forEach(function (src) {
+                var cand = findFarFVG(src.ohlc, price || 0, isLong);
+                if (cand) {
+                    var d = Math.abs(cand.mid - (price || 0));
+                    if (!fvgFarExit || d > fvgFarDist) {
+                        fvgFarExit = cand;
+                        fvgFarDist = d;
+                        fvgTfLabel = { "1h": "1H", "4h": "4H", "1d": "1D", "1w": "1W" }[src.tf] || src.tf;
+                    }
+                }
+            });
+            // ─── PRECIO DE ENTRADA: FVG más cercano (ICT) → fallback señal específica ───
             var entryPrice = price || 0;
             var entryNote = "";
-            if ((type === "golden" || type === "death") && e1 && e1 > 0) {
-                entryPrice = parseFloat(parseFloat(e1).toFixed(2));
-                entryNote = "EMA7";
+            if (fvgNearEntry) {
+                entryPrice = parseFloat((isLong ? fvgNearEntry.bot : fvgNearEntry.top).toFixed(2));
+                entryNote = isLong ? "FVG alcista cercano ($" + fvgNearEntry.bot.toFixed(2) + "–$" + fvgNearEntry.top.toFixed(2) + ")" : "FVG bajista cercano ($" + fvgNearEntry.bot.toFixed(2) + "–$" + fvgNearEntry.top.toFixed(2) + ")";
             }
-            else if ((type === "ema200_golden" || type === "ema200_death") && e1 && e1 > 0) {
-                entryPrice = parseFloat(parseFloat(e1).toFixed(2));
-                entryNote = "EMA50";
-            }
-            else if (type === "canal_alcista_soporte" && extra.channelResult && extra.channelResult.botLine) {
+            else if ((type === "canal_alcista_soporte") && extra.channelResult && extra.channelResult.botLine) {
                 entryPrice = parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
                 entryNote = "Soporte canal";
             }
-            else if (type === "canal_bajista_resistencia" && extra.channelResult && extra.channelResult.topLine) {
+            else if ((type === "canal_bajista_resistencia") && extra.channelResult && extra.channelResult.topLine) {
                 entryPrice = parseFloat(parseFloat(extra.channelResult.topLine).toFixed(2));
                 entryNote = "Resistencia canal";
             }
@@ -4735,21 +4811,13 @@ function AlertasTab({ S, predictions }) {
                 entryPrice = parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
                 entryNote = "Soporte roto (retest)";
             }
-            else if ((type === "rsi_div_bull" || type === "rsi_conv_bull" || type === "rsi_oversold") && ohlcData.length > 4) {
-                // Divergencia/RSI alcista: buscar FVG alcista cercano (±3%) para entrada de precisión ICT
-                var fvgE = findNearFVG(ohlcData, price || 0, true, 0.03);
-                if (fvgE) {
-                    entryPrice = parseFloat(fvgE.bot.toFixed(2));
-                    entryNote = "FVG alcista cercano";
-                }
+            else if ((type === "golden" || type === "death") && e1 && e1 > 0) {
+                entryPrice = parseFloat(parseFloat(e1).toFixed(2));
+                entryNote = isLong ? "EMA7 (sin FVG cercano)" : "EMA7 (sin FVG cercano)";
             }
-            else if ((type === "rsi_div_bear" || type === "rsi_conv_bear" || type === "rsi_overbought") && ohlcData.length > 4) {
-                // Divergencia/RSI bajista: buscar FVG bajista cercano (±3%) para entrada de precisión ICT
-                var fvgE2 = findNearFVG(ohlcData, price || 0, false, 0.03);
-                if (fvgE2) {
-                    entryPrice = parseFloat(fvgE2.top.toFixed(2));
-                    entryNote = "FVG bajista cercano";
-                }
+            else if ((type === "ema200_golden" || type === "ema200_death") && e1 && e1 > 0) {
+                entryPrice = parseFloat(parseFloat(e1).toFixed(2));
+                entryNote = "EMA50 (sin FVG cercano)";
             }
             // ─── SL según estrategia ───
             var slPrice = 0;
@@ -4791,10 +4859,18 @@ function AlertasTab({ S, predictions }) {
                 slPrice = parseFloat((entryPrice * 0.98).toFixed(2));
             if (!isLong && slPrice <= entryPrice)
                 slPrice = parseFloat((entryPrice * 1.02).toFixed(2));
-            // ─── TP según estrategia ───
+            // ─── TP: FVG más lejano multi-TF → fallback estrategia específica → 1:2 ───
             var tpPrice = null;
             var tpNote = "1:2 mínimo";
             var riskAmt = Math.abs(entryPrice - slPrice);
+            // Primero: FVG más lejano en cualquier temporalidad (target máximo ICT)
+            if (fvgFarExit) {
+                var farRatio = riskAmt > 0 ? Math.abs(fvgFarExit.mid - entryPrice) / riskAmt : 0;
+                if (farRatio >= 1.5) {
+                    tpPrice = parseFloat(fvgFarExit.mid.toFixed(2));
+                    tpNote = "FVG más lejano [" + fvgTfLabel + "] $" + fvgFarExit.bot.toFixed(2) + "–$" + fvgFarExit.top.toFixed(2);
+                }
+            }
             // Death cross 7/25: TP primario = EMA50
             if (type === "death" && extra.ema50 && extra.ema50 > 0 && extra.ema50 < entryPrice) {
                 var e50r = entryPrice - extra.ema50;
@@ -4910,38 +4986,48 @@ function AlertasTab({ S, predictions }) {
             tgLines.push("📊 RSI: " + (rsi != null ? rsi.toFixed(1) : "--") + (type !== "rsi_oversold" && type !== "rsi_overbought" && type !== "rsi_custom" && type !== "rsi_div_bull" && type !== "rsi_div_bear" && type !== "rsi_conv_bull" && type !== "rsi_conv_bear" ? " | " + divConvLine : ""));
             tgLines.push("💰 Precio mercado: $" + parseFloat(price || 0).toLocaleString("es-ES", { maximumFractionDigits: 4 }));
             tgLines.push("📈 Volumen: " + (extra.volDir || "Desconocido"));
-            // ─── Confluencia en el mensaje ───
+            // ─── Confluencia multi-TF en el mensaje ───
             tgLines.push("");
-            if (activeSignals.length > 0) {
+            var TF_LABELS_MSG = { "1h": "1H", "4h": "4H", "1d": "Diario", "1w": "Semanal" };
+            if (tfConfs.length > 0) {
+                tgLines.push("🔀 Confluencia MULTI-TF (" + crossTfCount + " temporalidades " + sugDir + "):");
+                tfConfs.forEach(function (tfc) {
+                    var tfLbl = TF_LABELS_MSG[tfc.tf] || tfc.tf;
+                    var sigLbls = tfc.signals.map(function (t) { return SIGNAL_LABELS[t] || t; }).join(", ");
+                    tgLines.push("   ✅ " + tfLbl + ": " + sigLbls);
+                });
+            }
+            else if (activeSignals.length > 0) {
                 var signalNames = activeSignals.map(function (t) { return SIGNAL_LABELS[t] || t; });
-                tgLines.push("🔀 Confluencia (" + confluenceCount + " señales " + sugDir + "):");
-                signalNames.forEach(function (s) { tgLines.push("   ✅ " + s); });
+                tgLines.push("🔀 Señal en " + tf + " (" + confluenceCount + "):");
+                signalNames.forEach(function (s) { tgLines.push("   • " + s); });
             }
             tgLines.push("");
             if (fbBlocked) {
-                tgLines.push("🚫 Operación Bot BLOQUEADA por mal historial:");
-                tgLines.push("   Señal '" + type + "': " + fbStatsProb.correct + "/" + fbStatsProb.total + " aciertos (" + (fbRate !== null ? Math.round(fbRate * 100) : 0) + "%) — umbral mínimo 35%");
-                tgLines.push("   No se enviará operación hasta que el historial mejore.");
+                tgLines.push("🚫 Operación BLOQUEADA por mal historial:");
+                tgLines.push("   " + fbStatsProb.correct + "/" + fbStatsProb.total + " aciertos (" + (fbRate !== null ? Math.round(fbRate * 100) : 0) + "%) — mínimo 35%");
             }
-            else if (hasConfluence) {
-                var confLabel = learnedThreshold === 1 ? "1 señal (umbral reducido por buen historial)" : confluenceCount + " señales alineadas";
-                tgLines.push("💡 Operación Bot (" + sugDir + ") — " + confLabel + ":");
-                if (learnedThreshold === 1 && fbStatsProb.total >= 5) {
-                    tgLines.push("   📚 Historial: " + fbStatsProb.correct + "/" + fbStatsProb.total + " aciertos (" + Math.round(fbRate * 100) + "%) — umbral reducido");
-                }
+            else if (hasMultiTfConf) {
+                tgLines.push("💡 OPERACIÓN (" + sugDir + ") — " + crossTfCount + " TFs alineadas:");
                 if (fbLowPerf) {
-                    tgLines.push("   ⚠️ AVISO: rendimiento bajo (" + Math.round(fbRate * 100) + "% de " + fbStatsProb.total + " señales) — opera con precaución");
+                    tgLines.push("   ⚠️ Historial bajo (" + Math.round(fbRate * 100) + "% / " + fbStatsProb.total + " señales) — precaución");
                 }
-                tgLines.push("   📍 Entrada: $" + parseFloat(entryPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + (entryNote ? " [" + entryNote + "]" : ""));
-                tgLines.push("   🎯 TP: $" + parseFloat(tpPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (+" + tpPctShow + "%) [" + tpNote + "]");
+                tgLines.push("   📍 ENTRADA: $" + parseFloat(entryPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + (entryNote ? " — " + entryNote : ""));
+                tgLines.push("   🎯 TP: $" + parseFloat(tpPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (+" + tpPctShow + "%) — " + tpNote);
                 tgLines.push("   🛑 SL: $" + parseFloat(slPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (-" + slPctShow + "%)");
                 tgLines.push("   ⚖️ Ratio: 1:" + ratioBot);
-                var probSrc = fbStatsProb.total >= 3 ? "basada en " + fbStatsProb.total + " señales previas" : "base estadística";
-                tgLines.push("   🧠 Probabilidad: " + probPct + "% (" + probSrc + ")");
+                if (probPct !== null) {
+                    var probSrc2 = fbStatsProb.total >= 3 ? "(" + fbStatsProb.total + " señales previas)" : "(base estadística)";
+                    tgLines.push("   🧠 Prob. " + probPct + "% " + probSrc2);
+                }
+                if (!fvgNearEntry)
+                    tgLines.push("   ⚠️ Sin FVG cercano — precio actual como referencia de entrada");
+                if (!fvgFarExit)
+                    tgLines.push("   ⚠️ Sin FVG lejano — TP calculado por ratio");
             }
             else {
-                tgLines.push("⚠️ Sin operación bot — confluencia insuficiente (" + confluenceCount + "/" + learnedThreshold + " señales alineadas)");
-                tgLines.push("   Espera más señales " + sugDir + " en " + tf + " para entrada de calidad");
+                tgLines.push("⏳ Señal registrada — sin confluencia multi-TF todavía (" + crossTfCount + "/2 temporalidades)");
+                tgLines.push("   Activa alertas en más temporalidades de " + label + " para confirmar");
             }
             tgLines.push("");
             tgLines.push("⏰ " + new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }));
