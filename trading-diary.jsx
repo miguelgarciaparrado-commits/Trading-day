@@ -4686,7 +4686,8 @@ function AlertasTab({S,predictions}){
           ?(divResultFH.type==="bullish"?"rsi_conv_bull":"rsi_conv_bear")
           :(divResultFH.type==="bullish"?"rsi_div_bull":"rsi_div_bear");
         var divLockKeyFH=ak+divKindFH+"_"+divResultFH.type+"_lock";
-        var divCooldownFH={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[alert.interval]||14400000;
+        var baseCdFH={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[alert.interval]||14400000;
+        var divCooldownFH=divKindFH==="convergence"?baseCdFH*4:baseCdFH;
         var prevDivFiredFH=lastTrigRef.current[divLockKeyFH]||0;
         if(Date.now()-prevDivFiredFH>divCooldownFH){
           lastTrigRef.current[divLockKeyFH]=Date.now();
@@ -4905,9 +4906,10 @@ function AlertasTab({S,predictions}){
                 var divAlertType=divKind==="convergence"
                   ?(divResult.type==="bullish"?"rsi_conv_bull":"rsi_conv_bear")
                   :(divResult.type==="bullish"?"rsi_div_bull":"rsi_div_bear");
-                // Time-based lock: don't re-fire same divergence type within one candle period
+                // Time-based lock: divergencias 1× período, convergencias 4× período (menos frecuentes)
                 var divLockKey=ak+divKind+"_"+divResult.type+"_lock";
-                var divCooldownMs={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[alert.interval]||14400000;
+                var baseCdMs={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[alert.interval]||14400000;
+                var divCooldownMs=divKind==="convergence"?baseCdMs*4:baseCdMs;
                 var prevDivFired=lastTrigRef.current[divLockKey]||0;
                 if(Date.now()-prevDivFired>divCooldownMs){
                   lastTrigRef.current[divLockKey]=Date.now();
@@ -7126,14 +7128,14 @@ function detectRSIDivergence(ohlcArr,rsiArr){
   if(ph.length>=2){
     var ch1=ph[ph.length-2],ch2=ph[ph.length-1];
     var crh1=rsis[ch1.i],crh2=rsis[ch2.i];
-    if(ch2.v<ch1.v&&crh2<crh1&&(crh1-crh2)>3&&crh2<65)
+    if(ch2.v<ch1.v&&crh2<crh1&&(crh1-crh2)>6&&crh1>50&&crh2<58)
       return{type:"bearish",kind:"convergence"};
   }
   // Convergencia alcista: precio HL + RSI HL → confirma alcista
   if(pl.length>=2){
     var cl1=pl[pl.length-2],cl2=pl[pl.length-1];
     var crl1=rsis[cl1.i],crl2=rsis[cl2.i];
-    if(cl2.v>cl1.v&&crl2>crl1&&(crl2-crl1)>3&&crl1>35)
+    if(cl2.v>cl1.v&&crl2>crl1&&(crl2-crl1)>6&&crl1>42&&crl2<58)
       return{type:"bullish",kind:"convergence"};
   }
   return null;
