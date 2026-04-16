@@ -4548,9 +4548,6 @@ function AlertasTab({S,predictions}){
         if(probPct!==null){var probSrc2=fbStatsProb.total>=3?"("+fbStatsProb.total+" señales previas)":"(base estadística)";tgLines.push("   🧠 Prob. "+probPct+"% "+probSrc2);}
         if(!fvgNearEntry)tgLines.push("   ⚠️ Sin FVG cercano — precio actual como referencia de entrada");
         if(!fvgFarExit)tgLines.push("   ⚠️ Sin FVG lejano — TP calculado por ratio");
-      }else{
-        tgLines.push("⏳ Señal registrada — sin confluencia multi-TF todavía ("+crossTfCount+"/2 temporalidades)");
-        tgLines.push("   Activa alertas en más temporalidades de "+label+" para confirmar");
       }
       tgLines.push("");
       tgLines.push("⏰ "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
