@@ -4548,9 +4548,6 @@ function AlertasTab({S,predictions}){
         if(probPct!==null){var probSrc2=fbStatsProb.total>=3?"("+fbStatsProb.total+" señales previas)":"(base estadística)";tgLines.push("   🧠 Prob. "+probPct+"% "+probSrc2);}
         if(!fvgNearEntry)tgLines.push("   ⚠️ Sin FVG cercano — precio actual como referencia de entrada");
         if(!fvgFarExit)tgLines.push("   ⚠️ Sin FVG lejano — TP calculado por ratio");
-      }else{
-        tgLines.push("⏳ Señal registrada — sin confluencia multi-TF todavía ("+crossTfCount+"/2 temporalidades)");
-        tgLines.push("   Activa alertas en más temporalidades de "+label+" para confirmar");
       }
       tgLines.push("");
       tgLines.push("⏰ "+new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}));
@@ -4592,7 +4589,7 @@ function AlertasTab({S,predictions}){
           {text:"❌ No se cumplió",callback_data:"fb_wrong_"+type}
         ]]};
       }
-      if(!isDivConv||hasMultiTfConf){fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{
+      fetch("https://api.telegram.org/bot"+tk+"/sendMessage",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify(tgBody)
@@ -4601,9 +4598,9 @@ function AlertasTab({S,predictions}){
           var errMsg="Telegram error: "+(data.description||data.error_code||"desconocido");
           setLogs(function(prev){return [{id:Date.now(),type:"tg_error",title:"⚠️ Telegram no enviado",body:errMsg,time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}].concat(prev).slice(0,50);});
         }
-      }).catch(function(){});}
+      }).catch(function(){});
     }
-    if((!isDivConv||hasMultiTfConf)&&Notification.permission==="granted"){
+    if(Notification.permission==="granted"){
       const notifOpts={body:body,icon:"https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",requireInteraction:true,silent:false};
       function doNotif(){try{new Notification(title,notifOpts);}catch(ex){try{new Notification(title,{body:body});}catch(e){}}}
       if("serviceWorker" in navigator){
