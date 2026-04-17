@@ -1004,6 +1004,7 @@ function App() {
                 ema200_golden: "🌟 Cruce Dorado EMA 50/200", ema200_death: "💀 Cruce Muerte EMA 50/200",
                 rsi_div_bull: "🟢 Divergencia Alcista RSI", rsi_div_bear: "🔴 Divergencia Bajista RSI",
                 rsi_conv_bull: "📈 Convergencia Alcista RSI", rsi_conv_bear: "📉 Convergencia Bajista RSI",
+                rsi_hdiv_bull: "🟩 Div. Oculta Alcista RSI", rsi_hdiv_bear: "🟥 Div. Oculta Bajista RSI",
                 canal_bajista_ruptura_alcista: "📐 Canal Bajista — Ruptura Alcista",
                 canal_bajista_ruptura_bajista: "📐 Canal Bajista — Ruptura Bajista",
                 canal_alcista_ruptura_alcista: "📐 Canal Alcista — Ruptura Alcista",
@@ -4578,6 +4579,12 @@ function AlertasTab({ S, predictions }) {
         else if (type === "rsi_conv_bear") {
             title = "📉 Convergencia Bajista RSI";
         }
+        else if (type === "rsi_hdiv_bull") {
+            title = "🟩 Div. Oculta Alcista RSI";
+        }
+        else if (type === "rsi_hdiv_bear") {
+            title = "🟥 Div. Oculta Bajista RSI";
+        }
         else if (type === "patron_combo") {
             title = "🔥 Patrón Combinado";
             body = (customDesc || "") + priceStr;
@@ -4665,10 +4672,14 @@ function AlertasTab({ S, predictions }) {
                     divConvLine = "📈 Convergencia alcista";
                 else if (dr.kind === "convergence" && dr.type === "bearish")
                     divConvLine = "📉 Convergencia bajista";
+                else if (dr.kind === "hidden_divergence" && dr.type === "bullish")
+                    divConvLine = "🟩 Div. oculta alcista";
+                else if (dr.kind === "hidden_divergence" && dr.type === "bearish")
+                    divConvLine = "🟥 Div. oculta bajista";
             }
             // ─── CONFLUENCIA: registrar señal y calcular señales alineadas ───
-            var BULLISH_TYPES = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "patron_fvg", "canal_bajista_ruptura_alcista", "canal_alcista_ruptura_alcista", "canal_bajista_retest_bull", "canal_alcista_retest_bull"];
-            var BEARISH_TYPES = ["rsi_overbought", "death", "ema200_death", "rsi_div_bear", "rsi_conv_bear", "canal_alcista_ruptura_bajista", "canal_bajista_ruptura_bajista", "canal_alcista_retest_bear", "canal_bajista_retest_bear"];
+            var BULLISH_TYPES = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "rsi_hdiv_bull", "patron_fvg", "canal_bajista_ruptura_alcista", "canal_alcista_ruptura_alcista", "canal_bajista_retest_bull", "canal_alcista_retest_bull"];
+            var BEARISH_TYPES = ["rsi_overbought", "death", "ema200_death", "rsi_div_bear", "rsi_conv_bear", "rsi_hdiv_bear", "canal_alcista_ruptura_bajista", "canal_bajista_ruptura_bajista", "canal_alcista_retest_bear", "canal_bajista_retest_bear"];
             var confKey = label + "|" + interval;
             if (!confluenceRef.current[confKey])
                 confluenceRef.current[confKey] = {};
@@ -4677,7 +4688,7 @@ function AlertasTab({ S, predictions }) {
             var confWindow = confWindowMs[interval] || 28800000;
             var confNow = Date.now();
             var confMap = confluenceRef.current[confKey];
-            var SIGNAL_LABELS = { "rsi_oversold": "RSI sobreventa", "rsi_overbought": "RSI sobrecompra", "golden": "Cruce dorado EMA 7/25", "death": "Cruce muerte EMA 7/25", "ema200_golden": "Cruce dorado EMA 50/200", "ema200_death": "Cruce muerte EMA 50/200", "rsi_div_bull": "Divergencia alcista RSI", "rsi_div_bear": "Divergencia bajista RSI", "rsi_conv_bull": "Convergencia alcista RSI", "rsi_conv_bear": "Convergencia bajista RSI", "patron_fvg": "Precio en FVG (soporte)", "canal_bajista_ruptura_alcista": "Canal bajista — ruptura alcista confirmada", "canal_alcista_ruptura_alcista": "Canal alcista — ruptura alcista confirmada", "canal_alcista_ruptura_bajista": "Canal alcista — ruptura bajista confirmada", "canal_bajista_ruptura_bajista": "Canal bajista — ruptura bajista confirmada", "canal_bajista_retest_bull": "Canal bajista — entrada retesteo alcista", "canal_bajista_retest_bear": "Canal bajista — entrada retesteo bajista", "canal_alcista_retest_bull": "Canal alcista — entrada retesteo alcista", "canal_alcista_retest_bear": "Canal alcista — entrada retesteo bajista" };
+            var SIGNAL_LABELS = { "rsi_oversold": "RSI sobreventa", "rsi_overbought": "RSI sobrecompra", "golden": "Cruce dorado EMA 7/25", "death": "Cruce muerte EMA 7/25", "ema200_golden": "Cruce dorado EMA 50/200", "ema200_death": "Cruce muerte EMA 50/200", "rsi_div_bull": "Divergencia alcista RSI", "rsi_div_bear": "Divergencia bajista RSI", "rsi_conv_bull": "Convergencia alcista RSI", "rsi_conv_bear": "Convergencia bajista RSI", "rsi_hdiv_bull": "Div. oculta alcista RSI", "rsi_hdiv_bear": "Div. oculta bajista RSI", "patron_fvg": "Precio en FVG (soporte)", "canal_bajista_ruptura_alcista": "Canal bajista — ruptura alcista confirmada", "canal_alcista_ruptura_alcista": "Canal alcista — ruptura alcista confirmada", "canal_alcista_ruptura_bajista": "Canal alcista — ruptura bajista confirmada", "canal_bajista_ruptura_bajista": "Canal bajista — ruptura bajista confirmada", "canal_bajista_retest_bull": "Canal bajista — entrada retesteo alcista", "canal_bajista_retest_bear": "Canal bajista — entrada retesteo bajista", "canal_alcista_retest_bull": "Canal alcista — entrada retesteo alcista", "canal_alcista_retest_bear": "Canal alcista — entrada retesteo bajista" };
             var ohlcData = extra.ohlc || [];
             var isLong = BULLISH_TYPES.indexOf(type) >= 0;
             var alignedTypes = isLong ? BULLISH_TYPES : BEARISH_TYPES;
@@ -5019,7 +5030,11 @@ function AlertasTab({ S, predictions }) {
             tgLines.push("📅 Temporalidad: " + tf + "  |  " + label);
             if (isEMACross)
                 tgLines.push("🔀 Cruce EMAs: " + emaCrossLabel);
-            tgLines.push("📊 RSI: " + (rsi != null ? rsi.toFixed(1) : "--") + (type !== "rsi_oversold" && type !== "rsi_overbought" && type !== "rsi_custom" && type !== "rsi_div_bull" && type !== "rsi_div_bear" && type !== "rsi_conv_bull" && type !== "rsi_conv_bear" ? " | " + divConvLine : ""));
+            var isDivType = (type === "rsi_div_bull" || type === "rsi_div_bear" || type === "rsi_conv_bull" || type === "rsi_conv_bear" || type === "rsi_hdiv_bull" || type === "rsi_hdiv_bear");
+            tgLines.push("📊 RSI: " + (rsi != null ? rsi.toFixed(1) : "--") + (type !== "rsi_oversold" && type !== "rsi_overbought" && type !== "rsi_custom" && !isDivType ? " | " + divConvLine : ""));
+            if (isDivType && extra.divVolMult !== null && extra.divVolMult !== undefined) {
+                tgLines.push("📊 Vol. vela: " + extra.divVolMult + "× MA20 " + (extra.divVolOk ? "✅" : "⚠️ bajo volumen — confirmar en gráfico"));
+            }
             tgLines.push("💰 Precio mercado: $" + parseFloat(price || 0).toLocaleString("es-ES", { maximumFractionDigits: 4 }));
             tgLines.push("📈 Volumen: " + (extra.volDir || "Desconocido"));
             // ─── Confluencia multi-TF en el mensaje ───
@@ -5108,6 +5123,26 @@ function AlertasTab({ S, predictions }) {
                     tgLines.push("   🚫 Invalidación: precio vuelve al interior del canal — $" + invalBreak.toLocaleString("es-ES", { maximumFractionDigits: 2 }));
                     tgLines.push("");
                     tgLines.push("   📊 Canal " + cr.canalType + ": " + cr.supportTouches + " toques soporte / " + cr.resistTouches + " toques resistencia | Calidad " + cr.quality + "/100");
+                }
+            }
+            // FVG: bloque detallado cuando el tipo es patron_fvg
+            if (type === "patron_fvg" && extra.fvgResult) {
+                var fvgR = extra.fvgResult;
+                var fvgIsLong = fvgR.subtype === "alcista";
+                var fvgEdge = fvgIsLong ? fvgR.top : fvgR.bot;
+                var fvgFarEdge = fvgIsLong ? fvgR.bot : fvgR.top;
+                var fvgSlRaw = fvgIsLong ? fvgFarEdge : fvgFarEdge;
+                tgLines.push("");
+                tgLines.push("⚡ FVG " + fvgR.subtype.toUpperCase() + " — " + (fvgIsLong ? "Ineficiencia alcista sin cubrir" : "Ineficiencia bajista sin cubrir"));
+                tgLines.push("   Rango FVG: $" + parseFloat(fvgR.bot).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " – $" + parseFloat(fvgR.top).toLocaleString("es-ES", { maximumFractionDigits: 2 }));
+                tgLines.push("   📍 Entrada: $" + parseFloat(fvgEdge).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " (borde " + (fvgIsLong ? "superior" : "inferior") + ")");
+                tgLines.push("   🛑 SL técnico: $" + parseFloat(fvgSlRaw).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " (" + (fvgIsLong ? "debajo del FVG" : "encima del FVG") + ")");
+                if (extra.fvgHigherTF && extra.fvgHtfLabel) {
+                    var htfStatus = extra.fvgHtfAligned === true ? "✅ alineada" : extra.fvgHtfAligned === false ? "⚠️ EN CONTRA — precaución" : "(sin datos)";
+                    tgLines.push("   📊 Tendencia " + extra.fvgHtfLabel + " (EMA50): " + htfStatus);
+                }
+                if (extra.fvgVolMult !== null && extra.fvgVolMult !== undefined) {
+                    tgLines.push("   📊 Volumen: " + extra.fvgVolMult + "× MA20 " + (extra.fvgVolOk ? "✅" : "⚠️ volumen alto — posible capitulación"));
                 }
             }
             var tgFullText = tgLines.join("\n");
@@ -5414,10 +5449,12 @@ function AlertasTab({ S, predictions }) {
                 var divKindFH = divResultFH.kind || "divergence";
                 var divAlertFH = divKindFH === "convergence"
                     ? (divResultFH.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
-                    : (divResultFH.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
+                    : divKindFH === "hidden_divergence"
+                        ? (divResultFH.type === "bullish" ? "rsi_hdiv_bull" : "rsi_hdiv_bear")
+                        : (divResultFH.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
                 var divLockKeyFH = ak + divKindFH + "_" + divResultFH.type + "_lock";
                 var baseCdFH = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 14400000;
-                var divCooldownFH = divKindFH === "convergence" ? baseCdFH * 2 : baseCdFH;
+                var divCooldownFH = divKindFH === "convergence" ? baseCdFH * 2 : divKindFH === "hidden_divergence" ? baseCdFH * 1.5 : baseCdFH;
                 var prevDivFiredFH = lastTrigRef.current[divLockKeyFH] || 0;
                 if (Date.now() - prevDivFiredFH > divCooldownFH) {
                     lastTrigRef.current[divLockKeyFH] = Date.now();
@@ -5430,7 +5467,10 @@ function AlertasTab({ S, predictions }) {
                         localStorage.setItem("td-alert-zones", JSON.stringify(fhDz));
                     }
                     catch (e) { }
-                    sendAlert(alert.label, alert.interval, rsi, divAlertFH, ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResultFH });
+                    var fhVolMA20 = ohlc.length >= 20 ? ohlc.slice(-20).reduce(function (a, c) { return a + (c.v || 0); }, 0) / 20 : 0;
+                    var fhLastVol = ohlc.length > 0 ? (ohlc[ohlc.length - 1].v || 0) : 0;
+                    var fhVolMult = fhVolMA20 > 0 ? parseFloat((fhLastVol / fhVolMA20).toFixed(1)) : null;
+                    sendAlert(alert.label, alert.interval, rsi, divAlertFH, ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResultFH, divVolMult: fhVolMult, divVolOk: fhVolMult !== null && fhVolMult >= 1.2 });
                 }
             }
             else if (isFreshFHCandle) {
@@ -5725,11 +5765,13 @@ function AlertasTab({ S, predictions }) {
                                 var divKind = divResult.kind || "divergence";
                                 var divAlertType = divKind === "convergence"
                                     ? (divResult.type === "bullish" ? "rsi_conv_bull" : "rsi_conv_bear")
-                                    : (divResult.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
-                                // Time-based lock: divergencias 1× período, convergencias 4× período (menos frecuentes)
+                                    : divKind === "hidden_divergence"
+                                        ? (divResult.type === "bullish" ? "rsi_hdiv_bull" : "rsi_hdiv_bear")
+                                        : (divResult.type === "bullish" ? "rsi_div_bull" : "rsi_div_bear");
+                                // Time-based lock: divergencias 1×, convergencias 2×, ocultas 1.5×
                                 var divLockKey = ak + divKind + "_" + divResult.type + "_lock";
                                 var baseCdMs = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 14400000;
-                                var divCooldownMs = divKind === "convergence" ? baseCdMs * 2 : baseCdMs;
+                                var divCooldownMs = divKind === "convergence" ? baseCdMs * 2 : divKind === "hidden_divergence" ? baseCdMs * 1.5 : baseCdMs;
                                 var prevDivFired = lastTrigRef.current[divLockKey] || 0;
                                 if (Date.now() - prevDivFired > divCooldownMs) {
                                     lastTrigRef.current[divLockKey] = Date.now();
@@ -5742,7 +5784,10 @@ function AlertasTab({ S, predictions }) {
                                         localStorage.setItem("td-alert-zones", JSON.stringify(dzWs));
                                     }
                                     catch (e) { }
-                                    sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200 });
+                                    var wsVolMA20 = ohlc.length >= 20 ? ohlc.slice(-20).reduce(function (a, c) { return a + (c.v || 0); }, 0) / 20 : 0;
+                                    var wsLastVol = ohlc.length > 0 ? (ohlc[ohlc.length - 1].v || 0) : 0;
+                                    var wsVolMult = wsVolMA20 > 0 ? parseFloat((wsLastVol / wsVolMA20).toFixed(1)) : null;
+                                    sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200, divVolMult: wsVolMult, divVolOk: wsVolMult !== null && wsVolMult >= 1.2 });
                                 }
                             }
                         }
@@ -5850,10 +5895,24 @@ function AlertasTab({ S, predictions }) {
                                             var nearBrkLine = Math.abs(closePrice - confBrkLine) <= confAtrBrk * 0.2;
                                             if (nearBrkLine) {
                                                 var retIsBull = confBrkDir === "alcista";
-                                                // Rejection: candle closes away from broken line in expected direction
-                                                var rejBull = retIsBull && lastCdl.c > confBrkLine && lastCdl.c > lastCdl.o;
-                                                var rejBear = (!retIsBull) && lastCdl.c < confBrkLine && lastCdl.c < lastCdl.o;
                                                 var retVolOk = chanVolMA20 > 0 && (lastCdl.v || 0) >= chanVolMA20 * 1.2;
+                                                // Candlestick pattern detection for retest confirmation
+                                                var retBody = Math.abs(lastCdl.c - lastCdl.o) || 0.001;
+                                                var retLowWick = Math.min(lastCdl.c, lastCdl.o) - lastCdl.l;
+                                                var retHighWick = lastCdl.h - Math.max(lastCdl.c, lastCdl.o);
+                                                var pinBarBull = retLowWick > retBody * 2; // hammer / bullish pin bar
+                                                var pinBarBear = retHighWick > retBody * 2; // shooting star / bearish pin bar
+                                                var prevRetCdl = ohlc.length > 1 ? ohlc[ohlc.length - 2] : lastCdl;
+                                                var prevRetBody = Math.abs(prevRetCdl.c - prevRetCdl.o) || 0.001;
+                                                var engulfBull = lastCdl.c > lastCdl.o && prevRetCdl.c < prevRetCdl.o && retBody > prevRetBody;
+                                                var engulfBear = lastCdl.c < lastCdl.o && prevRetCdl.c > prevRetCdl.o && retBody > prevRetBody;
+                                                var retRsiExtreme = retIsBull ? (rsi !== null && rsi < 35) : (rsi !== null && rsi > 65);
+                                                // Reject requires: price closes on right side + at least 1 confirmation
+                                                var rejBull = retIsBull && lastCdl.c > confBrkLine && (lastCdl.c > lastCdl.o || pinBarBull || engulfBull || retRsiExtreme);
+                                                var rejBear = (!retIsBull) && lastCdl.c < confBrkLine && (lastCdl.c < lastCdl.o || pinBarBear || engulfBear || retRsiExtreme);
+                                                var retConfirmDesc = retIsBull
+                                                    ? (engulfBull ? "Envolvente alcista" : pinBarBull ? "Martillo / pin bar" : retRsiExtreme ? "Vela alcista + RSI " + (rsi !== null ? rsi.toFixed(1) : "--") : "Vela alcista en soporte dinámico")
+                                                    : (engulfBear ? "Envolvente bajista" : pinBarBear ? "Estrella fugaz / pin bar" : retRsiExtreme ? "Vela bajista + RSI " + (rsi !== null ? rsi.toFixed(1) : "--") : "Vela bajista en resistencia dinámica");
                                                 if (rejBull || rejBear) {
                                                     lastTrigRef.current[ak + "chan_retest_done"] = true;
                                                     lastTrigRef.current[ak + "chan_state"] = "retested";
@@ -5876,7 +5935,7 @@ function AlertasTab({ S, predictions }) {
                                                     var retRRok = retRiskAmt > 0 && retReward1 / retRiskAmt >= 2.0;
                                                     var retInval = retIsBull ? parseFloat((confBrkLine - confAtrBrk * 0.3).toFixed(2)) : parseFloat((confBrkLine + confAtrBrk * 0.3).toFixed(2));
                                                     var retVolMult = chanVolMA20 > 0 ? ((lastCdl.v || 0) / chanVolMA20).toFixed(1) : "?";
-                                                    var retestPayload = { retestEntry: true, retestBull: retIsBull, retestDir: confBrkDir, retestLine: confBrkLine, entry: retEntry, sl: retSl, tp1: retTp1, rr1: retRR1, rrOk: retRRok, invalidation: retInval, volOk: retVolOk, volMult: retVolMult, candleDesc: retIsBull ? "Vela alcista en soporte dinámico" : "Vela bajista en resistencia dinámica" };
+                                                    var retestPayload = { retestEntry: true, retestBull: retIsBull, retestDir: confBrkDir, retestLine: confBrkLine, entry: retEntry, sl: retSl, tp1: retTp1, rr1: retRR1, rrOk: retRRok, invalidation: retInval, volOk: retVolOk, volMult: retVolMult, candleDesc: retConfirmDesc };
                                                     sendAlert(alert.label, alert.interval, rsi, retType, ema7, ema25, null, closePrice, { ohlc: ohlc, channelResult: { canalType: curCT, topLine: curTop, botLine: curBot, channelHeight: curCh, quality: chanResult.quality, supportTouches: chanResult.supportTouches, resistTouches: chanResult.resistTouches, atr: confAtrBrk }, retestData: retestPayload });
                                                     confluenceRef.current[confKeyPat][retType] = Date.now();
                                                 }
@@ -5885,9 +5944,31 @@ function AlertasTab({ S, predictions }) {
                                     }
                                 }
                             }
-                            // FVG
+                            // FVG — con filtro de alineación HTF y volumen
                             var fvgResult = checkFVGCovered(ohlc, closePrice);
                             if (fvgResult) {
+                                // Alineación con tendencia en TF superior (EMA50)
+                                var fvgHigherTF = { "1h": "4h", "4h": "1d", "1d": "1w" }[alert.interval] || null;
+                                var fvgHtfAligned = null;
+                                var fvgHtfLabel = "";
+                                if (fvgHigherTF) {
+                                    var fvgHtfOhlc = ohlcRef.current[(alert.symbol || "BTCUSDT") + fvgHigherTF] || [];
+                                    if (fvgHtfOhlc.length >= 50) {
+                                        var fvgHtfCloses = fvgHtfOhlc.map(function (c) { return c.c; });
+                                        var fvgHtfEma50 = calcEMA(fvgHtfCloses, 50);
+                                        var fvgHtfPrice = fvgHtfCloses[fvgHtfCloses.length - 1];
+                                        if (fvgHtfEma50 && fvgHtfPrice) {
+                                            var fvgHtfBull = fvgHtfPrice > fvgHtfEma50;
+                                            fvgHtfAligned = fvgResult.subtype === "alcista" ? fvgHtfBull : !fvgHtfBull;
+                                            fvgHtfLabel = { "4h": "4H", "1d": "Diario", "1w": "Semanal" }[fvgHigherTF] || fvgHigherTF;
+                                        }
+                                    }
+                                }
+                                // Filtro de volumen: evitar entrar en capitulación
+                                var fvgVolMA20 = ohlc.length >= 20 ? ohlc.slice(-20).reduce(function (a, c) { return a + (c.v || 0); }, 0) / 20 : 0;
+                                var fvgLastVol = ohlc.length > 0 ? (ohlc[ohlc.length - 1].v || 0) : 0;
+                                var fvgVolMult = fvgVolMA20 > 0 ? parseFloat((fvgLastVol / fvgVolMA20).toFixed(1)) : null;
+                                var fvgVolOk = fvgVolMult === null || fvgVolMult <= 2.5;
                                 if (alert.fvgEnabled !== false && !lastTrigRef.current[ak + "fvg"]) {
                                     lastTrigRef.current[ak + "fvg"] = true;
                                     try {
@@ -5899,7 +5980,7 @@ function AlertasTab({ S, predictions }) {
                                         localStorage.setItem("td-alert-zones", JSON.stringify(fvgZs));
                                     }
                                     catch (e) { }
-                                    sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult });
+                                    sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, fvgResult: fvgResult, fvgHtfAligned: fvgHtfAligned, fvgHtfLabel: fvgHtfLabel, fvgHigherTF: fvgHigherTF, fvgVolMult: fvgVolMult, fvgVolOk: fvgVolOk });
                                 }
                                 confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
                             }
@@ -7871,6 +7952,21 @@ function detectRSIDivergence(ohlcArr, rsiArr) {
         var crl1 = rsis[cl1.i], crl2 = rsis[cl2.i];
         if (cl2.v > cl1.v && crl2 > crl1 && (crl2 - crl1) > 4 && crl1 > 32 && crl2 < 65)
             return { type: "bullish", kind: "convergence" };
+    }
+    // ── DIVERGENCIAS OCULTAS (corrección contra tendencia principal — confirma continuación) ──
+    // Oculta bajista: precio LH (corrección) + RSI HH → tendencia bajista intacta
+    if (ph.length >= 2) {
+        var oh1 = ph[ph.length - 2], oh2 = ph[ph.length - 1];
+        var orh1 = rsis[oh1.i], orh2 = rsis[oh2.i];
+        if (oh2.v < oh1.v && orh2 > orh1 && (orh2 - orh1) > 3 && orh1 < 80 && orh2 > 20)
+            return { type: "bearish", kind: "hidden_divergence" };
+    }
+    // Oculta alcista: precio HL (corrección) + RSI LL → tendencia alcista intacta
+    if (pl.length >= 2) {
+        var ol1 = pl[pl.length - 2], ol2 = pl[pl.length - 1];
+        var orl1 = rsis[ol1.i], orl2 = rsis[ol2.i];
+        if (ol2.v > ol1.v && orl2 < orl1 && (orl1 - orl2) > 3 && orl1 > 20 && orl2 < 80)
+            return { type: "bullish", kind: "hidden_divergence" };
     }
     return null;
 }
