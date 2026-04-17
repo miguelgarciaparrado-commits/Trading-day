@@ -4374,7 +4374,7 @@ function AlertasTab({S,predictions}){
       var entryNote="";
       if(fvgNearEntry){
         entryPrice=parseFloat((isLong?fvgNearEntry.bot:fvgNearEntry.top).toFixed(2));
-        entryNote=isLong?"FVG alcista cercano ($"+fvgNearEntry.bot.toFixed(2)+"–$"+fvgNearEntry.top.toFixed(2)+")":"FVG bajista cercano ($"+fvgNearEntry.bot.toFixed(2)+"–$"+fvgNearEntry.top.toFixed(2)+")";
+        entryNote=isLong?"Zona FVG alcista (orden en $"+entryPrice.toLocaleString("es-ES",{maximumFractionDigits:2})+")":"Zona FVG bajista (orden en $"+entryPrice.toLocaleString("es-ES",{maximumFractionDigits:2})+")";
       }else if((type==="canal_alcista_soporte")&&extra.channelResult&&extra.channelResult.botLine){
         entryPrice=parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
         entryNote="Soporte canal";
@@ -4426,13 +4426,24 @@ function AlertasTab({S,predictions}){
       if(isLong&&slPrice>=entryPrice)slPrice=parseFloat((entryPrice*0.98).toFixed(2));
       if(!isLong&&slPrice<=entryPrice)slPrice=parseFloat((entryPrice*1.02).toFixed(2));
 
-      // ─── TP: FVG más lejano multi-TF → fallback estrategia específica → 1:2 ───
+      // ─── TP: FVG más cercano válido en propia TF → FVG lejano con cap → fallback 1:2 ───
       var tpPrice=null;var tpNote="1:2 mínimo";
       var riskAmt=Math.abs(entryPrice-slPrice);
-      // Primero: FVG más lejano en cualquier temporalidad (target máximo ICT)
-      if(fvgFarExit){
+      // Cap máximo de TP por temporalidad (evitar TPs absurdos en TFs bajas)
+      var tpMaxPct={"1h":0.05,"4h":0.12,"1d":0.30,"1w":1.0}[interval]||0.12;
+      // Primero: FVG más cercano válido en la propia temporalidad (ratio ≥ 1.5)
+      if(ohlcData.length>4&&riskAmt>0){
+        var fvgTP=findFVGforTP(ohlcData,entryPrice,isLong,1.5,riskAmt);
+        if(fvgTP){
+          var fvgTPpct=Math.abs(fvgTP.price-entryPrice)/(entryPrice||1);
+          if(fvgTPpct<=tpMaxPct){tpPrice=fvgTP.price;tpNote="FVG "+interval.toUpperCase()+" $"+fvgTP.note.replace(/^FVG [a-z]+ /,"");}
+        }
+      }
+      // Segundo: FVG lejano multi-TF pero limitado por cap de temporalidad
+      if(!tpPrice&&fvgFarExit){
         var farRatio=riskAmt>0?Math.abs(fvgFarExit.mid-entryPrice)/riskAmt:0;
-        if(farRatio>=1.5){tpPrice=parseFloat(fvgFarExit.mid.toFixed(2));tpNote="FVG más lejano ["+fvgTfLabel+"] $"+fvgFarExit.bot.toFixed(2)+"–$"+fvgFarExit.top.toFixed(2);}
+        var farPct=Math.abs(fvgFarExit.mid-entryPrice)/(entryPrice||1);
+        if(farRatio>=1.5&&farPct<=tpMaxPct){tpPrice=parseFloat(fvgFarExit.mid.toFixed(2));tpNote="FVG ["+fvgTfLabel+"] $"+fvgFarExit.bot.toFixed(2)+"–$"+fvgFarExit.top.toFixed(2);}
       }
       // Death cross 7/25: TP primario = EMA50
       if(type==="death"&&extra.ema50&&extra.ema50>0&&extra.ema50<entryPrice){
@@ -4459,11 +4470,6 @@ function AlertasTab({S,predictions}){
       if(!tpPrice&&(type==="rsi_overbought"||type==="rsi_div_bear"||type==="rsi_conv_bear")&&extra.ema50&&extra.ema50>0&&extra.ema50<entryPrice){
         var e50r2=entryPrice-extra.ema50;
         if(riskAmt>0&&e50r2/riskAmt>=1.5){tpPrice=parseFloat(extra.ema50.toFixed(2));tpNote="EMA50";}
-      }
-      // Fallback: buscar FVG en dirección del trade (mínimo 1:1.5)
-      if(!tpPrice&&ohlcData.length>4&&riskAmt>0){
-        var fvgTP=findFVGforTP(ohlcData,entryPrice,isLong,1.5,riskAmt);
-        if(fvgTP){tpPrice=fvgTP.price;tpNote=fvgTP.note;}
       }
       // Último fallback: 1:2
       if(!tpPrice){tpPrice=isLong?entryPrice+riskAmt*2:entryPrice-riskAmt*2;}
