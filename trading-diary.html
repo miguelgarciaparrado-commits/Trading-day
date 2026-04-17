@@ -1005,9 +1005,13 @@ function App() {
                 rsi_div_bull: "🟢 Divergencia Alcista RSI", rsi_div_bear: "🔴 Divergencia Bajista RSI",
                 rsi_conv_bull: "📈 Convergencia Alcista RSI", rsi_conv_bear: "📉 Convergencia Bajista RSI",
                 canal_bajista_ruptura_alcista: "📐 Canal Bajista — Ruptura Alcista",
+                canal_bajista_ruptura_bajista: "📐 Canal Bajista — Ruptura Bajista",
+                canal_alcista_ruptura_alcista: "📐 Canal Alcista — Ruptura Alcista",
                 canal_alcista_ruptura_bajista: "📐 Canal Alcista — Ruptura Bajista",
-                canal_alcista_soporte: "📐 Canal Alcista — Soporte",
-                canal_alcista_resistencia: "📐 Canal Alcista — Resistencia",
+                canal_bajista_retest_bull: "🎯 Canal Bajista — Retesteo Alcista",
+                canal_bajista_retest_bear: "🎯 Canal Bajista — Retesteo Bajista",
+                canal_alcista_retest_bull: "🎯 Canal Alcista — Retesteo Alcista",
+                canal_alcista_retest_bear: "🎯 Canal Alcista — Retesteo Bajista",
                 patron_fvg: "⚡ Precio en FVG", patron_combo: "🔥 Patrón Combinado"
             };
             var totalCorr = 0, totalAll = 0;
@@ -4012,6 +4016,23 @@ function calcRSISeries(closes, period) {
     }
     return rsiArr;
 }
+function calcATR(ohlcArr, period) {
+    period = period || 14;
+    if (!ohlcArr || ohlcArr.length < period + 1)
+        return null;
+    var trs = [];
+    for (var i = 1; i < ohlcArr.length; i++) {
+        var h = ohlcArr[i].h, l = ohlcArr[i].l, pc = ohlcArr[i - 1].c;
+        trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+    }
+    var atr = 0;
+    for (var si = 0; si < period && si < trs.length; si++)
+        atr += trs[si];
+    atr /= Math.min(period, trs.length);
+    for (var ki = period; ki < trs.length; ki++)
+        atr = (atr * (period - 1) + trs[ki]) / period;
+    return atr;
+}
 function calcEMASeries(closes, period) {
     // Returns array of EMA values (one per candle after warmup)
     if (closes.length < period)
@@ -4578,28 +4599,36 @@ function AlertasTab({ S, predictions }) {
             body = (customDesc || "") + priceStr;
         }
         else if (type === "canal_bajista_ruptura_alcista") {
-            title = "🚀 Canal Bajista — Ruptura Alcista";
-            body = (customDesc || "") + priceStr;
+            title = "🚨 Canal Bajista — Ruptura Alcista Confirmada";
+            body = label + " " + tf + priceStr;
         }
         else if (type === "canal_bajista_ruptura_bajista") {
-            title = "📐 Canal Bajista — Ruptura Bajista Confirmada";
-            body = (customDesc || "") + priceStr;
-        }
-        else if (type === "canal_alcista_soporte") {
-            title = "📐 Canal Alcista — Precio en Soporte";
-            body = (customDesc || "") + priceStr;
-        }
-        else if (type === "canal_alcista_resistencia") {
-            title = "📐 Canal Alcista — Precio en Resistencia";
-            body = (customDesc || "") + priceStr;
+            title = "🚨 Canal Bajista — Ruptura Bajista Confirmada";
+            body = label + " " + tf + priceStr;
         }
         else if (type === "canal_alcista_ruptura_alcista") {
-            title = "🚀 Canal Alcista — Ruptura Alcista Confirmada";
-            body = (customDesc || "") + priceStr;
+            title = "🚨 Canal Alcista — Ruptura Alcista Confirmada";
+            body = label + " " + tf + priceStr;
         }
         else if (type === "canal_alcista_ruptura_bajista") {
-            title = "⚠️ Canal Alcista — Ruptura Bajista";
-            body = (customDesc || "") + priceStr;
+            title = "🚨 Canal Alcista — Ruptura Bajista Confirmada";
+            body = label + " " + tf + priceStr;
+        }
+        else if (type === "canal_bajista_retest_bull") {
+            title = "🎯 Canal Bajista — Entrada Retesteo Alcista";
+            body = label + " " + tf + priceStr;
+        }
+        else if (type === "canal_bajista_retest_bear") {
+            title = "🎯 Canal Bajista — Entrada Retesteo Bajista";
+            body = label + " " + tf + priceStr;
+        }
+        else if (type === "canal_alcista_retest_bull") {
+            title = "🎯 Canal Alcista — Entrada Retesteo Alcista";
+            body = label + " " + tf + priceStr;
+        }
+        else if (type === "canal_alcista_retest_bear") {
+            title = "🎯 Canal Alcista — Entrada Retesteo Bajista";
+            body = label + " " + tf + priceStr;
         }
         else if (customDesc) {
             title = "Alerta";
@@ -4638,8 +4667,8 @@ function AlertasTab({ S, predictions }) {
                     divConvLine = "📉 Convergencia bajista";
             }
             // ─── CONFLUENCIA: registrar señal y calcular señales alineadas ───
-            var BULLISH_TYPES = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "patron_fvg", "canal_bajista_ruptura_alcista", "canal_alcista_soporte", "canal_alcista_ruptura_alcista"];
-            var BEARISH_TYPES = ["rsi_overbought", "death", "ema200_death", "rsi_div_bear", "rsi_conv_bear", "canal_alcista_ruptura_bajista", "canal_bajista_resistencia", "canal_bajista_ruptura_bajista", "canal_alcista_resistencia"];
+            var BULLISH_TYPES = ["rsi_oversold", "golden", "ema200_golden", "rsi_div_bull", "rsi_conv_bull", "patron_fvg", "canal_bajista_ruptura_alcista", "canal_alcista_ruptura_alcista", "canal_bajista_retest_bull", "canal_alcista_retest_bull"];
+            var BEARISH_TYPES = ["rsi_overbought", "death", "ema200_death", "rsi_div_bear", "rsi_conv_bear", "canal_alcista_ruptura_bajista", "canal_bajista_ruptura_bajista", "canal_alcista_retest_bear", "canal_bajista_retest_bear"];
             var confKey = label + "|" + interval;
             if (!confluenceRef.current[confKey])
                 confluenceRef.current[confKey] = {};
@@ -4648,7 +4677,7 @@ function AlertasTab({ S, predictions }) {
             var confWindow = confWindowMs[interval] || 28800000;
             var confNow = Date.now();
             var confMap = confluenceRef.current[confKey];
-            var SIGNAL_LABELS = { "rsi_oversold": "RSI sobreventa", "rsi_overbought": "RSI sobrecompra", "golden": "Cruce dorado EMA 7/25", "death": "Cruce muerte EMA 7/25", "ema200_golden": "Cruce dorado EMA 50/200", "ema200_death": "Cruce muerte EMA 50/200", "rsi_div_bull": "Divergencia alcista RSI", "rsi_div_bear": "Divergencia bajista RSI", "rsi_conv_bull": "Convergencia alcista RSI", "rsi_conv_bear": "Convergencia bajista RSI", "patron_fvg": "Precio en FVG (soporte)", "canal_bajista_ruptura_alcista": "Canal — ruptura alcista", "canal_alcista_soporte": "Canal alcista — soporte", "canal_alcista_ruptura_alcista": "Canal — ruptura alcista confirmada", "canal_alcista_ruptura_bajista": "Canal — ruptura bajista", "canal_bajista_resistencia": "Canal bajista — resistencia", "canal_bajista_ruptura_bajista": "Canal — ruptura bajista confirmada", "canal_alcista_resistencia": "Canal alcista — resistencia" };
+            var SIGNAL_LABELS = { "rsi_oversold": "RSI sobreventa", "rsi_overbought": "RSI sobrecompra", "golden": "Cruce dorado EMA 7/25", "death": "Cruce muerte EMA 7/25", "ema200_golden": "Cruce dorado EMA 50/200", "ema200_death": "Cruce muerte EMA 50/200", "rsi_div_bull": "Divergencia alcista RSI", "rsi_div_bear": "Divergencia bajista RSI", "rsi_conv_bull": "Convergencia alcista RSI", "rsi_conv_bear": "Convergencia bajista RSI", "patron_fvg": "Precio en FVG (soporte)", "canal_bajista_ruptura_alcista": "Canal bajista — ruptura alcista confirmada", "canal_alcista_ruptura_alcista": "Canal alcista — ruptura alcista confirmada", "canal_alcista_ruptura_bajista": "Canal alcista — ruptura bajista confirmada", "canal_bajista_ruptura_bajista": "Canal bajista — ruptura bajista confirmada", "canal_bajista_retest_bull": "Canal bajista — entrada retesteo alcista", "canal_bajista_retest_bear": "Canal bajista — entrada retesteo bajista", "canal_alcista_retest_bull": "Canal alcista — entrada retesteo alcista", "canal_alcista_retest_bear": "Canal alcista — entrada retesteo bajista" };
             var ohlcData = extra.ohlc || [];
             var isLong = BULLISH_TYPES.indexOf(type) >= 0;
             var alignedTypes = isLong ? BULLISH_TYPES : BEARISH_TYPES;
@@ -5037,42 +5066,48 @@ function AlertasTab({ S, predictions }) {
             // Canal: bloque detallado en Telegram
             if (extra.channelResult) {
                 var cr = extra.channelResult;
+                var rd = extra.retestData || null;
                 tgLines.push("");
-                var cLabel = cr.canalType === "alcista" ? "📈 CANAL ASCENDENTE" : "📉 CANAL DESCENDENTE";
-                tgLines.push(cLabel + ":");
-                tgLines.push("   Toques soporte: " + cr.supportTouches + "  |  Toques resistencia: " + cr.resistTouches);
-                tgLines.push("   Calidad: " + cr.channelQuality + "%");
-                tgLines.push("   Soporte dinámico: $" + parseFloat(cr.botLine).toFixed(2) + "  —  Resistencia: $" + parseFloat(cr.topLine).toFixed(2));
-                // Posición precio en lenguaje legible
-                var posLabel;
-                if (cr.pos < -0.15) {
-                    posLabel = "⬇️ Por debajo del canal";
+                if (rd && rd.retestEntry) {
+                    // ── ENTRADA EN RETESTEO ──
+                    var rtLineLabel = rd.retestBull ? "ex-resistencia → ahora soporte" : "ex-soporte → ahora resistencia";
+                    var rtDirLabel = rd.retestBull ? "Canal " + cr.canalType + " roto al alza" : "Canal " + cr.canalType + " roto a la baja";
+                    tgLines.push("🎯 Entrada en Retesteo — " + rtDirLabel);
+                    tgLines.push("");
+                    tgLines.push("   📍 ENTRADA: $" + rd.entry.toLocaleString("es-ES", { maximumFractionDigits: 2 }));
+                    tgLines.push("   🛑 Stop Loss: $" + rd.sl.toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " (" + (rd.retestBull ? "bajo swing low" : "sobre swing high") + " + 0.3 ATR)");
+                    tgLines.push("   🎯 TP1 (altura canal): $" + rd.tp1.toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " — R/R 1:" + rd.rr1 + (rd.rrOk ? " ✅" : " ⚠️ R/R < 2:1"));
+                    // TP2: FVG más cercano en dirección del trade
+                    if (ohlcData.length > 4) {
+                        var retFvg2 = findNearFVG(ohlcData, rd.entry, rd.retestBull, tpMaxPct);
+                        if (retFvg2) {
+                            var retRisk2 = Math.abs(rd.entry - rd.sl);
+                            var retRR2 = retRisk2 > 0 ? (Math.abs(retFvg2.mid - rd.entry) / retRisk2).toFixed(1) : "--";
+                            tgLines.push("   🎯 TP2 (FVG " + tf + "): $" + retFvg2.mid.toFixed(2) + " — R/R 1:" + retRR2);
+                        }
+                    }
+                    tgLines.push("   📐 Línea retesteada: $" + rd.retestLine.toFixed(2) + " (" + rtLineLabel + ")");
+                    tgLines.push("   ✅ Confirmación: " + rd.candleDesc + (rd.volOk ? " + volumen " + rd.volMult + "x MA20" : ""));
+                    tgLines.push("   🚫 Invalidación: cierre " + tf + " " + (rd.retestBull ? "<" : ">") + ": $" + rd.invalidation.toLocaleString("es-ES", { maximumFractionDigits: 2 }));
+                    tgLines.push("");
+                    tgLines.push("   📊 Canal " + cr.canalType + ": " + cr.supportTouches + " toques soporte / " + cr.resistTouches + " toques resistencia | Calidad " + cr.quality + "/100");
                 }
-                else if (cr.pos <= 0.2) {
-                    posLabel = "📍 En soporte (zona baja)";
-                }
-                else if (cr.pos >= 0.8) {
-                    posLabel = "📍 En resistencia (zona alta)";
-                }
-                else if (cr.pos > 1.15) {
-                    posLabel = "⬆️ Por encima del canal";
-                }
-                else {
-                    posLabel = "↔️ Zona media del canal";
-                }
-                tgLines.push("   Precio: " + posLabel);
-                if (cr.canalType === "bajista" && !cr.breakout) {
-                    tgLines.push("   🎯 Alta probabilidad: esperar ruptura ALCISTA para confirmar cambio de tendencia");
-                }
-                if (cr.canalType === "alcista" && !cr.breakout) {
-                    tgLines.push("   ⚠️ Ruptura más frecuente: BAJISTA (compradores se agotan)");
-                    if (cr.ascLowsOk)
-                        tgLines.push("   ✅ Mínimos ascendentes confirmados");
-                    if (cr.ascHighsOk)
-                        tgLines.push("   ✅ Máximos ascendentes confirmados");
-                }
-                if (cr.breakout && cr.falseBrkReasons && cr.falseBrkReasons.length > 0) {
-                    tgLines.push("   ⚠️ Señales de fakeout: " + cr.falseBrkReasons.join(" · "));
+                else if (cr.breakConfirmed) {
+                    // ── RUPTURA CONFIRMADA ──
+                    var brkDirLabel = (cr.breakDir === "alcista") ? "⬆️ Alcista" : "⬇️ Bajista";
+                    var brkContext = cr.canalType === "alcista" ? (cr.breakDir === "bajista" ? "quiebre de soporte (más probable en canales alcistas)" : "extensión alcista — impulso") : (cr.breakDir === "alcista" ? "reversión alcista — cambio de tendencia" : "quiebre de resistencia");
+                    tgLines.push("🚨 Ruptura Confirmada — Canal " + cr.canalType.charAt(0).toUpperCase() + cr.canalType.slice(1));
+                    tgLines.push("   Dirección: " + brkDirLabel + " — " + brkContext);
+                    tgLines.push("   1ª vela: $" + parseFloat(cr.firstBreakClose).toLocaleString("es-ES", { maximumFractionDigits: 2 }));
+                    tgLines.push("   2ª vela (confirma): $" + parseFloat(cr.secondBreakClose).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " ✅");
+                    tgLines.push("   Línea rota: $" + parseFloat(cr.breakLine).toFixed(2));
+                    tgLines.push("   Desplazamiento: " + cr.dispAtr + "x ATR " + (parseFloat(cr.dispAtr) >= 0.5 ? "✅" : "⚠️"));
+                    tgLines.push("   Volumen: " + cr.volMult + "x MA20 " + (cr.volOk ? "✅" : "⚠️ bajo volumen"));
+                    tgLines.push("   ⏳ Próximo: esperar retesteo de $" + parseFloat(cr.breakLine).toFixed(2) + " (±0.2 ATR)");
+                    var invalBreak = cr.breakDir === "alcista" ? parseFloat((cr.botLine * 0.998).toFixed(2)) : parseFloat((cr.topLine * 1.002).toFixed(2));
+                    tgLines.push("   🚫 Invalidación: precio vuelve al interior del canal — $" + invalBreak.toLocaleString("es-ES", { maximumFractionDigits: 2 }));
+                    tgLines.push("");
+                    tgLines.push("   📊 Canal " + cr.canalType + ": " + cr.supportTouches + " toques soporte / " + cr.resistTouches + " toques resistencia | Calidad " + cr.quality + "/100");
                 }
             }
             var tgFullText = tgLines.join("\n");
@@ -5434,11 +5469,17 @@ function AlertasTab({ S, predictions }) {
         var ak0Init = alert.id.toString() + "_";
         lastTrigRef.current[ak0Init + "firstTick"] = true;
         delete lastTrigRef.current[ak0Init + "rsicustom"];
-        // Reset channel state — channel type uses localStorage cooldown to prevent reconnect re-fires
+        // Reset channel state
         lastTrigRef.current[ak0Init + "chan_type"] = null;
-        lastTrigRef.current[ak0Init + "chan_zone"] = null;
-        lastTrigRef.current[ak0Init + "chan_was_out"] = false;
-        lastTrigRef.current[ak0Init + "chan_hp_done"] = false;
+        lastTrigRef.current[ak0Init + "chan_state"] = null;
+        lastTrigRef.current[ak0Init + "chan_break_dir"] = null;
+        lastTrigRef.current[ak0Init + "chan_break_line"] = 0;
+        lastTrigRef.current[ak0Init + "chan_break_price"] = 0;
+        lastTrigRef.current[ak0Init + "chan_confirm_ts"] = 0;
+        lastTrigRef.current[ak0Init + "chan_atr_at_break"] = 0;
+        lastTrigRef.current[ak0Init + "chan_height_at_break"] = 0;
+        lastTrigRef.current[ak0Init + "chan_retest_done"] = false;
+        lastTrigRef.current[ak0Init + "chan_break_vol_ok"] = false;
         // Restaurar estados desde localStorage para no re-disparar tras recarga/reconexión
         try {
             var alZsInit = JSON.parse(localStorage.getItem("td-alert-zones") || "{}");
@@ -5705,117 +5746,142 @@ function AlertasTab({ S, predictions }) {
                                 }
                             }
                         }
-                        // ─── PATRONES CHARTISTAS (SOLO CANALES) ───
+                        // ─── CANAL: máquina de estados ruptura + retesteo ───
                         if (k.x) {
                             var confKeyPat = alert.label + "|" + alert.interval;
                             if (!confluenceRef.current[confKeyPat])
                                 confluenceRef.current[confKeyPat] = {};
-                            // ─── CANAL: máquina de estados con notificaciones ───
                             var chanResult = detectChannelAlert(ohlc);
                             var prevCT = lastTrigRef.current[ak + "chan_type"] || null;
-                            var prevCZ = lastTrigRef.current[ak + "chan_zone"] || null;
+                            var chanState = lastTrigRef.current[ak + "chan_state"] || null;
+                            var ALL_CHAN_KEYS = ["canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista", "canal_bajista_retest_bull", "canal_bajista_retest_bear", "canal_alcista_retest_bull", "canal_alcista_retest_bear"];
                             var chanIntervalMs = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 14400000;
-                            var ALL_CHAN_KEYS = ["canal_bajista_ruptura_alcista", "canal_bajista_ruptura_bajista", "canal_bajista_soporte", "canal_bajista_resistencia", "canal_alcista_ruptura_alcista", "canal_alcista_ruptura_bajista", "canal_alcista_soporte", "canal_alcista_resistencia"];
+                            var chanVolMA20 = ohlc.length >= 20 ? ohlc.slice(-20).reduce(function (a, c) { return a + (c.v || 0); }, 0) / 20 : 0;
+                            var lastCdl = ohlc.length > 0 ? ohlc[ohlc.length - 1] : { c: closePrice, o: closePrice, h: closePrice, l: closePrice, v: 0 };
                             if (!chanResult) {
                                 if (prevCT) {
                                     lastTrigRef.current[ak + "chan_type"] = null;
-                                    lastTrigRef.current[ak + "chan_zone"] = null;
-                                    lastTrigRef.current[ak + "chan_was_out"] = false;
-                                    lastTrigRef.current[ak + "chan_hp_done"] = false;
+                                    lastTrigRef.current[ak + "chan_state"] = null;
+                                    lastTrigRef.current[ak + "chan_break_dir"] = null;
                                     ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
                                 }
                             }
                             else {
                                 var curCT = chanResult.canalType;
-                                var curCZ;
-                                if (chanResult.breakout) {
-                                    curCZ = chanResult.breakoutDir === "alcista" ? "out_above" : "out_below";
-                                }
-                                else if (chanResult.pos < 0.18) {
-                                    curCZ = "support";
-                                }
-                                else if (chanResult.pos > 0.82) {
-                                    curCZ = "resistance";
-                                }
-                                else {
-                                    curCZ = "mid";
-                                }
+                                var curAtr = chanResult.atr;
+                                var curTop = chanResult.topLine;
+                                var curBot = chanResult.botLine;
+                                var curCh = chanResult.channelHeight;
+                                // New channel type → reset
                                 if (curCT !== prevCT) {
-                                    // ─── Nuevo canal (incluye primera detección tras inicio, prevCT=null) ───
-                                    lastTrigRef.current[ak + "chan_was_out"] = false;
-                                    lastTrigRef.current[ak + "chan_hp_done"] = false;
-                                    ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
-                                    // localStorage cooldown prevents re-notification on WS reconnect
-                                    var chanLsKey = "td-chan-" + ak + curCT;
-                                    var chanLsTs = 0;
-                                    try {
-                                        chanLsTs = parseInt(localStorage.getItem(chanLsKey) || "0");
-                                    }
-                                    catch (e) { }
-                                    var chanRecentNotif = Date.now() - chanLsTs < chanIntervalMs * 3;
-                                    if (!chanResult.falseBrk && !chanRecentNotif) {
-                                        var newNotifType;
-                                        if (curCZ === "out_above") {
-                                            newNotifType = "canal_" + curCT + "_ruptura_alcista";
-                                        }
-                                        else if (curCZ === "out_below") {
-                                            newNotifType = "canal_" + curCT + "_ruptura_bajista";
-                                        }
-                                        else if (curCZ === "resistance") {
-                                            newNotifType = "canal_" + curCT + "_resistencia";
-                                        }
-                                        else {
-                                            newNotifType = "canal_" + curCT + "_soporte";
-                                        }
-                                        sendAlert(alert.label, alert.interval, rsi, newNotifType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "🆕 Canal " + curCT + " detectado. " + chanResult.desc, channelResult: chanResult });
-                                        confluenceRef.current[confKeyPat][newNotifType] = Date.now();
-                                        try {
-                                            localStorage.setItem(chanLsKey, Date.now().toString());
-                                        }
-                                        catch (e) { }
-                                    }
                                     lastTrigRef.current[ak + "chan_type"] = curCT;
-                                    lastTrigRef.current[ak + "chan_zone"] = curCZ;
+                                    lastTrigRef.current[ak + "chan_state"] = "active";
+                                    lastTrigRef.current[ak + "chan_break_dir"] = null;
+                                    lastTrigRef.current[ak + "chan_break_line"] = 0;
+                                    lastTrigRef.current[ak + "chan_break_price"] = 0;
+                                    lastTrigRef.current[ak + "chan_confirm_ts"] = 0;
+                                    lastTrigRef.current[ak + "chan_atr_at_break"] = 0;
+                                    lastTrigRef.current[ak + "chan_height_at_break"] = 0;
+                                    lastTrigRef.current[ak + "chan_retest_done"] = false;
+                                    lastTrigRef.current[ak + "chan_break_vol_ok"] = false;
+                                    ALL_CHAN_KEYS.forEach(function (ct) { delete confluenceRef.current[confKeyPat][ct]; });
+                                    chanState = "active";
                                 }
-                                else {
-                                    // ─── Mismo canal: procesar transición de zona ───
-                                    var wasOut = lastTrigRef.current[ak + "chan_was_out"] || false;
-                                    var hpDone = lastTrigRef.current[ak + "chan_hp_done"] || false;
-                                    if (curCZ === "out_above" || curCZ === "out_below") {
-                                        if (chanResult.falseBrk) {
-                                            lastTrigRef.current[ak + "chan_zone"] = curCZ;
-                                        }
-                                        else {
-                                            var isHP = (curCT === "bajista" && curCZ === "out_above") || (curCT === "alcista" && curCZ === "out_below");
-                                            if (isHP && !hpDone) {
-                                                var hpType = "canal_" + curCT + "_ruptura_" + (curCZ === "out_above" ? "alcista" : "bajista");
-                                                sendAlert(alert.label, alert.interval, rsi, hpType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                                confluenceRef.current[confKeyPat][hpType] = Date.now();
-                                                lastTrigRef.current[ak + "chan_hp_done"] = true;
-                                            }
-                                            else if (!isHP && prevCZ !== curCZ) {
-                                                lastTrigRef.current[ak + "chan_was_out"] = true;
-                                            }
-                                            lastTrigRef.current[ak + "chan_zone"] = curCZ;
-                                        }
+                                if (chanState === "active") {
+                                    // Breakout: close outside + displacement >= 0.5 ATR
+                                    var brkUp = lastCdl.c > curTop && (lastCdl.c - curTop) >= curAtr * 0.5;
+                                    var brkDn = lastCdl.c < curBot && (curBot - lastCdl.c) >= curAtr * 0.5;
+                                    if (brkUp || brkDn) {
+                                        lastTrigRef.current[ak + "chan_state"] = "break_pending";
+                                        lastTrigRef.current[ak + "chan_break_dir"] = brkUp ? "alcista" : "bajista";
+                                        lastTrigRef.current[ak + "chan_break_line"] = brkUp ? curTop : curBot;
+                                        lastTrigRef.current[ak + "chan_break_price"] = lastCdl.c;
+                                        lastTrigRef.current[ak + "chan_atr_at_break"] = curAtr;
+                                        lastTrigRef.current[ak + "chan_height_at_break"] = curCh;
+                                        lastTrigRef.current[ak + "chan_break_vol_ok"] = chanVolMA20 > 0 && (lastCdl.v || 0) >= chanVolMA20 * 1.5;
+                                    }
+                                }
+                                else if (chanState === "break_pending") {
+                                    var pendBrkDir = lastTrigRef.current[ak + "chan_break_dir"] || "alcista";
+                                    var pendAtr = lastTrigRef.current[ak + "chan_atr_at_break"] || curAtr;
+                                    var pendBreakLine = lastTrigRef.current[ak + "chan_break_line"] || 0;
+                                    var stillOut = pendBrkDir === "alcista" ? (lastCdl.c > curTop) : (lastCdl.c < curBot);
+                                    if (stillOut) {
+                                        // Ruptura confirmada (2ª vela también cierra fuera)
+                                        lastTrigRef.current[ak + "chan_state"] = "confirmed";
+                                        lastTrigRef.current[ak + "chan_confirm_ts"] = Date.now();
+                                        lastTrigRef.current[ak + "chan_retest_done"] = false;
+                                        var brkType = "canal_" + curCT + "_ruptura_" + pendBrkDir;
+                                        var brkVolMult = chanVolMA20 > 0 ? ((lastCdl.v || 0) / chanVolMA20).toFixed(1) : "?";
+                                        var brkDispAtr = pendAtr > 0 ? (Math.abs(lastCdl.c - pendBreakLine) / pendAtr).toFixed(1) : "?";
+                                        var brkFirstClose = lastTrigRef.current[ak + "chan_break_price"] || lastCdl.c;
+                                        sendAlert(alert.label, alert.interval, rsi, brkType, ema7, ema25, null, closePrice, { ohlc: ohlc, channelResult: { canalType: curCT, topLine: curTop, botLine: curBot, channelHeight: curCh, quality: chanResult.quality, supportTouches: chanResult.supportTouches, resistTouches: chanResult.resistTouches, atr: pendAtr, breakConfirmed: true, breakDir: pendBrkDir, breakLine: pendBreakLine, dispAtr: brkDispAtr, volMult: brkVolMult, volOk: lastTrigRef.current[ak + "chan_break_vol_ok"] || false, firstBreakClose: brkFirstClose, secondBreakClose: lastCdl.c } });
+                                        confluenceRef.current[confKeyPat][brkType] = Date.now();
+                                        chanState = "confirmed";
                                     }
                                     else {
-                                        var reEntry = wasOut && (prevCZ === "out_above" || prevCZ === "out_below" || prevCZ === null);
-                                        if (reEntry) {
-                                            var reEntryType = "canal_" + curCT + (curCZ === "resistance" ? "_resistencia" : "_soporte");
-                                            sendAlert(alert.label, alert.interval, rsi, reEntryType, ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: "↩️ RE-ENTRADA al canal " + curCT + ". " + chanResult.desc, channelResult: chanResult });
-                                            confluenceRef.current[confKeyPat][reEntryType] = Date.now();
-                                            lastTrigRef.current[ak + "chan_was_out"] = false;
+                                        // Falsa ruptura — volver a activo
+                                        lastTrigRef.current[ak + "chan_state"] = "active";
+                                        lastTrigRef.current[ak + "chan_break_dir"] = null;
+                                        chanState = "active";
+                                    }
+                                }
+                                else if (chanState === "confirmed") {
+                                    var confTs = lastTrigRef.current[ak + "chan_confirm_ts"] || 0;
+                                    var retDone = lastTrigRef.current[ak + "chan_retest_done"] || false;
+                                    var retWindow = chanIntervalMs * 10;
+                                    if (retDone || Date.now() - confTs > retWindow) {
+                                        lastTrigRef.current[ak + "chan_state"] = "done";
+                                    }
+                                    else {
+                                        var confBrkDir = lastTrigRef.current[ak + "chan_break_dir"] || "alcista";
+                                        var confBrkLine = lastTrigRef.current[ak + "chan_break_line"] || 0;
+                                        var confAtrBrk = lastTrigRef.current[ak + "chan_atr_at_break"] || curAtr;
+                                        var confChBrk = lastTrigRef.current[ak + "chan_height_at_break"] || curCh;
+                                        // Check if price has deeply re-entered the channel (invalidation)
+                                        var deepInvalid = confBrkDir === "alcista" ? (lastCdl.c < curBot * 0.998) : (lastCdl.c > curTop * 1.002);
+                                        if (deepInvalid) {
+                                            lastTrigRef.current[ak + "chan_state"] = "active";
+                                            lastTrigRef.current[ak + "chan_break_dir"] = null;
+                                            chanState = "active";
                                         }
-                                        else if (curCZ === "support" && prevCZ !== "support") {
-                                            sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_soporte", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                            confluenceRef.current[confKeyPat]["canal_" + curCT + "_soporte"] = Date.now();
+                                        else {
+                                            // Check if price is near broken line (retest zone ±0.2 ATR)
+                                            var nearBrkLine = Math.abs(closePrice - confBrkLine) <= confAtrBrk * 0.2;
+                                            if (nearBrkLine) {
+                                                var retIsBull = confBrkDir === "alcista";
+                                                // Rejection: candle closes away from broken line in expected direction
+                                                var rejBull = retIsBull && lastCdl.c > confBrkLine && lastCdl.c > lastCdl.o;
+                                                var rejBear = (!retIsBull) && lastCdl.c < confBrkLine && lastCdl.c < lastCdl.o;
+                                                var retVolOk = chanVolMA20 > 0 && (lastCdl.v || 0) >= chanVolMA20 * 1.2;
+                                                if (rejBull || rejBear) {
+                                                    lastTrigRef.current[ak + "chan_retest_done"] = true;
+                                                    lastTrigRef.current[ak + "chan_state"] = "retested";
+                                                    var retType = "canal_" + curCT + "_retest_" + (retIsBull ? "bull" : "bear");
+                                                    var retEntry = parseFloat(lastCdl.c.toFixed(2));
+                                                    var swingBuf = ohlc.slice(-10);
+                                                    var retSl, retTp1;
+                                                    if (retIsBull) {
+                                                        var swLow = Math.min.apply(null, swingBuf.map(function (c) { return c.l; }));
+                                                        retSl = parseFloat((swLow - confAtrBrk * 0.3).toFixed(2));
+                                                    }
+                                                    else {
+                                                        var swHigh = Math.max.apply(null, swingBuf.map(function (c) { return c.h; }));
+                                                        retSl = parseFloat((swHigh + confAtrBrk * 0.3).toFixed(2));
+                                                    }
+                                                    retTp1 = retIsBull ? parseFloat((retEntry + confChBrk).toFixed(2)) : parseFloat((retEntry - confChBrk).toFixed(2));
+                                                    var retRiskAmt = Math.abs(retEntry - retSl);
+                                                    var retReward1 = Math.abs(retTp1 - retEntry);
+                                                    var retRR1 = retRiskAmt > 0 ? (retReward1 / retRiskAmt).toFixed(1) : "--";
+                                                    var retRRok = retRiskAmt > 0 && retReward1 / retRiskAmt >= 2.0;
+                                                    var retInval = retIsBull ? parseFloat((confBrkLine - confAtrBrk * 0.3).toFixed(2)) : parseFloat((confBrkLine + confAtrBrk * 0.3).toFixed(2));
+                                                    var retVolMult = chanVolMA20 > 0 ? ((lastCdl.v || 0) / chanVolMA20).toFixed(1) : "?";
+                                                    var retestPayload = { retestEntry: true, retestBull: retIsBull, retestDir: confBrkDir, retestLine: confBrkLine, entry: retEntry, sl: retSl, tp1: retTp1, rr1: retRR1, rrOk: retRRok, invalidation: retInval, volOk: retVolOk, volMult: retVolMult, candleDesc: retIsBull ? "Vela alcista en soporte dinámico" : "Vela bajista en resistencia dinámica" };
+                                                    sendAlert(alert.label, alert.interval, rsi, retType, ema7, ema25, null, closePrice, { ohlc: ohlc, channelResult: { canalType: curCT, topLine: curTop, botLine: curBot, channelHeight: curCh, quality: chanResult.quality, supportTouches: chanResult.supportTouches, resistTouches: chanResult.resistTouches, atr: confAtrBrk }, retestData: retestPayload });
+                                                    confluenceRef.current[confKeyPat][retType] = Date.now();
+                                                }
+                                            }
                                         }
-                                        else if (curCZ === "resistance" && prevCZ !== "resistance") {
-                                            sendAlert(alert.label, alert.interval, rsi, "canal_" + curCT + "_resistencia", ema7, ema25, null, closePrice, { ohlc: ohlc, customDesc: chanResult.desc, channelResult: chanResult });
-                                            confluenceRef.current[confKeyPat]["canal_" + curCT + "_resistencia"] = Date.now();
-                                        }
-                                        lastTrigRef.current[ak + "chan_zone"] = curCZ;
                                     }
                                 }
                             }
@@ -7845,7 +7911,8 @@ function linReg(pts) {
     return { slope: m, intercept: b };
 }
 // ─── CANAL DETECTADO (descendente / ascendente) ───
-// Retorna null, o un objeto con tipo, posición, breakout y validación de falsa ruptura
+// Retorna null o {canalType, topLine, botLine, channelHeight, slope, atr, quality, supportTouches, resistTouches, pos}
+// Breakout logic is handled by the WS state machine — this function only detects the channel shape.
 function detectChannelAlert(ohlc) {
     if (!ohlc || ohlc.length < 40)
         return null;
@@ -7853,36 +7920,46 @@ function detectChannelAlert(ohlc) {
     var n = recent.length - 1;
     var highs = recent.map(function (c) { return c.h; });
     var lows = recent.map(function (c) { return c.l; });
-    var vols = recent.map(function (c) { return c.v || 0; });
     var price = recent[n].c;
-    // Pivot detection with window=2 (2 candles each side — more pivots detected in crypto)
-    var pivs = detectPivots(highs, lows, 2);
+    if (!price || price <= 0)
+        return null;
+    // ATR (14-period Wilder)
+    var atr = calcATR(recent, 14);
+    if (!atr || atr <= 0)
+        return null;
+    // Pivot detection window=3 (stricter — requires 3 candles each side)
+    var pivs = detectPivots(highs, lows, 3);
     if (pivs.pH.length < 2 || pivs.pL.length < 2)
         return null;
     var rH = linReg(pivs.pH);
     var rL = linReg(pivs.pL);
     if (!rH || !rL)
         return null;
-    // Líneas proyectadas al índice actual
+    // Lines projected to current index
     var topLine = rH.slope * n + rH.intercept;
     var botLine = rL.slope * n + rL.intercept;
     var ch = topLine - botLine;
-    if (ch <= 0 || price <= 0)
+    if (ch <= 0)
         return null;
-    // Paralelismo: misma dirección + ratio de pendientes 0.25–4
+    // ATR width check: channel must be at least 1.5× ATR wide to be meaningful
+    if (ch < atr * 1.5)
+        return null;
+    // Parallelism: same slope direction + ratio 0.20–5
     var sameSign = (rH.slope < 0 && rL.slope < 0) || (rH.slope > 0 && rL.slope > 0);
     if (!sameSign)
         return null;
     var sRatio = Math.abs(rH.slope) / (Math.abs(rL.slope) || 0.0001);
     if (sRatio < 0.20 || sRatio > 5)
         return null;
-    var isDescending = rH.slope < 0; // canal bajista si ambas líneas bajan
-    var canalType = isDescending ? "bajista" : "alcista";
-    // Ascending channel: at least the regression slope must be positive on both lines (already guaranteed by sameSign)
-    var ascLowsOk = true;
-    var ascHighsOk = true;
-    // Contar toques: pivot que alcanzó o superó la línea cuenta como toque
-    // (incluyendo velas de ruptura — si rompió la resistencia, la tocó)
+    // Age check: first pivot to last pivot must span >= 20 candles
+    var allPivXs = [];
+    pivs.pH.forEach(function (p) { allPivXs.push(p.x); });
+    pivs.pL.forEach(function (p) { allPivXs.push(p.x); });
+    var pivMin = Math.min.apply(null, allPivXs);
+    var pivMax = Math.max.apply(null, allPivXs);
+    if (pivMax - pivMin < 20)
+        return null;
+    // Touch validation: pivot within 35% of channel height from its line
     var touchMargin = ch * 0.35;
     var supportTouches = pivs.pL.filter(function (pt) {
         var lineVal = rL.slope * pt.x + rL.intercept;
@@ -7892,93 +7969,29 @@ function detectChannelAlert(ohlc) {
         var lineVal = rH.slope * pt.x + rH.intercept;
         return pt.y >= lineVal - touchMargin;
     }).length;
-    // Calidad general: más toques = canal más fiable (mínimo 3 pivots de cada lado)
-    var channelQuality = Math.min(100, Math.round((supportTouches + resistTouches) / 2 * 20));
-    // ─── Validación obligatoria: canal requiere al menos 1 toque en cada lado ───
-    if (supportTouches < 1 || resistTouches < 1)
+    // Min 2 per side, 5 total
+    if (supportTouches < 2 || resistTouches < 2 || supportTouches + resistTouches < 5)
         return null;
-    // Posición del precio dentro del canal (0 = soporte, 1 = resistencia)
+    // Quality score 0–100
+    var qTouches = Math.min(40, Math.round((supportTouches + resistTouches - 4) * 8));
+    var qParallel = Math.min(30, Math.round(30 * (1 - Math.abs(sRatio - 1) / 4)));
+    var atrWidthRatio = ch / atr;
+    var qWidth = Math.min(20, Math.round(20 * Math.min(1, (atrWidthRatio - 1.5) / 3.5)));
+    var ageSpan = pivMax - pivMin;
+    var qAge = Math.min(10, Math.round(10 * Math.min(1, (ageSpan - 20) / 60)));
+    var quality = Math.max(0, qTouches + qParallel + qWidth + qAge);
+    if (quality < 50)
+        return null;
+    var isDescending = rH.slope < 0;
+    var canalType = isDescending ? "bajista" : "alcista";
     var pos = (price - botLine) / ch;
-    // Volumen medio últimas 10 velas (para validar ruptura)
-    var avgVol10 = vols.slice(-10).reduce(function (a, v) { return a + v; }, 0) / 10;
-    var lastVol = vols[n] || 0;
-    var highVolume = avgVol10 > 0 && lastVol > avgVol10 * 1.3;
-    // ─── Detección de RUPTURA: vela de rotura + vela de confirmación ───
-    // Requiere que tanto la vela actual como la anterior cierren fuera del canal
-    var prevCandle = n > 0 ? recent[n - 1] : recent[n];
-    var prevTopLine = rH.slope * (n - 1) + rH.intercept;
-    var prevBotLine = rL.slope * (n - 1) + rL.intercept;
-    var isBreakoutUp = price > topLine * 1.002;
-    var isBreakoutDown = price < botLine * 0.998;
-    if (isBreakoutUp || isBreakoutDown) {
-        // Validar: ¿es ruptura real o fakeout?
-        var lastCandle = recent[n];
-        var body = Math.abs(lastCandle.c - lastCandle.o);
-        var upperWick = lastCandle.h - Math.max(lastCandle.c, lastCandle.o);
-        var lowerWick = Math.min(lastCandle.c, lastCandle.o) - lastCandle.l;
-        var totalRange = lastCandle.h - lastCandle.l;
-        var falseBrkReasons = [];
-        if (isBreakoutUp) {
-            // Ruptura alcista
-            if (totalRange > 0 && body > 0 && upperWick > body * 1.5) {
-                falseBrkReasons.push("mecha superior muy larga");
-            }
-            if (lastCandle.c < topLine) {
-                falseBrkReasons.push("cierre dentro del canal");
-            }
-        }
-        else {
-            // Ruptura bajista
-            if (totalRange > 0 && body > 0 && lowerWick > body * 1.5) {
-                falseBrkReasons.push("mecha inferior muy larga");
-            }
-            if (lastCandle.c > botLine) {
-                falseBrkReasons.push("cierre dentro del canal");
-            }
-        }
-        // False breakout only if BOTH structural signals present (no volume check — unreliable in crypto)
-        var falseBrk = falseBrkReasons.length >= 2;
-        var dir = isBreakoutUp ? "alcista" : "bajista";
-        var alertType = (isBreakoutUp ? "canal_" + canalType + "_ruptura_alcista" : "canal_" + canalType + "_ruptura_bajista");
-        var desc = (isDescending && isBreakoutUp)
-            ? "🔼 Ruptura alcista de canal bajista — posible cambio de tendencia"
-            : (isDescending && !isBreakoutUp)
-                ? "🔽 Ruptura bajista de canal bajista — aceleración bajista"
-                : (!isDescending && isBreakoutUp)
-                    ? "🚀 Ruptura alcista de canal alcista — aceleración (poco frecuente, alta euforia)"
-                    : "🔽 Ruptura bajista de canal alcista — LA MÁS PROBABLE. Compradores debilitados, posible corrección mayor";
-        if (falseBrk)
-            desc = "⚠️ POSIBLE FALSO BREAKOUT: " + desc;
-        return {
-            type: alertType, desc: desc, canalType: canalType,
-            breakout: true, breakoutDir: dir, falseBrk: falseBrk, falseBrkReasons: falseBrkReasons,
-            topLine: topLine, botLine: botLine, channelHeight: ch, slope: rH.slope, pos: pos,
-            supportTouches: supportTouches, resistTouches: resistTouches, channelQuality: channelQuality,
-            ascLowsOk: ascLowsOk, ascHighsOk: ascHighsOk
-        };
-    }
-    // ─── Sin ruptura: precio cerca de soporte o resistencia ───
-    if (pos < 0.18) {
-        // Precio en soporte del canal
-        var suppDesc = isDescending
-            ? "📉 Canal bajista — precio en soporte dinámico (posible rebote o ruptura alcista)"
-            : "📈 Canal alcista — precio en soporte (mínimos ascendentes, zona de compra). Vigilar: si pierde el soporte la ruptura bajista es la más probable";
-        return { type: "canal_" + canalType + "_soporte", desc: suppDesc, canalType: canalType,
-            breakout: false, topLine: topLine, botLine: botLine, channelHeight: ch, slope: rH.slope, pos: pos,
-            supportTouches: supportTouches, resistTouches: resistTouches, channelQuality: channelQuality,
-            ascLowsOk: ascLowsOk, ascHighsOk: ascHighsOk };
-    }
-    if (pos > 0.82) {
-        // Precio en resistencia del canal
-        var resDesc = isDescending
-            ? "📉 Canal bajista — precio en resistencia dinámica (zona de venta, rebote bajista esperado)"
-            : "📈 Canal alcista — precio en resistencia (máximos ascendentes, posible rechazo o ruptura explosiva al alza)";
-        return { type: "canal_" + canalType + "_resistencia", desc: resDesc, canalType: canalType,
-            breakout: false, topLine: topLine, botLine: botLine, channelHeight: ch, slope: rH.slope, pos: pos,
-            supportTouches: supportTouches, resistTouches: resistTouches, channelQuality: channelQuality,
-            ascLowsOk: ascLowsOk, ascHighsOk: ascHighsOk };
-    }
-    return null; // precio en zona media — sin señal
+    return {
+        canalType: canalType,
+        topLine: topLine, botLine: botLine, channelHeight: ch,
+        slope: rH.slope, atr: atr, quality: quality,
+        supportTouches: supportTouches, resistTouches: resistTouches,
+        pos: pos
+    };
 }
 function checkFVGCovered(ohlc, price) {
     if (!ohlc || ohlc.length < 10)
