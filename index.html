@@ -4708,6 +4708,17 @@ function AlertasTab({ S, predictions }) {
             var crossTfCount = tfConfs.length;
             var hasMultiTfConf = crossTfCount >= 2;
             var isDivConv = (type === "rsi_div_bull" || type === "rsi_div_bear" || type === "rsi_conv_bull" || type === "rsi_conv_bear");
+            // ─── DETECCIÓN DE CONFLICTO: señales contrarias activas en algún TF ───
+            var oppositeTypes2 = isLong ? BEARISH_TYPES : BULLISH_TYPES;
+            var conflictTfs = [];
+            MTF_ALL.forEach(function (tfMtf2) {
+                var tfW2 = confWindowMs[tfMtf2] || 28800000;
+                var tfM2 = confluenceRef.current[label + "|" + tfMtf2] || {};
+                var tfConflict = oppositeTypes2.filter(function (t2) { return tfM2[t2] && (confNow - tfM2[t2]) < tfW2; });
+                if (tfConflict.length > 0)
+                    conflictTfs.push({ tf: tfMtf2, signals: tfConflict });
+            });
+            var hasConflict = conflictTfs.length > 0;
             // ─── HELPER: buscar FVG más cercano dentro de maxPct del precio ───
             var findNearFVG = function (ohlcArr, refPrice, bullish, maxPct) {
                 var best = null, scanStart = Math.max(2, ohlcArr.length - 80);
@@ -5078,6 +5089,18 @@ function AlertasTab({ S, predictions }) {
             }
             tgLines.push("");
             tgLines.push("⏰ " + new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }));
+            // Advertencia de conflicto entre temporalidades
+            if (hasConflict) {
+                tgLines.push("");
+                tgLines.push("⚠️ CONFLICTO DE TEMPORALIDADES — señal contraria activa:");
+                var TF_LABELS_CONF = { "1h": "1H", "4h": "4H", "1d": "Diario", "1w": "Semanal" };
+                conflictTfs.forEach(function (c) {
+                    var cLbl = TF_LABELS_CONF[c.tf] || c.tf;
+                    var cSigs = c.signals.map(function (t) { return SIGNAL_LABELS[t] || t; }).join(", ");
+                    tgLines.push("   🔴 " + cLbl + ": " + cSigs);
+                });
+                tgLines.push("   ⚠️ Precaución — no operar contra señal de TF superior");
+            }
             // Canal: bloque detallado en Telegram
             if (extra.channelResult) {
                 var cr = extra.channelResult;
@@ -5456,7 +5479,9 @@ function AlertasTab({ S, predictions }) {
                 var baseCdFH = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 14400000;
                 var divCooldownFH = divKindFH === "convergence" ? baseCdFH * 2 : divKindFH === "hidden_divergence" ? baseCdFH * 1.5 : baseCdFH;
                 var prevDivFiredFH = lastTrigRef.current[divLockKeyFH] || 0;
-                if (Date.now() - prevDivFiredFH > divCooldownFH) {
+                var rsiZoneFH = lastTrigRef.current[ak + "rsizone"] || "neutral";
+                var zoneSuppFH = (divAlertFH === "rsi_div_bull" && rsiZoneFH === "overbought") || (divAlertFH === "rsi_div_bear" && rsiZoneFH === "oversold") || (divAlertFH === "rsi_hdiv_bull" && rsiZoneFH === "overbought") || (divAlertFH === "rsi_hdiv_bear" && rsiZoneFH === "oversold");
+                if (!zoneSuppFH && Date.now() - prevDivFiredFH > divCooldownFH) {
                     lastTrigRef.current[divLockKeyFH] = Date.now();
                     try {
                         var fhDz = {};
@@ -5773,7 +5798,9 @@ function AlertasTab({ S, predictions }) {
                                 var baseCdMs = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[alert.interval] || 14400000;
                                 var divCooldownMs = divKind === "convergence" ? baseCdMs * 2 : divKind === "hidden_divergence" ? baseCdMs * 1.5 : baseCdMs;
                                 var prevDivFired = lastTrigRef.current[divLockKey] || 0;
-                                if (Date.now() - prevDivFired > divCooldownMs) {
+                                var rsiZoneNow = lastTrigRef.current[ak + "rsizone"] || "neutral";
+                                var zoneSuppressed = (divAlertType === "rsi_div_bull" && rsiZoneNow === "overbought") || (divAlertType === "rsi_div_bear" && rsiZoneNow === "oversold") || (divAlertType === "rsi_hdiv_bull" && rsiZoneNow === "overbought") || (divAlertType === "rsi_hdiv_bear" && rsiZoneNow === "oversold");
+                                if (!zoneSuppressed && Date.now() - prevDivFired > divCooldownMs) {
                                     lastTrigRef.current[divLockKey] = Date.now();
                                     try {
                                         var dzWs = {};
@@ -7928,14 +7955,14 @@ function detectRSIDivergence(ohlcArr, rsiArr) {
     if (ph.length >= 2) {
         var h1 = ph[ph.length - 2], h2 = ph[ph.length - 1];
         var rh1 = rsis[h1.i], rh2 = rsis[h2.i];
-        if (h2.v > h1.v && rh2 < rh1 && (rh1 - rh2) > 3 && rh1 < 82 && rh2 > 28)
+        if (h2.v > h1.v && rh2 < rh1 && (rh1 - rh2) > 3 && rh1 < 82 && rh2 > 45)
             return { type: "bearish", kind: "divergence" };
     }
     // Divergencia alcista: precio LL + RSI HL → agotamiento bajista
     if (pl.length >= 2) {
         var l1 = pl[pl.length - 2], l2 = pl[pl.length - 1];
         var rl1 = rsis[l1.i], rl2 = rsis[l2.i];
-        if (l2.v < l1.v && rl2 > rl1 && (rl2 - rl1) > 3 && rl1 > 18 && rl2 < 72)
+        if (l2.v < l1.v && rl2 > rl1 && (rl2 - rl1) > 3 && rl1 > 18 && rl2 < 55)
             return { type: "bullish", kind: "divergence" };
     }
     // ── CONVERGENCIAS (precio e indicador en la misma dirección → confirma tendencia) ──
