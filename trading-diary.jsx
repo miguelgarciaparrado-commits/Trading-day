@@ -4837,7 +4837,15 @@ function AlertasTab({S,predictions}){
           tgLines.push("   Estado: "+mitLbl);
         }
         if(extra.imbKind&&extra.imbKind!=="fvg"){
-          tgLines.push("   Subtipo: "+(extra.imbKind==="vi"?"Volume Imbalance":extra.imbKind));
+          var kindLbl=extra.imbKind==="vi"?"Volume Imbalance":extra.imbKind==="gap"?"Opening Gap":extra.imbKind==="void"?"Liquidity Void":extra.imbKind;
+          tgLines.push("   Subtipo: "+kindLbl);
+        }
+        if(extra.imbConfluence&&extra.imbConfluence.length>0){
+          var confLbls=extra.imbConfluence.map(function(cf){
+            var kLbl=cf.kind==="vi"?"VI":cf.kind==="gap"?"Gap":cf.kind==="void"?"Void":"FVG";
+            return cf.tf+" "+kLbl+" $"+parseFloat(cf.bot).toLocaleString("es-ES",{maximumFractionDigits:2})+"–$"+parseFloat(cf.top).toLocaleString("es-ES",{maximumFractionDigits:2})+" ("+cf.mitigation+")";
+          });
+          tgLines.push("   ⭐ Confluencia HTF: "+confLbls.join(" | "));
         }
         if(extra.liquiditySwept)tgLines.push("   💧 Formado tras sweep de liquidez");
         if(extra.fvgHigherTF&&extra.fvgHtfLabel){
@@ -5426,9 +5434,11 @@ function AlertasTab({S,predictions}){
                 }
               }
             }
-            // FVG / Volume Imbalance — con score de calidad, tamaño mínimo, mitigación y HTF
+            // FVG / VI / Gap / Void — con score de calidad, tamaño mínimo, mitigación, HTF y confluencia multi-TF
             var fvgResult=checkFVGCovered(ohlc,closePrice);
             if(!fvgResult) fvgResult=detectVolumeImbalance(ohlc,closePrice);
+            if(!fvgResult) fvgResult=detectOpeningGap(ohlc,closePrice);
+            if(!fvgResult) fvgResult=detectLiquidityVoid(ohlc,closePrice);
             if(fvgResult){
               // Tamaño del imbalance y filtro ATR + % TF
               var imbSize=Math.abs(fvgResult.top-fvgResult.bot);
@@ -5484,13 +5494,19 @@ function AlertasTab({S,predictions}){
                 }
               }
               var imbScore=calcImbalanceScore({kind:fvgResult.kind||"fvg",sizePct:imbSizePct,minSizePct:minSizePctTf,formVolMult:formVolMult,htfAligned:fvgHtfAligned===true,liquiditySwept:liquiditySwept});
+              // Hierarchy resolver: buscar imbalances alineados en TFs superiores
+              var imbHtfOhlcMap={};
+              ["4h","1d","1w"].forEach(function(tfk){imbHtfOhlcMap[tfk]=ohlcRef.current[(alert.symbol||"BTCUSDT")+tfk]||[];});
+              imbHtfOhlcMap[alert.interval]=ohlc;
+              var imbConfluence=resolveImbalanceHierarchy(imbHtfOhlcMap,closePrice,fvgResult.subtype,alert.interval);
+              if(imbConfluence.length>0)imbScore=Math.min(100,imbScore+15);
               var scoreGate=imbScore>=50;
               // Gatear: emitir solo si size OK, no mitigado, y score ≥ 50
               var emitOk=sizeOk&&mitigation!=="mitigated"&&scoreGate;
               if(alert.fvgEnabled!==false&&!lastTrigRef.current[ak+"fvg"]&&emitOk){
                 lastTrigRef.current[ak+"fvg"]=true;
                 try{var fvgZs={};var fvgZsStr=localStorage.getItem("td-alert-zones");if(fvgZsStr)fvgZs=JSON.parse(fvgZsStr);fvgZs[ak+"fvg_ts"]=Date.now();localStorage.setItem("td-alert-zones",JSON.stringify(fvgZs));}catch(e){}
-                sendAlert(alert.label,alert.interval,rsi,"patron_fvg",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult,fvgResult:fvgResult,fvgHtfAligned:fvgHtfAligned,fvgHtfLabel:fvgHtfLabel,fvgHigherTF:fvgHigherTF,fvgVolMult:fvgVolMult,fvgVolOk:fvgVolOk,imbScore:imbScore,imbSizePct:imbSizePct,imbMitigation:mitigation,imbKind:fvgResult.kind||"fvg",formVolMult:formVolMult,liquiditySwept:liquiditySwept});
+                sendAlert(alert.label,alert.interval,rsi,"patron_fvg",ema7,ema25,null,closePrice,{ohlc:ohlc,divResult:divResult,fvgResult:fvgResult,fvgHtfAligned:fvgHtfAligned,fvgHtfLabel:fvgHtfLabel,fvgHigherTF:fvgHigherTF,fvgVolMult:fvgVolMult,fvgVolOk:fvgVolOk,imbScore:imbScore,imbSizePct:imbSizePct,imbMitigation:mitigation,imbKind:fvgResult.kind||"fvg",formVolMult:formVolMult,liquiditySwept:liquiditySwept,imbConfluence:imbConfluence});
               }else if(!emitOk){
                 try{console.log("[imb-skip]",ak,fvgResult.subtype,"score",imbScore,"size%",imbSizePct.toFixed(4),"mit",mitigation);}catch(e){}
               }
@@ -7987,6 +8003,102 @@ function calcImbalanceScore(opts){
   if(opts.kind==="fvg"||opts.kind==="void")score+=10;
   else if(opts.kind==="vi"||opts.kind==="gap")score+=5;
   return Math.min(100,score);
+}
+
+// Opening Gap: hueco completo entre close[t-1] y open[t], sin solapamiento de mechas
+// Raro en crypto 24/7 pero muy potente (alta probabilidad de rellenarse)
+function detectOpeningGap(ohlc,price){
+  if(!ohlc||ohlc.length<4)return null;
+  var n=ohlc.length;
+  var scanStart=Math.max(1,n-60);
+  for(var i=scanStart;i<n-1;i++){
+    var c0=ohlc[i-1],c1=ohlc[i];
+    var age=n-1-i;
+    if(age<2)continue;
+    // Gap alcista: low[t] > high[t-1] (sin solapamiento de mechas)
+    if(c1.l>c0.h&&price>=c0.h&&price<=c1.l){
+      return{subtype:"alcista",kind:"gap",top:c1.l,bot:c0.h,age:age,formedIdx:i};
+    }
+    // Gap bajista: high[t] < low[t-1]
+    if(c1.h<c0.l&&price<=c0.l&&price>=c1.h){
+      return{subtype:"bajista",kind:"gap",top:c0.l,bot:c1.h,age:age,formedIdx:i};
+    }
+  }
+  return null;
+}
+
+// Liquidity Void: secuencia de ≥5 velas mismo color con retrocesos <25% del cuerpo
+// El "void" es la zona completa recorrida sin testear niveles intermedios
+function detectLiquidityVoid(ohlc,price){
+  if(!ohlc||ohlc.length<10)return null;
+  var n=ohlc.length;
+  var scanStart=Math.max(0,n-50);
+  // Buscar secuencias hacia atrás
+  for(var end=n-2;end>=scanStart+4;end--){
+    // probar secuencias de 5..10 velas terminando en end
+    for(var len=5;len<=Math.min(10,end-scanStart+1);len++){
+      var startIdx=end-len+1;
+      if(startIdx<1)break;
+      var seq=ohlc.slice(startIdx,end+1);
+      // todas mismo color
+      var bullSeq=seq.every(function(c){return c.c>c.o;});
+      var bearSeq=seq.every(function(c){return c.c<c.o;});
+      if(!bullSeq&&!bearSeq)continue;
+      // continuación: cada close más allá del anterior en la dirección
+      var continuation=true;
+      for(var si=1;si<seq.length;si++){
+        if(bullSeq&&seq[si].c<=seq[si-1].c){continuation=false;break;}
+        if(bearSeq&&seq[si].c>=seq[si-1].c){continuation=false;break;}
+      }
+      if(!continuation)continue;
+      // Retrocesos < 25% del cuerpo
+      var smallRetraces=true;
+      for(var ri=0;ri<seq.length;ri++){
+        var body=Math.abs(seq[ri].c-seq[ri].o);
+        if(body<=0){smallRetraces=false;break;}
+        var retrace=bullSeq?(seq[ri].c-seq[ri].l):(seq[ri].h-seq[ri].c);
+        if(retrace/body>0.25){smallRetraces=false;break;}
+      }
+      if(!smallRetraces)continue;
+      // Volumen promedio de la secuencia ≥ 1.3x MA20 previo
+      var volAvg=seq.reduce(function(a,c){return a+(c.v||0);},0)/seq.length;
+      var ma20Prev=startIdx>=20?ohlc.slice(startIdx-20,startIdx).reduce(function(a,c){return a+(c.v||0);},0)/20:0;
+      if(ma20Prev>0&&volAvg/ma20Prev<1.3)continue;
+      // Rango del void: low mínimo .. high máximo de la secuencia
+      var voidLow=Math.min.apply(null,seq.map(function(c){return c.l;}));
+      var voidHigh=Math.max.apply(null,seq.map(function(c){return c.h;}));
+      // Zona operable: el precio actual debe estar DENTRO del void o aproximándose (<0.3%)
+      var within=price>=voidLow&&price<=voidHigh;
+      var near=Math.abs(price-(bullSeq?voidLow:voidHigh))/price<0.003;
+      if(!within&&!near)continue;
+      return{subtype:bullSeq?"alcista":"bajista",kind:"void",top:voidHigh,bot:voidLow,age:n-1-end,formedIdx:end,seqLen:seq.length};
+    }
+  }
+  return null;
+}
+
+// Hierarchy resolver: busca imbalances alineados en TFs superiores cubriendo la zona del precio
+// Devuelve array de TFs con imbalance activo de la MISMA dirección
+function resolveImbalanceHierarchy(ohlcByTf,price,subtype,currentTf){
+  var result=[];
+  var htfOrder={"1h":["4h","1d","1w"],"4h":["1d","1w"],"1d":["1w"],"1w":[]};
+  var htfList=htfOrder[currentTf]||[];
+  var labels={"4h":"4H","1d":"1D","1w":"1W"};
+  htfList.forEach(function(htf){
+    var ohtf=ohlcByTf[htf];
+    if(!ohtf||ohtf.length<10)return;
+    var imb=checkFVGCovered(ohtf,price);
+    if(!imb)imb=detectVolumeImbalance(ohtf,price);
+    if(!imb)imb=detectOpeningGap(ohtf,price);
+    if(!imb)imb=detectLiquidityVoid(ohtf,price);
+    if(imb&&imb.subtype===subtype){
+      var mit=checkImbalanceMitigation(ohtf,imb.formedIdx,imb.bot,imb.top,subtype==="alcista");
+      if(mit!=="mitigated"){
+        result.push({tf:labels[htf]||htf,kind:imb.kind,bot:imb.bot,top:imb.top,mitigation:mit});
+      }
+    }
+  });
+  return result;
 }
 
 // Detecta Volume Imbalances (cuerpos sin solapar entre velas consecutivas, mechas tocándose)
