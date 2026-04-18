@@ -5337,15 +5337,31 @@ function AlertasTab({ S, predictions }) {
                 var fvgSlRaw = fvgIsLong ? fvgFarEdge : fvgFarEdge;
                 tgLines.push("");
                 tgLines.push("⚡ FVG " + fvgR.subtype.toUpperCase() + " — " + (fvgIsLong ? "Ineficiencia alcista sin cubrir" : "Ineficiencia bajista sin cubrir"));
-                tgLines.push("   Rango FVG: $" + parseFloat(fvgR.bot).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " – $" + parseFloat(fvgR.top).toLocaleString("es-ES", { maximumFractionDigits: 2 }));
+                tgLines.push("   Rango FVG: $" + parseFloat(fvgR.bot).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " – $" + parseFloat(fvgR.top).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + (extra.imbSizePct ? " (" + (extra.imbSizePct * 100).toFixed(2) + "% ancho)" : ""));
                 tgLines.push("   📍 Entrada: $" + parseFloat(fvgEdge).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " (borde " + (fvgIsLong ? "superior" : "inferior") + ")");
                 tgLines.push("   🛑 SL técnico: $" + parseFloat(fvgSlRaw).toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " (" + (fvgIsLong ? "debajo del FVG" : "encima del FVG") + ")");
+                if (extra.imbScore != null) {
+                    var scoreEmoji = extra.imbScore >= 80 ? "⭐" : extra.imbScore >= 65 ? "✅" : "☑️";
+                    tgLines.push("   " + scoreEmoji + " Score calidad: " + extra.imbScore + "/100");
+                }
+                if (extra.imbMitigation) {
+                    var mitLbl = extra.imbMitigation === "unmitigated" ? "🟢 sin tocar" : extra.imbMitigation === "partial" ? "🟡 parcialmente tocado" : "🔴 mitigado";
+                    tgLines.push("   Estado: " + mitLbl);
+                }
+                if (extra.imbKind && extra.imbKind !== "fvg") {
+                    tgLines.push("   Subtipo: " + (extra.imbKind === "vi" ? "Volume Imbalance" : extra.imbKind));
+                }
+                if (extra.liquiditySwept)
+                    tgLines.push("   💧 Formado tras sweep de liquidez");
                 if (extra.fvgHigherTF && extra.fvgHtfLabel) {
                     var htfStatus = extra.fvgHtfAligned === true ? "✅ alineada" : extra.fvgHtfAligned === false ? "⚠️ EN CONTRA — precaución" : "(sin datos)";
                     tgLines.push("   📊 Tendencia " + extra.fvgHtfLabel + " (EMA50): " + htfStatus);
                 }
+                if (extra.formVolMult != null) {
+                    tgLines.push("   📊 Vol. formación: " + extra.formVolMult + "× MA20");
+                }
                 if (extra.fvgVolMult !== null && extra.fvgVolMult !== undefined) {
-                    tgLines.push("   📊 Volumen: " + extra.fvgVolMult + "× MA20 " + (extra.fvgVolOk ? "✅" : "⚠️ volumen alto — posible capitulación"));
+                    tgLines.push("   📊 Vol. actual: " + extra.fvgVolMult + "× MA20 " + (extra.fvgVolOk ? "✅" : "⚠️ volumen alto — posible capitulación"));
                 }
             }
             var tgFullText = tgLines.join("\n");
@@ -6172,9 +6188,22 @@ function AlertasTab({ S, predictions }) {
                                     }
                                 }
                             }
-                            // FVG — con filtro de alineación HTF y volumen
+                            // FVG / Volume Imbalance — con score de calidad, tamaño mínimo, mitigación y HTF
                             var fvgResult = checkFVGCovered(ohlc, closePrice);
+                            if (!fvgResult)
+                                fvgResult = detectVolumeImbalance(ohlc, closePrice);
                             if (fvgResult) {
+                                // Tamaño del imbalance y filtro ATR + % TF
+                                var imbSize = Math.abs(fvgResult.top - fvgResult.bot);
+                                var imbSizePct = closePrice > 0 ? imbSize / closePrice : 0;
+                                var imbAtr = calcATR(ohlc, 14) || 0;
+                                var minSizePctTf = IMB_MIN_SIZE_PCT[alert.interval] || 0.003;
+                                var minAtrMultTf = IMB_ATR_MULT[alert.interval] || 0.5;
+                                var sizeOkPct = imbSizePct >= minSizePctTf;
+                                var sizeOkAtr = imbAtr > 0 && imbSize >= imbAtr * minAtrMultTf;
+                                var sizeOk = sizeOkPct || sizeOkAtr;
+                                // Estado de mitigación desde formación
+                                var mitigation = checkImbalanceMitigation(ohlc, fvgResult.formedIdx, fvgResult.bot, fvgResult.top, fvgResult.subtype === "alcista");
                                 // Alineación con tendencia en TF superior (EMA50)
                                 var fvgHigherTF = { "1h": "4h", "4h": "1d", "1d": "1w" }[alert.interval] || null;
                                 var fvgHtfAligned = null;
@@ -6192,12 +6221,39 @@ function AlertasTab({ S, predictions }) {
                                         }
                                     }
                                 }
-                                // Filtro de volumen: evitar entrar en capitulación
+                                // Volumen de formación (vela que creó el imbalance)
+                                var formIdx = fvgResult.formedIdx != null ? fvgResult.formedIdx : ohlc.length - 3;
+                                var formVolMA20 = ohlc.length >= 20 ? ohlc.slice(Math.max(0, formIdx - 20), formIdx).reduce(function (a, c) { return a + (c.v || 0); }, 0) / Math.max(1, Math.min(20, formIdx)) : 0;
+                                var formVol = ohlc[formIdx] ? ohlc[formIdx].v || 0 : 0;
+                                var formVolMult = formVolMA20 > 0 ? parseFloat((formVol / formVolMA20).toFixed(2)) : null;
+                                // Filtro de volumen actual: evitar entrar en capitulación
                                 var fvgVolMA20 = ohlc.length >= 20 ? ohlc.slice(-20).reduce(function (a, c) { return a + (c.v || 0); }, 0) / 20 : 0;
                                 var fvgLastVol = ohlc.length > 0 ? (ohlc[ohlc.length - 1].v || 0) : 0;
                                 var fvgVolMult = fvgVolMA20 > 0 ? parseFloat((fvgLastVol / fvgVolMA20).toFixed(1)) : null;
                                 var fvgVolOk = fvgVolMult === null || fvgVolMult <= 2.5;
-                                if (alert.fvgEnabled !== false && !lastTrigRef.current[ak + "fvg"]) {
+                                // Liquidity sweep: la vela de formación rompió swing high/low previo y cerró dentro
+                                var liquiditySwept = false;
+                                if (ohlc.length > formIdx + 5) {
+                                    var prevSwing = ohlc.slice(Math.max(0, formIdx - 10), formIdx);
+                                    if (prevSwing.length >= 5) {
+                                        var formCdl = ohlc[formIdx];
+                                        if (fvgResult.subtype === "alcista") {
+                                            var prevLow = Math.min.apply(null, prevSwing.map(function (c) { return c.l; }));
+                                            if (formCdl.l < prevLow && formCdl.c > prevLow)
+                                                liquiditySwept = true;
+                                        }
+                                        else {
+                                            var prevHigh = Math.max.apply(null, prevSwing.map(function (c) { return c.h; }));
+                                            if (formCdl.h > prevHigh && formCdl.c < prevHigh)
+                                                liquiditySwept = true;
+                                        }
+                                    }
+                                }
+                                var imbScore = calcImbalanceScore({ kind: fvgResult.kind || "fvg", sizePct: imbSizePct, minSizePct: minSizePctTf, formVolMult: formVolMult, htfAligned: fvgHtfAligned === true, liquiditySwept: liquiditySwept });
+                                var scoreGate = imbScore >= 50;
+                                // Gatear: emitir solo si size OK, no mitigado, y score ≥ 50
+                                var emitOk = sizeOk && mitigation !== "mitigated" && scoreGate;
+                                if (alert.fvgEnabled !== false && !lastTrigRef.current[ak + "fvg"] && emitOk) {
                                     lastTrigRef.current[ak + "fvg"] = true;
                                     try {
                                         var fvgZs = {};
@@ -6208,9 +6264,16 @@ function AlertasTab({ S, predictions }) {
                                         localStorage.setItem("td-alert-zones", JSON.stringify(fvgZs));
                                     }
                                     catch (e) { }
-                                    sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, fvgResult: fvgResult, fvgHtfAligned: fvgHtfAligned, fvgHtfLabel: fvgHtfLabel, fvgHigherTF: fvgHigherTF, fvgVolMult: fvgVolMult, fvgVolOk: fvgVolOk });
+                                    sendAlert(alert.label, alert.interval, rsi, "patron_fvg", ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResult, fvgResult: fvgResult, fvgHtfAligned: fvgHtfAligned, fvgHtfLabel: fvgHtfLabel, fvgHigherTF: fvgHigherTF, fvgVolMult: fvgVolMult, fvgVolOk: fvgVolOk, imbScore: imbScore, imbSizePct: imbSizePct, imbMitigation: mitigation, imbKind: fvgResult.kind || "fvg", formVolMult: formVolMult, liquiditySwept: liquiditySwept });
                                 }
-                                confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
+                                else if (!emitOk) {
+                                    try {
+                                        console.log("[imb-skip]", ak, fvgResult.subtype, "score", imbScore, "size%", imbSizePct.toFixed(4), "mit", mitigation);
+                                    }
+                                    catch (e) { }
+                                }
+                                if (emitOk)
+                                    confluenceRef.current[confKeyPat]["patron_fvg"] = Date.now();
                             }
                             else {
                                 lastTrigRef.current[ak + "fvg"] = false;
@@ -8464,6 +8527,88 @@ function detectChannelAlert(ohlc) {
         pos: pos
     };
 }
+// Tamaño mínimo del imbalance por TF (% del precio) — filtro anti-ruido
+var IMB_MIN_SIZE_PCT = { "1h": 0.003, "4h": 0.006, "1d": 0.012, "1w": 0.025 };
+var IMB_ATR_MULT = { "1h": 0.5, "4h": 0.7, "1d": 1.0, "1w": 1.2 };
+// Estado de mitigación: ¿el precio llenó el hueco desde que se formó?
+// Devuelve "unmitigated" | "partial" | "mitigated"
+function checkImbalanceMitigation(ohlc, formedIdx, bot, top, isBull) {
+    if (!ohlc || formedIdx == null || formedIdx >= ohlc.length - 1)
+        return "unmitigated";
+    var touchedFar = false; // tocó el borde lejano → mitigado
+    var touchedNear = false; // tocó el borde cercano → parcial
+    for (var i = formedIdx + 1; i < ohlc.length; i++) {
+        var c = ohlc[i];
+        if (isBull) {
+            // borde lejano = bot (abajo del gap); cercano = top (arriba del gap)
+            if (c.l <= bot)
+                touchedFar = true;
+            if (c.l <= top)
+                touchedNear = true;
+        }
+        else {
+            // borde lejano = top (arriba del gap); cercano = bot (abajo)
+            if (c.h >= top)
+                touchedFar = true;
+            if (c.h >= bot)
+                touchedNear = true;
+        }
+        if (touchedFar)
+            return "mitigated";
+    }
+    return touchedNear ? "partial" : "unmitigated";
+}
+// Puntuación de calidad 0-100 — ver rubrica en CLAUDE.md (Fase 1 imbalances)
+function calcImbalanceScore(opts) {
+    var score = 0;
+    var minSize = opts.minSizePct || 0.003;
+    var sizePct = opts.sizePct || 0;
+    if (sizePct >= minSize * 1.5)
+        score += 30;
+    else if (sizePct >= minSize)
+        score += 15;
+    if (opts.formVolMult != null && opts.formVolMult >= 1.8)
+        score += 20;
+    else if (opts.formVolMult != null && opts.formVolMult >= 1.3)
+        score += 10;
+    if (opts.htfAligned === true)
+        score += 20;
+    if (opts.liquiditySwept === true)
+        score += 15;
+    if (opts.kind === "fvg" || opts.kind === "void")
+        score += 10;
+    else if (opts.kind === "vi" || opts.kind === "gap")
+        score += 5;
+    return Math.min(100, score);
+}
+// Detecta Volume Imbalances (cuerpos sin solapar entre velas consecutivas, mechas tocándose)
+function detectVolumeImbalance(ohlc, price) {
+    if (!ohlc || ohlc.length < 5)
+        return null;
+    var n = ohlc.length;
+    var scanStart = Math.max(1, n - 60);
+    for (var i = scanStart; i < n - 1; i++) {
+        var c0 = ohlc[i - 1], c1 = ohlc[i];
+        var age = n - 1 - i;
+        if (age < 2)
+            continue;
+        // VI alcista: open[t] > close[t-1] y mechas se tocan
+        if (c1.o > c0.c && c0.h >= c1.l) {
+            var botB = c0.c, topB = c1.o;
+            if (topB > botB && price >= botB && price <= topB) {
+                return { subtype: "alcista", kind: "vi", top: topB, bot: botB, age: age, formedIdx: i };
+            }
+        }
+        // VI bajista: open[t] < close[t-1] y mechas se tocan
+        if (c1.o < c0.c && c0.l <= c1.h) {
+            var topS = c0.c, botS = c1.o;
+            if (topS > botS && price <= topS && price >= botS) {
+                return { subtype: "bajista", kind: "vi", top: topS, bot: botS, age: age, formedIdx: i };
+            }
+        }
+    }
+    return null;
+}
 function checkFVGCovered(ohlc, price) {
     if (!ohlc || ohlc.length < 10)
         return null;
@@ -8478,11 +8623,11 @@ function checkFVGCovered(ohlc, price) {
             continue; // skip very recent, need some gap
         // Bullish FVG: low[i] > high[i-2] → gap above h0 up to l2
         if (l2 > h0 && price >= h0 && price <= l2) {
-            return { subtype: "alcista", top: l2, bot: h0, age: age };
+            return { subtype: "alcista", kind: "fvg", top: l2, bot: h0, age: age, formedIdx: i };
         }
         // Bearish FVG: high[i] < low[i-2] → gap below l0 down to h2
         if (h2 < l0 && price <= l0 && price >= h2) {
-            return { subtype: "bajista", top: l0, bot: h2, age: age };
+            return { subtype: "bajista", kind: "fvg", top: l0, bot: h2, age: age, formedIdx: i };
         }
     }
     return null;
