@@ -4556,7 +4556,7 @@ function AlertasTab({S,predictions}){
       var entryPrice=price||0;
       var entryNote="";
       if(fvgNearEntry){
-        entryPrice=parseFloat((isLong?fvgNearEntry.bot:fvgNearEntry.top).toFixed(2));
+        entryPrice=parseFloat((isLong?fvgNearEntry.top:fvgNearEntry.bot).toFixed(2));
         entryNote=isLong?"Zona FVG alcista (orden en $"+entryPrice.toLocaleString("es-ES",{maximumFractionDigits:2})+")":"Zona FVG bajista (orden en $"+entryPrice.toLocaleString("es-ES",{maximumFractionDigits:2})+")";
       }else if((type==="canal_alcista_soporte")&&extra.channelResult&&extra.channelResult.botLine){
         entryPrice=parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
@@ -4666,6 +4666,7 @@ function AlertasTab({S,predictions}){
       var rewardAmt=Math.abs(tpPrice-entryPrice);
       var ratioNum=riskAmt>0?rewardAmt/riskAmt:0;
       var ratioBot=riskAmt>0?ratioNum.toFixed(2):"--";
+      var rrInsufficient=riskAmt>0&&ratioNum<1.0;
       var slPctShow=((Math.abs(entryPrice-slPrice)/entryPrice)*100).toFixed(1);
       var tpPctShow=((Math.abs(tpPrice-entryPrice)/entryPrice)*100).toFixed(1);
       var hasConfluence=confluenceCount>=2;
@@ -4740,6 +4741,9 @@ function AlertasTab({S,predictions}){
         tgLines.push("⏸️ OPERACIÓN ("+sugDir+") — en cooldown ("+opCooldownCandles+" velas "+interval.toUpperCase()+")");
       }else if(hasMultiTfConf&&!opOppConfirmed){
         tgLines.push("⏸️ OPERACIÓN ("+sugDir+") — requiere 2 velas "+interval.toUpperCase()+" confirmando tras señal opuesta reciente");
+      }else if(opAllowed&&rrInsufficient){
+        tgLines.push("⚠️ OPERACIÓN ("+sugDir+") — R/R insuficiente (1:"+ratioBot+") tras cap TF "+interval.toUpperCase()+" — señal omitida.");
+        tgLines.push("   📍 Entrada ref: $"+parseFloat(entryPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" | 🛑 SL: $"+parseFloat(slPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" | TP recortado: $"+parseFloat(tpPrice).toLocaleString("es-ES",{maximumFractionDigits:4}));
       }else if(opAllowed){
         tgLines.push("💡 OPERACIÓN ("+sugDir+") — "+crossTfCount+" TFs alineadas"+(htfCounterTrend?" ⚠️ CONTRA TENDENCIA HTF (solo scalp)":"")+":");
         if(fbLowPerf){
@@ -4822,7 +4826,9 @@ function AlertasTab({S,predictions}){
         var fvgIsLong=fvgR.subtype==="alcista";
         var fvgEdge=fvgIsLong?fvgR.top:fvgR.bot;
         var fvgFarEdge=fvgIsLong?fvgR.bot:fvgR.top;
-        var fvgSlRaw=fvgIsLong?fvgFarEdge:fvgFarEdge;
+        var atr14pf=0;
+        if(ohlcData.length>=15){var trSumPf=0;for(var aip=ohlcData.length-14;aip<ohlcData.length;aip++){var trHp=ohlcData[aip].h,trLp=ohlcData[aip].l,trPcp=(aip>0?ohlcData[aip-1].c:trHp);trSumPf+=Math.max(trHp-trLp,Math.abs(trHp-trPcp),Math.abs(trLp-trPcp));}atr14pf=trSumPf/14;}
+        var fvgSlRaw=fvgIsLong?parseFloat((fvgFarEdge-atr14pf*0.3).toFixed(2)):parseFloat((fvgFarEdge+atr14pf*0.3).toFixed(2));
         tgLines.push("");
         tgLines.push("⚡ FVG "+fvgR.subtype.toUpperCase()+" — "+(fvgIsLong?"Ineficiencia alcista sin cubrir":"Ineficiencia bajista sin cubrir"));
         tgLines.push("   Rango FVG: $"+parseFloat(fvgR.bot).toLocaleString("es-ES",{maximumFractionDigits:2})+" – $"+parseFloat(fvgR.top).toLocaleString("es-ES",{maximumFractionDigits:2})+(extra.imbSizePct?" ("+(extra.imbSizePct*100).toFixed(2)+"% ancho)":""));
@@ -4857,6 +4863,22 @@ function AlertasTab({S,predictions}){
         }
         if(extra.fvgVolMult!==null&&extra.fvgVolMult!==undefined){
           tgLines.push("   📊 Vol. actual: "+extra.fvgVolMult+"× MA20 "+(extra.fvgVolOk?"✅":"⚠️ volumen alto — posible capitulación"));
+        }
+        // TP para patron_fvg (H3 fix)
+        var fvgRiskPf=Math.abs(fvgEdge-fvgSlRaw);
+        var fvgTpPf=fvgRiskPf>0?findFVGforTP(ohlcData,fvgEdge,fvgIsLong,1.5,fvgRiskPf):null;
+        if(fvgTpPf&&fvgTpPf.price){
+          var fvgTpPctPf=Math.abs(fvgTpPf.price-fvgEdge)/(fvgEdge||1);
+          var fvgTpFinalPf=fvgTpPctPf>tpMaxPct?parseFloat((fvgIsLong?fvgEdge+fvgEdge*tpMaxPct:fvgEdge-fvgEdge*tpMaxPct).toFixed(2)):fvgTpPf.price;
+          var fvgRrPf=fvgRiskPf>0?Math.abs(fvgTpFinalPf-fvgEdge)/fvgRiskPf:0;
+          if(fvgRrPf>=1.0){
+            tgLines.push("   🎯 TP: $"+parseFloat(fvgTpFinalPf).toLocaleString("es-ES",{maximumFractionDigits:2})+" (R:R 1:"+fvgRrPf.toFixed(1)+")");
+          }else{
+            tgLines.push("   ⚠️ R/R insuficiente (1:"+fvgRrPf.toFixed(2)+") tras cap TF — TP orientativo $"+parseFloat(fvgTpFinalPf).toLocaleString("es-ES",{maximumFractionDigits:2}));
+          }
+        }else{
+          var fvgFallbackTpPf=fvgIsLong?parseFloat((fvgEdge+fvgRiskPf*2).toFixed(2)):parseFloat((fvgEdge-fvgRiskPf*2).toFixed(2));
+          tgLines.push("   🎯 TP (1:2): $"+parseFloat(fvgFallbackTpPf).toLocaleString("es-ES",{maximumFractionDigits:2})+" — sin FVG objetivo");
         }
       }
       var tgFullText=tgLines.join("\n");
