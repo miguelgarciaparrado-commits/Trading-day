@@ -4139,6 +4139,7 @@ function AlertasTab({ S, predictions }) {
     const lastTrigRef = useRef({});
     const rsiHistRef = useRef({}); // rolling RSI history per key for divergence detection
     const confluenceRef = useRef({}); // {symbol+"|"+interval: {signalType: timestamp}} para confluencia
+    const opAlertRef = useRef({}); // {label+"|"+interval+"|"+dir: lastEmitMs} para cooldown de OPERACIÓN multi-TF
     const [emaData, setEmaData] = useState({});
     const [showImport, setShowImport] = useState(false);
     const [importText, setImportText] = useState("");
@@ -4707,6 +4708,41 @@ function AlertasTab({ S, predictions }) {
             });
             var crossTfCount = tfConfs.length;
             var hasMultiTfConf = crossTfCount >= 2;
+            // ─── COOLDOWN + CONFIRMACIÓN de alertas OPERACIÓN por (label, interval, dir) ───
+            var opCooldownCandles = 3;
+            var opIntervalMs = { "1h": 3600000, "4h": 14400000, "1d": 86400000, "1w": 604800000 }[interval] || 14400000;
+            var opKeySame = label + "|" + interval + "|" + sugDir;
+            var opKeyOpp = label + "|" + interval + "|" + (sugDir === "Long" ? "Short" : "Long");
+            var lastSameOp = opAlertRef.current[opKeySame] || 0;
+            var lastOppOp = opAlertRef.current[opKeyOpp] || 0;
+            var opSameBlocked = (Date.now() - lastSameOp) < opIntervalMs * opCooldownCandles;
+            var opOppRecent = (Date.now() - lastOppOp) < opIntervalMs * opCooldownCandles;
+            // Si hubo dirección opuesta reciente, exigir 2 cierres consecutivos en la nueva dirección con volumen creciente
+            var opOppConfirmed = true;
+            if (opOppRecent && ohlcData.length >= 3) {
+                var last2 = ohlcData.slice(-3, -1); // 2 velas cerradas previas a la actual
+                if (last2.length === 2) {
+                    var dirOk = isLong ? (last2[0].c > last2[0].o && last2[1].c > last2[1].o) : (last2[0].c < last2[0].o && last2[1].c < last2[1].o);
+                    var volOk = (last2[0].v || 0) > 0 && (last2[1].v || 0) >= (last2[0].v || 0);
+                    opOppConfirmed = dirOk && volOk;
+                }
+                else {
+                    opOppConfirmed = false;
+                }
+            }
+            var opAllowed = hasMultiTfConf && !opSameBlocked && opOppConfirmed;
+            // ─── Jerarquía HTF: flag si hay señal opuesta activa en 1D/1W ───
+            var htfCounterTrend = false;
+            if (hasMultiTfConf && (interval === "1h" || interval === "4h")) {
+                var htfOpposite = (isLong ? BEARISH_TYPES : BULLISH_TYPES);
+                ["1d", "1w"].forEach(function (htfTf) {
+                    var htfMap = confluenceRef.current[label + "|" + htfTf] || {};
+                    var htfW = confWindowMs[htfTf] || 172800000;
+                    var hasOpp = htfOpposite.some(function (t2) { return htfMap[t2] && (confNow - htfMap[t2]) < htfW; });
+                    if (hasOpp)
+                        htfCounterTrend = true;
+                });
+            }
             var isDivConv = (type === "rsi_div_bull" || type === "rsi_div_bear" || type === "rsi_conv_bull" || type === "rsi_conv_bear");
             // ─── DETECCIÓN DE CONFLICTO: señales contrarias activas en algún TF ───
             var oppositeTypes2 = isLong ? BEARISH_TYPES : BULLISH_TYPES;
@@ -4821,12 +4857,14 @@ function AlertasTab({ S, predictions }) {
                     }
                 }
             }
-            // FVG más lejano — escanear TODAS las temporalidades y elegir el más lejano
+            // FVG más lejano — solo TF de la señal + siguiente TF (regla alineación de TP)
             var fvgFarExit = null, fvgFarDist = 0;
             var fvgTfLabel = "";
+            var tpTfChain = { "1h": ["1h", "4h"], "4h": ["4h", "1d"], "1d": ["1d", "1w"], "1w": ["1w"] };
+            var allowedTpTfs = tpTfChain[interval] || [interval];
             var allFvgSrc = ohlcData.length > 4 ? [{ tf: interval, ohlc: ohlcData }] : [];
-            ["1h", "4h", "1d", "1w"].forEach(function (tfk2) {
-                if (ohlcByTf[tfk2].length > 4 && tfk2 !== interval)
+            allowedTpTfs.forEach(function (tfk2) {
+                if (tfk2 !== interval && ohlcByTf[tfk2] && ohlcByTf[tfk2].length > 4)
                     allFvgSrc.push({ tf: tfk2, ohlc: ohlcByTf[tfk2] });
             });
             allFvgSrc.forEach(function (src) {
@@ -4915,8 +4953,8 @@ function AlertasTab({ S, predictions }) {
             var tpPrice = null;
             var tpNote = "1:2 mínimo";
             var riskAmt = Math.abs(entryPrice - slPrice);
-            // Cap máximo de TP por temporalidad (evitar TPs absurdos en TFs bajas)
-            var tpMaxPct = { "1h": 0.05, "4h": 0.12, "1d": 0.30, "1w": 1.0 }[interval] || 0.12;
+            // Cap máximo de TP por temporalidad (alineación señal/TF — evita TPs de swing en señales cortas)
+            var tpMaxPct = { "1h": 0.025, "4h": 0.05, "1d": 0.10, "1w": 0.25 }[interval] || 0.05;
             // Primero: FVG más cercano válido en la propia temporalidad (ratio ≥ 1.5)
             if (ohlcData.length > 4 && riskAmt > 0) {
                 var fvgTP = findFVGforTP(ohlcData, entryPrice, isLong, 1.5, riskAmt);
@@ -4983,6 +5021,13 @@ function AlertasTab({ S, predictions }) {
             if (!tpPrice) {
                 tpPrice = isLong ? entryPrice + riskAmt * 2 : entryPrice - riskAmt * 2;
             }
+            // Cap FINAL — todas las rutas de TP deben respetar tpMaxPct para su TF
+            var tpDistPct = Math.abs(tpPrice - entryPrice) / (entryPrice || 1);
+            if (tpDistPct > tpMaxPct) {
+                var cappedDist = entryPrice * tpMaxPct;
+                tpPrice = isLong ? parseFloat((entryPrice + cappedDist).toFixed(2)) : parseFloat((entryPrice - cappedDist).toFixed(2));
+                tpNote = tpNote + " (recortado a TF " + interval.toUpperCase() + ")";
+            }
             var rewardAmt = Math.abs(tpPrice - entryPrice);
             var ratioNum = riskAmt > 0 ? rewardAmt / riskAmt : 0;
             var ratioBot = riskAmt > 0 ? ratioNum.toFixed(2) : "--";
@@ -5044,7 +5089,7 @@ function AlertasTab({ S, predictions }) {
             var isDivType = (type === "rsi_div_bull" || type === "rsi_div_bear" || type === "rsi_conv_bull" || type === "rsi_conv_bear" || type === "rsi_hdiv_bull" || type === "rsi_hdiv_bear");
             tgLines.push("📊 RSI: " + (rsi != null ? rsi.toFixed(1) : "--") + (type !== "rsi_oversold" && type !== "rsi_overbought" && type !== "rsi_custom" && !isDivType ? " | " + divConvLine : ""));
             if (isDivType && extra.divVolMult !== null && extra.divVolMult !== undefined) {
-                tgLines.push("📊 Vol. vela: " + extra.divVolMult + "× MA20 " + (extra.divVolOk ? "✅" : "⚠️ bajo volumen — confirmar en gráfico"));
+                tgLines.push("📊 Vol. vela: " + extra.divVolMult + "× MA20 ✅");
             }
             tgLines.push("💰 Precio mercado: $" + parseFloat(price || 0).toLocaleString("es-ES", { maximumFractionDigits: 4 }));
             tgLines.push("📈 Volumen: " + (extra.volDir || "Desconocido"));
@@ -5069,8 +5114,14 @@ function AlertasTab({ S, predictions }) {
                 tgLines.push("🚫 Operación BLOQUEADA por mal historial:");
                 tgLines.push("   " + fbStatsProb.correct + "/" + fbStatsProb.total + " aciertos (" + (fbRate !== null ? Math.round(fbRate * 100) : 0) + "%) — mínimo 35%");
             }
-            else if (hasMultiTfConf) {
-                tgLines.push("💡 OPERACIÓN (" + sugDir + ") — " + crossTfCount + " TFs alineadas:");
+            else if (hasMultiTfConf && opSameBlocked) {
+                tgLines.push("⏸️ OPERACIÓN (" + sugDir + ") — en cooldown (" + opCooldownCandles + " velas " + interval.toUpperCase() + ")");
+            }
+            else if (hasMultiTfConf && !opOppConfirmed) {
+                tgLines.push("⏸️ OPERACIÓN (" + sugDir + ") — requiere 2 velas " + interval.toUpperCase() + " confirmando tras señal opuesta reciente");
+            }
+            else if (opAllowed) {
+                tgLines.push("💡 OPERACIÓN (" + sugDir + ") — " + crossTfCount + " TFs alineadas" + (htfCounterTrend ? " ⚠️ CONTRA TENDENCIA HTF (solo scalp)" : "") + ":");
                 if (fbLowPerf) {
                     tgLines.push("   ⚠️ Historial bajo (" + Math.round(fbRate * 100) + "% / " + fbStatsProb.total + " señales) — precaución");
                 }
@@ -5078,6 +5129,7 @@ function AlertasTab({ S, predictions }) {
                 tgLines.push("   🎯 TP: $" + parseFloat(tpPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (+" + tpPctShow + "%) — " + tpNote);
                 tgLines.push("   🛑 SL: $" + parseFloat(slPrice).toLocaleString("es-ES", { maximumFractionDigits: 4 }) + " (-" + slPctShow + "%)");
                 tgLines.push("   ⚖️ Ratio: 1:" + ratioBot);
+                tgLines.push("   ⏱ TF: " + interval.toUpperCase() + " | Horizonte: " + (interval === "1h" ? "8–20h" : interval === "4h" ? "2–5 días" : interval === "1d" ? "1–10 días" : "6+ semanas"));
                 if (probPct !== null) {
                     var probSrc2 = fbStatsProb.total >= 3 ? "(" + fbStatsProb.total + " señales previas)" : "(base estadística)";
                     tgLines.push("   🧠 Prob. " + probPct + "% " + probSrc2);
@@ -5086,6 +5138,8 @@ function AlertasTab({ S, predictions }) {
                     tgLines.push("   ⚠️ Sin FVG cercano — precio actual como referencia de entrada");
                 if (!fvgFarExit)
                     tgLines.push("   ⚠️ Sin FVG lejano — TP calculado por ratio");
+                // Registrar emisión para cooldown
+                opAlertRef.current[opKeySame] = Date.now();
             }
             tgLines.push("");
             tgLines.push("⏰ " + new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }));
@@ -5482,20 +5536,30 @@ function AlertasTab({ S, predictions }) {
                 var rsiZoneFH = lastTrigRef.current[ak + "rsizone"] || "neutral";
                 var zoneSuppFH = (divAlertFH === "rsi_div_bull" && rsiZoneFH === "overbought") || (divAlertFH === "rsi_div_bear" && rsiZoneFH === "oversold") || (divAlertFH === "rsi_hdiv_bull" && rsiZoneFH === "overbought") || (divAlertFH === "rsi_hdiv_bear" && rsiZoneFH === "oversold");
                 if (!zoneSuppFH && Date.now() - prevDivFiredFH > divCooldownFH) {
-                    lastTrigRef.current[divLockKeyFH] = Date.now();
-                    try {
-                        var fhDz = {};
-                        var fhDzS = localStorage.getItem("td-alert-zones");
-                        if (fhDzS)
-                            fhDz = JSON.parse(fhDzS);
-                        fhDz[divLockKeyFH] = Date.now();
-                        localStorage.setItem("td-alert-zones", JSON.stringify(fhDz));
-                    }
-                    catch (e) { }
+                    // Gate por volumen ANTES de fijar el lock
                     var fhVolMA20 = ohlc.length >= 20 ? ohlc.slice(-20).reduce(function (a, c) { return a + (c.v || 0); }, 0) / 20 : 0;
                     var fhLastVol = ohlc.length > 0 ? (ohlc[ohlc.length - 1].v || 0) : 0;
                     var fhVolMult = fhVolMA20 > 0 ? parseFloat((fhLastVol / fhVolMA20).toFixed(1)) : null;
-                    sendAlert(alert.label, alert.interval, rsi, divAlertFH, ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResultFH, divVolMult: fhVolMult, divVolOk: fhVolMult !== null && fhVolMult >= 1.2 });
+                    var fhVolOk = fhVolMult === null || fhVolMult >= 1.2;
+                    if (!fhVolOk) {
+                        try {
+                            console.log("[div-skip-fh]", ak, divAlertFH, "vol", fhVolMult, "<1.2");
+                        }
+                        catch (e) { }
+                    }
+                    else {
+                        lastTrigRef.current[divLockKeyFH] = Date.now();
+                        try {
+                            var fhDz = {};
+                            var fhDzS = localStorage.getItem("td-alert-zones");
+                            if (fhDzS)
+                                fhDz = JSON.parse(fhDzS);
+                            fhDz[divLockKeyFH] = Date.now();
+                            localStorage.setItem("td-alert-zones", JSON.stringify(fhDz));
+                        }
+                        catch (e) { }
+                        sendAlert(alert.label, alert.interval, rsi, divAlertFH, ema7, ema25, null, closePrice, { ohlc: ohlc, divResult: divResultFH, divVolMult: fhVolMult, divVolOk: true });
+                    }
                 }
             }
             else if (isFreshFHCandle) {
@@ -5801,20 +5865,31 @@ function AlertasTab({ S, predictions }) {
                                 var rsiZoneNow = lastTrigRef.current[ak + "rsizone"] || "neutral";
                                 var zoneSuppressed = (divAlertType === "rsi_div_bull" && rsiZoneNow === "overbought") || (divAlertType === "rsi_div_bear" && rsiZoneNow === "oversold") || (divAlertType === "rsi_hdiv_bull" && rsiZoneNow === "overbought") || (divAlertType === "rsi_hdiv_bear" && rsiZoneNow === "oversold");
                                 if (!zoneSuppressed && Date.now() - prevDivFired > divCooldownMs) {
-                                    lastTrigRef.current[divLockKey] = Date.now();
-                                    try {
-                                        var dzWs = {};
-                                        var dzWsStr = localStorage.getItem("td-alert-zones");
-                                        if (dzWsStr)
-                                            dzWs = JSON.parse(dzWsStr);
-                                        dzWs[divLockKey] = Date.now();
-                                        localStorage.setItem("td-alert-zones", JSON.stringify(dzWs));
-                                    }
-                                    catch (e) { }
+                                    // Gate por volumen ANTES de fijar el lock: si el volumen no confirma, no hay alerta
                                     var wsVolMA20 = ohlc.length >= 20 ? ohlc.slice(-20).reduce(function (a, c) { return a + (c.v || 0); }, 0) / 20 : 0;
                                     var wsLastVol = ohlc.length > 0 ? (ohlc[ohlc.length - 1].v || 0) : 0;
                                     var wsVolMult = wsVolMA20 > 0 ? parseFloat((wsLastVol / wsVolMA20).toFixed(1)) : null;
-                                    sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200, divVolMult: wsVolMult, divVolOk: wsVolMult !== null && wsVolMult >= 1.2 });
+                                    var wsVolOk = wsVolMult === null || wsVolMult >= 1.2;
+                                    if (!wsVolOk) {
+                                        // Log interno sin notificación — volumen insuficiente
+                                        try {
+                                            console.log("[div-skip]", ak, divAlertType, "vol", wsVolMult, "<1.2");
+                                        }
+                                        catch (e) { }
+                                    }
+                                    else {
+                                        lastTrigRef.current[divLockKey] = Date.now();
+                                        try {
+                                            var dzWs = {};
+                                            var dzWsStr = localStorage.getItem("td-alert-zones");
+                                            if (dzWsStr)
+                                                dzWs = JSON.parse(dzWsStr);
+                                            dzWs[divLockKey] = Date.now();
+                                            localStorage.setItem("td-alert-zones", JSON.stringify(dzWs));
+                                        }
+                                        catch (e) { }
+                                        sendAlert(alert.label, alert.interval, rsi, divAlertType, ema7, ema25, null, closePrice, { ohlc: ohlc, volDir: volDir, divResult: divResult, ema50: ema50, ema200: ema200, divVolMult: wsVolMult, divVolOk: true });
+                                    }
                                 }
                             }
                         }
