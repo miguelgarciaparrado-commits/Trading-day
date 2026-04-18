@@ -289,7 +289,7 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc,predictions){
   return items;
 }
 
-const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat"];
+const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat","Auditoría"];
 const TC={win:"#00ff88",mistake:"#ff4444",lesson:"#f0b429",analysis:"#888"};
 const TL={win:"VICTORIA",mistake:"ERROR",lesson:"LECCION",analysis:"ANALISIS"};
 
@@ -314,6 +314,95 @@ const S={
   inp:{background:"#0d0d16",border:"1px solid #2a2a3a",color:"#e0e0e0",padding:"7px 10px",borderRadius:4,fontSize:11,width:"100%",boxSizing:"border-box",outline:"none"},
   btn:p=>({background:p?"#f0b429":"transparent",color:p?"#0a0a0f":"#666",border:p?"none":"1px solid #2a2a3a",padding:"8px 14px",borderRadius:4,fontSize:10,fontWeight:700,cursor:"pointer"}),
 };
+
+// - AUDIT AGENT -
+var AUDIT_SYSTEM_PROMPT=[
+  "Eres un auditor de disciplina de trading. Evalúas operaciones cerradas según 5 reglas estrictas de gestión de riesgo.",
+  "",
+  "REGLAS A EVALUAR:",
+  "R1 – Stop Loss es Ley: el SL debe estar definido en la apertura (sl_initial presente) y no puede ampliarse.",
+  "  Un SL reducido (acercado a la entrada) es aceptable. Si sl_modifications contiene entradas donde el SL se alejó de la entrada, es fail.",
+  "R2 – El apalancamiento no es inversión: la operación debe cerrarse antes de las 72h (para futuros).",
+  "  Objetivo concreto, no hold indefinido. Si la duración supera 72h, es fail.",
+  "R3 – Sin ego: si la operación se cerró por SL (result < 0 y note contiene 'SL'),",
+  "  no debe haberse reabierto el mismo activo en los siguientes 15 min (reopen_after_sl === false o ausente).",
+  "R4 – Trailing estructural: si hay sl_modifications con más de 0 entradas,",
+  "  los ajustes deben ir en la dirección correcta (acercando el SL a la entrada).",
+  "  Long: SL debe subir con cada modificación. Short: SL debe bajar con cada modificación.",
+  "  No penalices si no hay modificaciones.",
+  "R5 – Tesis técnica: debe existir thesis_text con al menos 20 caracteres descriptivos.",
+  "",
+  "SALIDA — responde SOLO con JSON válido, sin markdown, sin explicaciones:",
+  "{",
+  "  \"score\": <0..5 entero>,",
+  "  \"rules\": [",
+  "    {\"id\":\"R1\",\"name\":\"SL es Ley\",\"status\":\"pass\"|\"fail\"|\"na\",\"evidence\":\"<frase corta>\"},",
+  "    {\"id\":\"R2\",\"name\":\"Sin hold indefinido\",\"status\":\"pass\"|\"fail\"|\"na\",\"evidence\":\"<frase corta>\"},",
+  "    {\"id\":\"R3\",\"name\":\"Sin ego\",\"status\":\"pass\"|\"fail\"|\"na\",\"evidence\":\"<frase corta>\"},",
+  "    {\"id\":\"R4\",\"name\":\"Trailing estructural\",\"status\":\"pass\"|\"fail\"|\"na\",\"evidence\":\"<frase corta>\"},",
+  "    {\"id\":\"R5\",\"name\":\"Tesis técnica\",\"status\":\"pass\"|\"fail\"|\"na\",\"evidence\":\"<frase corta>\"}",
+  "  ],",
+  "  \"summary\": \"<2-3 frases en español resumiendo el audit>\"",
+  "}",
+  "",
+  "score = número de reglas con status \"pass\".",
+  "Usa \"na\" cuando no hay datos suficientes para evaluar (no penaliza)."
+].join("\n");
+
+async function auditTrade(trade, marketContextAtOpen){
+  var apiKey="";
+  try{ apiKey=localStorage.getItem("td-anthropic-key")||""; }catch(e){}
+  if(!apiKey) return {error:"No API key configured"};
+
+  var tradeJson="";
+  try{ tradeJson=JSON.stringify(trade,null,2); }catch(e){ tradeJson=String(trade); }
+
+  var contextSection="";
+  if(marketContextAtOpen){
+    try{ contextSection="\n\nCONTEXTO DE MERCADO EN APERTURA:\n"+JSON.stringify(marketContextAtOpen,null,2); }catch(e){}
+  }
+
+  var userMsg="Audita esta operación cerrada:\n\n"+tradeJson+contextSection;
+
+  var response;
+  try{
+    response=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "x-api-key":apiKey,
+        "anthropic-version":"2023-06-01",
+        "anthropic-dangerous-direct-browser-access":"true"
+      },
+      body:JSON.stringify({
+        model:"claude-sonnet-4-6",
+        max_tokens:1000,
+        system:AUDIT_SYSTEM_PROMPT,
+        messages:[{role:"user",content:userMsg}]
+      })
+    });
+  }catch(e){
+    return {error:"Network error: "+((e&&e.message)||String(e))};
+  }
+
+  if(!response.ok){
+    var errData={};
+    try{ errData=await response.json(); }catch(e){}
+    return {error:"API "+response.status+((errData.error&&errData.error.message)?" — "+errData.error.message:"")};
+  }
+
+  var data={};
+  try{ data=await response.json(); }catch(e){
+    return {error:"Failed to parse API response"};
+  }
+
+  var raw=((data.content&&data.content[0]&&data.content[0].text)?data.content[0].text:"").trim();
+  raw=raw.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"").trim();
+
+  try{ return JSON.parse(raw); }catch(e){
+    return {error:"JSON parse failed: "+raw.slice(0,120)};
+  }
+}
 
 // - MAIN APP -
 export default function App(){
@@ -1134,7 +1223,7 @@ export default function App(){
       newPs.ratioSum=(newPs.ratioSum||0)+closedRatio;
       newPs.ratioCount=(newPs.ratioCount||0)+1;
     }
-    const entry={id:Date.now(),asset:p.asset,dir:p.dir,cap:p.capital,result:result,date:today(),note:note,...(closedRatio!==null?{ratio:closedRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})};
+    const entry={id:Date.now(),asset:p.asset,dir:p.dir,cap:p.capital,result:result,date:today(),note:note,...(closedRatio!==null?{ratio:closedRatio}:{}),...(p.patternId?{patternId:p.patternId}:{}),...(p.sl_initial!=null?{sl_initial:p.sl_initial}:{}),...(p.sl_modifications?{sl_modifications:p.sl_modifications}:{}),...(p.thesis_text?{thesis_text:p.thesis_text}:{}),...(p.thesis_screenshot_url?{thesis_screenshot_url:p.thesis_screenshot_url}:{}),...(p.broker?{broker:p.broker}:{broker:"quantfury"})};
     const newX=[entry,...(D.current.xhist||[])];
     const newPos2=D.current.pos.filter(x=>x.id!==p.id);
     D.current.xhist=newX;D.current.pos=newPos2;D.current.ps=newPs;
@@ -1150,6 +1239,23 @@ export default function App(){
     }
     save();
     setModal(m=>({...m,close:null}));
+    runAuditForEntry(entry.id);
+  }
+
+  function runAuditForEntry(entryId){
+    var trade=(D.current.xhist||[]).filter(function(x){return x.id===entryId;})[0];
+    if(!trade)return;
+    auditTrade(trade,null).then(function(auditResult){
+      if(!auditResult||auditResult.error)return;
+      var updated=(D.current.xhist||[]).map(function(x){
+        if(x.id!==entryId)return x;
+        return Object.assign({},x,{audit_score:auditResult.score,audit_report:auditResult,audited_at:new Date().toISOString()});
+      });
+      D.current.xhist=updated;
+      setXhist(updated);
+      try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:updated,ethClosed:D.current.ethClosed||false,_savedAt:Date.now()}));}catch(e){}
+      save();
+    }).catch(function(){});
   }
 
   function notifyProximity(asset,dir,level,targetPrice,currentPrice){
@@ -1308,6 +1414,7 @@ export default function App(){
     setXhist(newX);setPos(newPos);setPs(psU);
     // Guardar inmediatamente (sin debounce) — operación crítica: SL/TP auto-cerrados
     if(saveRef&&saveRef.current)saveRef.current();else save();
+    entries.forEach(function(e){ runAuditForEntry(e.id); });
   }
 
   function checkProximityAlerts(newPr){
@@ -1724,7 +1831,7 @@ export default function App(){
                     </div>
                     <div style={{display:"flex",gap:7,alignItems:"center"}}>
                       <span style={{fontSize:19,fontWeight:700,color:noLivePrice?"#ff8844":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"sin precio":fmtNum(g)}</span>
-                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[],patternId:p.patternId||""},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
+                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[],patternId:p.patternId||"",sl_initial:p.sl_initial,sl_modifications:p.sl_modifications||[],thesis_text:p.thesis_text||"",thesis_screenshot_url:p.thesis_screenshot_url||"",broker:p.broker||"quantfury"},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
                       <button onClick={()=>setModal(m=>({...m,close:p}))} style={{background:"rgba(240,180,41,.15)",border:"1px solid #f0b429",color:"#f0b429",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>CERRAR</button>
                     </div>
                   </div>
@@ -1957,6 +2064,7 @@ export default function App(){
                     // Escribir a localStorage inmediatamente
                     try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:psU,xhist:newX,ethClosed:D.current.ethClosed||false,_savedAt:Date.now()}));}catch(e){}
                     save();
+                    runAuditForEntry(entry.id);
                     setManualForm({asset:"",dir:"Long",capital:"",entry:"",close:"",note:"",date:""});
                     setShowManualTrade(false);
                   }} style={{...S.btn(true),flex:2,padding:8}}>AÑADIR AL HISTORIAL</button>
@@ -2393,6 +2501,11 @@ export default function App(){
         <div style={{display:tab==="Chat"?"block":"none"}}>
           <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save} predictions={predictions} SPred={SPred} initialChatMsgs={D.current.chatMsgs||[]}/>
         </div>
+
+        {/* ═══ AUDITORÍA ═══ */}
+        {tab==="Auditoría"&&(
+          <AuditoriaTab xhist={xhist} S={S} fmtNum={fmtNum} reaudit={runAuditForEntry}/>
+        )}
       </div>
 
       {/* ═══ MODAL CERRAR POSICION ═══ */}
@@ -6702,6 +6815,165 @@ function ModalCerrar({p,PM,getPnL,fmtNum,fmtP,closePos,setModal,S}){
   );
 }
 
+// - AUDITORIA -
+function AuditoriaTab({xhist,S,fmtNum,reaudit}){
+  const[selTrade,setSelTrade]=useState(null);
+  const[auditFilter,setAuditFilter]=useState("all");
+
+  var audited=(xhist||[]).filter(function(x){return x.audit_report&&!x.audit_report.error;});
+  var pending=(xhist||[]).filter(function(x){return !x.audit_report||x.audit_report.error;});
+  var avgScore=audited.length>0?parseFloat((audited.reduce(function(a,x){return a+(x.audit_score||0);},0)/audited.length).toFixed(1)):null;
+
+  // Rule violation counts
+  var RULE_IDS=["R1","R2","R3","R4","R5"];
+  var RULE_NAMES={R1:"SL es Ley",R2:"Sin hold indefinido",R3:"Sin ego",R4:"Trailing estructural",R5:"Tesis técnica"};
+  var failCounts={};
+  RULE_IDS.forEach(function(id){failCounts[id]=0;});
+  audited.forEach(function(x){
+    var rules=(x.audit_report&&x.audit_report.rules)||[];
+    rules.forEach(function(r){
+      if(r.status==="fail"&&failCounts[r.id]!=null)failCounts[r.id]++;
+    });
+  });
+  var maxFail=Math.max.apply(null,RULE_IDS.map(function(id){return failCounts[id];}));
+
+  var scoreColor=function(s){return s>=4?"#00ff88":s>=3?"#f0b429":s>=2?"#ff9944":"#ff4444";};
+
+  var displayList=(auditFilter==="pending"?pending:auditFilter==="audited"?audited:(xhist||[])).slice(0,80);
+
+  var modal=selTrade;
+
+  return(
+    <div>
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+        <div style={S.card}>
+          <div style={S.lbl}>SCORE MEDIO</div>
+          <div style={{fontSize:22,fontWeight:700,color:avgScore!=null?scoreColor(avgScore):"#555"}}>{avgScore!=null?avgScore+"/5":"—"}</div>
+        </div>
+        <div style={S.card}>
+          <div style={S.lbl}>AUDITADAS</div>
+          <div style={{fontSize:22,fontWeight:700,color:"#00ff88"}}>{audited.length}</div>
+        </div>
+        <div style={S.card}>
+          <div style={S.lbl}>PENDIENTES</div>
+          <div style={{fontSize:22,fontWeight:700,color:pending.length>0?"#f0b429":"#555"}}>{pending.length}</div>
+        </div>
+      </div>
+
+      {/* Violation bars */}
+      {audited.length>0&&(
+        <div style={{...S.card,marginBottom:12}}>
+          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>REGLAS MÁS VIOLADAS</div>
+          {RULE_IDS.map(function(id){
+            var count=failCounts[id];
+            var pct=maxFail>0?Math.round(count/maxFail*100):0;
+            var col=count===0?"#00ff88":count<=2?"#f0b429":"#ff4444";
+            return(
+              <div key={id} style={{marginBottom:6}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}>
+                  <span style={{color:"#aaa"}}>{id} — {RULE_NAMES[id]}</span>
+                  <span style={{color:col,fontWeight:700}}>{count} fail</span>
+                </div>
+                <div style={S.bar}>
+                  <div style={S.fill(pct,col)}></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Filter + list */}
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        {["all","audited","pending"].map(function(f){
+          return(
+            <button key={f} onClick={function(){setAuditFilter(f);}} style={{...S.btn(auditFilter===f),fontSize:9,padding:"4px 10px"}}>
+              {f==="all"?"TODAS":f==="audited"?"AUDITADAS":"PENDIENTES"}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={S.card}>
+        {displayList.length===0&&(
+          <div style={{fontSize:10,color:"#555",textAlign:"center",padding:20}}>No hay operaciones</div>
+        )}
+        {displayList.map(function(x){
+          var rep=x.audit_report&&!x.audit_report.error?x.audit_report:null;
+          var score=x.audit_score;
+          var rules=rep?rep.rules:[];
+          return(
+            <div key={x.id} onClick={function(){setSelTrade(x);}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px",borderBottom:"1px solid #1a1a2a",cursor:"pointer"}}>
+              <div style={{width:28,height:28,borderRadius:14,background:rep?scoreColor(score):"#2a2a3a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:rep?"#0a0a0f":"#555",flexShrink:0}}>
+                {rep?score:"?"}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#e0e0e0"}}>{x.asset} {x.dir} — {fmtNum(x.result)}</div>
+                <div style={{fontSize:9,color:"#555"}}>{x.date} {x.note&&x.note.slice(0,30)}</div>
+              </div>
+              {rep&&(
+                <div style={{display:"flex",gap:3,flexShrink:0}}>
+                  {rules.filter(function(r){return r.status==="fail";}).map(function(r){
+                    return <span key={r.id} style={S.bdg("#ff4444")}>{r.id}</span>;
+                  })}
+                  {rules.filter(function(r){return r.status==="pass";}).slice(0,3).map(function(r){
+                    return <span key={r.id} style={S.bdg("#00ff88")}>{r.id}</span>;
+                  })}
+                </div>
+              )}
+              {!rep&&(
+                <button onClick={function(e){e.stopPropagation();reaudit(x.id);}} style={{...S.btn(true),fontSize:8,padding:"3px 7px"}}>AUDITAR</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Detail modal */}
+      {modal&&(
+        <div style={S.modal} onClick={function(){setSelTrade(null);}}>
+          <div style={{...S.mc,maxWidth:500}} onClick={function(e){e.stopPropagation();}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#e0e0e0"}}>{modal.asset} {modal.dir} — {fmtNum(modal.result)}</div>
+              <button onClick={function(){setSelTrade(null);}} style={{...S.btn(false),padding:"4px 8px",fontSize:10}}>✕</button>
+            </div>
+            {modal.audit_report&&!modal.audit_report.error?(
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                  <div style={{width:44,height:44,borderRadius:22,background:scoreColor(modal.audit_score),display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0a0a0f"}}>{modal.audit_score}/5</div>
+                  <div style={{fontSize:10,color:"#aaa",flex:1}}>{modal.audit_report.summary}</div>
+                </div>
+                {(modal.audit_report.rules||[]).map(function(r){
+                  var col=r.status==="pass"?"#00ff88":r.status==="fail"?"#ff4444":"#555";
+                  return(
+                    <div key={r.id} style={{display:"flex",gap:8,padding:"6px 0",borderBottom:"1px solid #1a1a2a",alignItems:"flex-start"}}>
+                      <span style={{...S.bdg(col),marginTop:1,flexShrink:0}}>{r.status.toUpperCase()}</span>
+                      <div>
+                        <div style={{fontSize:10,color:"#ccc",fontWeight:700}}>{r.id} — {r.name}</div>
+                        <div style={{fontSize:9,color:"#666",marginTop:2}}>{r.evidence}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {modal.audited_at&&(
+                  <div style={{fontSize:8,color:"#333",marginTop:8}}>Auditado: {new Date(modal.audited_at).toLocaleString("es-ES")}</div>
+                )}
+                <button onClick={function(){reaudit(modal.id);setSelTrade(null);}} style={{...S.btn(false),width:"100%",marginTop:10,fontSize:9}}>RE-AUDITAR</button>
+              </div>
+            ):(
+              <div>
+                <div style={{fontSize:10,color:"#555",marginBottom:12}}>{modal.audit_report&&modal.audit_report.error?"Error: "+modal.audit_report.error:"No auditado todavía"}</div>
+                <button onClick={function(){reaudit(modal.id);setSelTrade(null);}} style={{...S.btn(true),width:"100%",fontSize:10}}>AUDITAR AHORA</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // - CALENDARIO -
 function CalendarioTab({hist,fmtNum}){
   const MONTH_NAMES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -7037,7 +7309,16 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
       var posId=editId||Date.now();
       var reflText=preReflection?preReflection.trim():"";
       var finalStatus=f.status||"open";
-      var obj=Object.assign({},f,{id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus});
+      var slInitVal=f.sl_initial!=null&&f.sl_initial!==""?(+f.sl_initial):(+f.sl);
+      var slMods=f.sl_modifications||[];
+      if(editId){
+        var prevPos=(currentPos||[]).filter(function(x){return x.id===editId;})[0];
+        var prevSl=prevPos&&prevPos.sl?+prevPos.sl:null;
+        if(prevSl!=null&&+f.sl!==prevSl){
+          slMods=slMods.concat([{timestamp:new Date().toISOString(),precio_anterior:prevSl,precio_nuevo:+f.sl}]);
+        }
+      }
+      var obj=Object.assign({},f,{id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus,sl_initial:slInitVal,sl_modifications:slMods,thesis_text:f.thesis_text||"",thesis_screenshot_url:f.thesis_screenshot_url||"",broker:f.broker||"quantfury"});
       var nv=editId?currentPos.map(function(x){return x.id===editId?obj:x;}):currentPos.concat([obj]);
       SPos(nv);
       if(reflText&&SJ&&!editId){
@@ -7262,6 +7543,33 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
           )}
         </div>
       )}
+      {/* ── Audit fields ── */}
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>TESIS TÉCNICA <span style={{color:"#ff4444"}}>*</span></div>
+        <textarea value={f.thesis_text||""} onChange={function(e){setF(function(prev){return{...prev,thesis_text:e.target.value};});}}
+          placeholder="FVG alcista en 4H + canal bajista roto al alza. RSI divergencia bullish en 1H. SL bajo mínimo del canal..."
+          style={{...S.inp,width:"100%",minHeight:60,padding:"8px",fontSize:9,lineHeight:1.6,resize:"vertical",boxSizing:"border-box",color:"#e0e0e0"}}/>
+        {(f.thesis_text||"").trim().length<20&&(f.thesis_text||"").trim().length>0&&(
+          <div style={{fontSize:7,color:"#ff4444",marginTop:2}}>Mínimo 20 caracteres para auditoría</div>
+        )}
+      </div>
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>SL INICIAL (inmutable — se registra al abrir) <span style={{color:"#ff4444"}}>*</span></div>
+        <input style={S.inp} type="number" placeholder={f.sl||"Igual que SL arriba"} value={f.sl_initial!=null?f.sl_initial:""} onChange={function(e){setF(function(prev){return{...prev,sl_initial:e.target.value};});}}/>
+        <div style={{fontSize:7,color:"#444",marginTop:2}}>Sirve como baseline para R1. Si no rellenas, se usa el SL indicado.</div>
+      </div>
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>BROKER</div>
+        <select value={f.broker||"quantfury"} onChange={function(e){setF(function(prev){return{...prev,broker:e.target.value};});}} style={{...S.inp,cursor:"pointer"}}>
+          <option value="quantfury">Quantfury</option>
+          <option value="margex">Margex</option>
+          <option value="otro">Otro</option>
+        </select>
+      </div>
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>CAPTURA DE PANTALLA (URL opcional)</div>
+        <input style={S.inp} type="url" placeholder="https://..." value={f.thesis_screenshot_url||""} onChange={function(e){setF(function(prev){return{...prev,thesis_screenshot_url:e.target.value};});}}/>
+      </div>
       {!editId&&(
         <div style={{marginBottom:12}}>
           <div style={{fontSize:8,color:"#888",marginBottom:4,letterSpacing:1}}>REFLEXION PREVIA AL TRADE <span style={{color:"#555"}}>(opcional)</span></div>
