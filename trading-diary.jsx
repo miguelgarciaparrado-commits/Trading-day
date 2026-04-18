@@ -1223,7 +1223,7 @@ export default function App(){
       newPs.ratioSum=(newPs.ratioSum||0)+closedRatio;
       newPs.ratioCount=(newPs.ratioCount||0)+1;
     }
-    const entry={id:Date.now(),asset:p.asset,dir:p.dir,cap:p.capital,result:result,date:today(),note:note,...(closedRatio!==null?{ratio:closedRatio}:{}),...(p.patternId?{patternId:p.patternId}:{})};
+    const entry={id:Date.now(),asset:p.asset,dir:p.dir,cap:p.capital,result:result,date:today(),note:note,...(closedRatio!==null?{ratio:closedRatio}:{}),...(p.patternId?{patternId:p.patternId}:{}),...(p.sl_initial!=null?{sl_initial:p.sl_initial}:{}),...(p.sl_modifications?{sl_modifications:p.sl_modifications}:{}),...(p.thesis_text?{thesis_text:p.thesis_text}:{}),...(p.thesis_screenshot_url?{thesis_screenshot_url:p.thesis_screenshot_url}:{}),...(p.broker?{broker:p.broker}:{broker:"quantfury"})};
     const newX=[entry,...(D.current.xhist||[])];
     const newPos2=D.current.pos.filter(x=>x.id!==p.id);
     D.current.xhist=newX;D.current.pos=newPos2;D.current.ps=newPs;
@@ -1239,6 +1239,23 @@ export default function App(){
     }
     save();
     setModal(m=>({...m,close:null}));
+    runAuditForEntry(entry.id);
+  }
+
+  function runAuditForEntry(entryId){
+    var trade=(D.current.xhist||[]).filter(function(x){return x.id===entryId;})[0];
+    if(!trade)return;
+    auditTrade(trade,null).then(function(auditResult){
+      if(!auditResult||auditResult.error)return;
+      var updated=(D.current.xhist||[]).map(function(x){
+        if(x.id!==entryId)return x;
+        return Object.assign({},x,{audit_score:auditResult.score,audit_report:auditResult,audited_at:new Date().toISOString()});
+      });
+      D.current.xhist=updated;
+      setXhist(updated);
+      try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:updated,ethClosed:D.current.ethClosed||false,_savedAt:Date.now()}));}catch(e){}
+      save();
+    }).catch(function(){});
   }
 
   function notifyProximity(asset,dir,level,targetPrice,currentPrice){
@@ -1397,6 +1414,7 @@ export default function App(){
     setXhist(newX);setPos(newPos);setPs(psU);
     // Guardar inmediatamente (sin debounce) — operación crítica: SL/TP auto-cerrados
     if(saveRef&&saveRef.current)saveRef.current();else save();
+    entries.forEach(function(e){ runAuditForEntry(e.id); });
   }
 
   function checkProximityAlerts(newPr){
@@ -2046,6 +2064,7 @@ export default function App(){
                     // Escribir a localStorage inmediatamente
                     try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:psU,xhist:newX,ethClosed:D.current.ethClosed||false,_savedAt:Date.now()}));}catch(e){}
                     save();
+                    runAuditForEntry(entry.id);
                     setManualForm({asset:"",dir:"Long",capital:"",entry:"",close:"",note:"",date:""});
                     setShowManualTrade(false);
                   }} style={{...S.btn(true),flex:2,padding:8}}>AÑADIR AL HISTORIAL</button>
