@@ -2194,7 +2194,7 @@ function App() {
                                 noLivePrice && React.createElement("span", { style: { fontSize: 7, color: "#ff8844", background: "rgba(255,136,68,.1)", padding: "2px 6px", borderRadius: 3, border: "1px solid rgba(255,136,68,.3)" } }, "\u26A0 Editar ticker")),
                             React.createElement("div", { style: { display: "flex", gap: 7, alignItems: "center" } },
                                 React.createElement("span", { style: { fontSize: 19, fontWeight: 700, color: noLivePrice ? "#ff8844" : g >= 0 ? "#00ff88" : "#ff4444" } }, noLivePrice ? "sin precio" : fmtNum(g)),
-                                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "", tpLevels: p.tpLevels || [], patternId: p.patternId || "" }, editPosId: p.id })), style: { background: noLivePrice ? "rgba(255,136,68,.15)" : "transparent", border: "1px solid " + (noLivePrice ? "#ff8844" : "#2a2a3a"), color: noLivePrice ? "#ff8844" : "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
+                                React.createElement("button", { onClick: () => setModal(m => ({ ...m, pos: true, posForm: { asset: p.asset, dir: p.dir, capital: p.capital, entry: p.entry, sl: p.sl || "", tp: p.tp || "", tpLevels: p.tpLevels || [], patternId: p.patternId || "", sl_initial: p.sl_initial, sl_modifications: p.sl_modifications || [], thesis_text: p.thesis_text || "", thesis_screenshot_url: p.thesis_screenshot_url || "", broker: p.broker || "quantfury" }, editPosId: p.id })), style: { background: noLivePrice ? "rgba(255,136,68,.15)" : "transparent", border: "1px solid " + (noLivePrice ? "#ff8844" : "#2a2a3a"), color: noLivePrice ? "#ff8844" : "#f0b429", padding: "3px 7px", borderRadius: 4, fontSize: 9, cursor: "pointer" } }, "editar"),
                                 React.createElement("button", { onClick: () => setModal(m => ({ ...m, close: p })), style: { background: "rgba(240,180,41,.15)", border: "1px solid #f0b429", color: "#f0b429", padding: "3px 8px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "CERRAR"))),
                         React.createElement("div", { style: S.grid(105) }, [
                             { l: "CAPITAL", v: "$" + p.capital.toLocaleString() },
@@ -7887,7 +7887,16 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
             var posId = editId || Date.now();
             var reflText = preReflection ? preReflection.trim() : "";
             var finalStatus = f.status || "open";
-            var obj = Object.assign({}, f, { id: posId, capital: +f.capital, entry: +f.entry, sl: +f.sl, tp: +f.tp, tpLevels: tpLvls, capitalRemaining: +f.capital, be: false, preReflection: reflText, status: finalStatus });
+            var slInitVal = f.sl_initial != null && f.sl_initial !== "" ? (+f.sl_initial) : (+f.sl);
+            var slMods = f.sl_modifications || [];
+            if (editId) {
+                var prevPos = (currentPos || []).filter(function (x) { return x.id === editId; })[0];
+                var prevSl = prevPos && prevPos.sl ? +prevPos.sl : null;
+                if (prevSl != null && +f.sl !== prevSl) {
+                    slMods = slMods.concat([{ timestamp: new Date().toISOString(), precio_anterior: prevSl, precio_nuevo: +f.sl }]);
+                }
+            }
+            var obj = Object.assign({}, f, { id: posId, capital: +f.capital, entry: +f.entry, sl: +f.sl, tp: +f.tp, tpLevels: tpLvls, capitalRemaining: +f.capital, be: false, preReflection: reflText, status: finalStatus, sl_initial: slInitVal, sl_modifications: slMods, thesis_text: f.thesis_text || "", thesis_screenshot_url: f.thesis_screenshot_url || "", broker: f.broker || "quantfury" });
             var nv = editId ? currentPos.map(function (x) { return x.id === editId ? obj : x; }) : currentPos.concat([obj]);
             SPos(nv);
             if (reflText && SJ && !editId) {
@@ -8103,6 +8112,27 @@ function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNu
                     risk === 0 && reward > 0 && (React.createElement("div", { style: { gridColumn: "1/-1", textAlign: "center", fontSize: 10, color: "#00ff88", fontWeight: 700 } },
                         "Posici\u00F3n protegida \u2014 ganancia potencial ",
                         fmtNum(reward))))),
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: S.lbl },
+                        "TESIS T\u00C9CNICA ",
+                        React.createElement("span", { style: { color: "#ff4444" } }, "*")),
+                    React.createElement("textarea", { value: f.thesis_text || "", onChange: function (e) { setF(function (prev) { return { ...prev, thesis_text: e.target.value }; }); }, placeholder: "FVG alcista en 4H + canal bajista roto al alza. RSI divergencia bullish en 1H. SL bajo m\u00EDnimo del canal...", style: { ...S.inp, width: "100%", minHeight: 60, padding: "8px", fontSize: 9, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box", color: "#e0e0e0" } }),
+                    (f.thesis_text || "").trim().length < 20 && (f.thesis_text || "").trim().length > 0 && (React.createElement("div", { style: { fontSize: 7, color: "#ff4444", marginTop: 2 } }, "M\u00EDnimo 20 caracteres para auditor\u00EDa"))),
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: S.lbl },
+                        "SL INICIAL (inmutable \u2014 se registra al abrir) ",
+                        React.createElement("span", { style: { color: "#ff4444" } }, "*")),
+                    React.createElement("input", { style: S.inp, type: "number", placeholder: f.sl || "Igual que SL arriba", value: f.sl_initial != null ? f.sl_initial : "", onChange: function (e) { setF(function (prev) { return { ...prev, sl_initial: e.target.value }; }); } }),
+                    React.createElement("div", { style: { fontSize: 7, color: "#444", marginTop: 2 } }, "Sirve como baseline para R1. Si no rellenas, se usa el SL indicado.")),
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: S.lbl }, "BROKER"),
+                    React.createElement("select", { value: f.broker || "quantfury", onChange: function (e) { setF(function (prev) { return { ...prev, broker: e.target.value }; }); }, style: { ...S.inp, cursor: "pointer" } },
+                        React.createElement("option", { value: "quantfury" }, "Quantfury"),
+                        React.createElement("option", { value: "margex" }, "Margex"),
+                        React.createElement("option", { value: "otro" }, "Otro"))),
+                React.createElement("div", { style: { marginBottom: 9 } },
+                    React.createElement("div", { style: S.lbl }, "CAPTURA DE PANTALLA (URL opcional)"),
+                    React.createElement("input", { style: S.inp, type: "url", placeholder: "https://...", value: f.thesis_screenshot_url || "", onChange: function (e) { setF(function (prev) { return { ...prev, thesis_screenshot_url: e.target.value }; }); } })),
                 !editId && (React.createElement("div", { style: { marginBottom: 12 } },
                     React.createElement("div", { style: { fontSize: 8, color: "#888", marginBottom: 4, letterSpacing: 1 } },
                         "REFLEXION PREVIA AL TRADE ",

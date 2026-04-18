@@ -1831,7 +1831,7 @@ export default function App(){
                     </div>
                     <div style={{display:"flex",gap:7,alignItems:"center"}}>
                       <span style={{fontSize:19,fontWeight:700,color:noLivePrice?"#ff8844":g>=0?"#00ff88":"#ff4444"}}>{noLivePrice?"sin precio":fmtNum(g)}</span>
-                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[],patternId:p.patternId||""},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
+                      <button onClick={()=>setModal(m=>({...m,pos:true,posForm:{asset:p.asset,dir:p.dir,capital:p.capital,entry:p.entry,sl:p.sl||"",tp:p.tp||"",tpLevels:p.tpLevels||[],patternId:p.patternId||"",sl_initial:p.sl_initial,sl_modifications:p.sl_modifications||[],thesis_text:p.thesis_text||"",thesis_screenshot_url:p.thesis_screenshot_url||"",broker:p.broker||"quantfury"},editPosId:p.id}))} style={{background:noLivePrice?"rgba(255,136,68,.15)":"transparent",border:"1px solid "+(noLivePrice?"#ff8844":"#2a2a3a"),color:noLivePrice?"#ff8844":"#f0b429",padding:"3px 7px",borderRadius:4,fontSize:9,cursor:"pointer"}}>editar</button>
                       <button onClick={()=>setModal(m=>({...m,close:p}))} style={{background:"rgba(240,180,41,.15)",border:"1px solid #f0b429",color:"#f0b429",padding:"3px 8px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>CERRAR</button>
                     </div>
                   </div>
@@ -7309,7 +7309,16 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
       var posId=editId||Date.now();
       var reflText=preReflection?preReflection.trim():"";
       var finalStatus=f.status||"open";
-      var obj=Object.assign({},f,{id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus});
+      var slInitVal=f.sl_initial!=null&&f.sl_initial!==""?(+f.sl_initial):(+f.sl);
+      var slMods=f.sl_modifications||[];
+      if(editId){
+        var prevPos=(currentPos||[]).filter(function(x){return x.id===editId;})[0];
+        var prevSl=prevPos&&prevPos.sl?+prevPos.sl:null;
+        if(prevSl!=null&&+f.sl!==prevSl){
+          slMods=slMods.concat([{timestamp:new Date().toISOString(),precio_anterior:prevSl,precio_nuevo:+f.sl}]);
+        }
+      }
+      var obj=Object.assign({},f,{id:posId,capital:+f.capital,entry:+f.entry,sl:+f.sl,tp:+f.tp,tpLevels:tpLvls,capitalRemaining:+f.capital,be:false,preReflection:reflText,status:finalStatus,sl_initial:slInitVal,sl_modifications:slMods,thesis_text:f.thesis_text||"",thesis_screenshot_url:f.thesis_screenshot_url||"",broker:f.broker||"quantfury"});
       var nv=editId?currentPos.map(function(x){return x.id===editId?obj:x;}):currentPos.concat([obj]);
       SPos(nv);
       if(reflText&&SJ&&!editId){
@@ -7534,6 +7543,33 @@ function ModalPos({form,editId,currentPos,PM,pr,SPr,SPos,setModal,fmtNum,S,pats,
           )}
         </div>
       )}
+      {/* ── Audit fields ── */}
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>TESIS TÉCNICA <span style={{color:"#ff4444"}}>*</span></div>
+        <textarea value={f.thesis_text||""} onChange={function(e){setF(function(prev){return{...prev,thesis_text:e.target.value};});}}
+          placeholder="FVG alcista en 4H + canal bajista roto al alza. RSI divergencia bullish en 1H. SL bajo mínimo del canal..."
+          style={{...S.inp,width:"100%",minHeight:60,padding:"8px",fontSize:9,lineHeight:1.6,resize:"vertical",boxSizing:"border-box",color:"#e0e0e0"}}/>
+        {(f.thesis_text||"").trim().length<20&&(f.thesis_text||"").trim().length>0&&(
+          <div style={{fontSize:7,color:"#ff4444",marginTop:2}}>Mínimo 20 caracteres para auditoría</div>
+        )}
+      </div>
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>SL INICIAL (inmutable — se registra al abrir) <span style={{color:"#ff4444"}}>*</span></div>
+        <input style={S.inp} type="number" placeholder={f.sl||"Igual que SL arriba"} value={f.sl_initial!=null?f.sl_initial:""} onChange={function(e){setF(function(prev){return{...prev,sl_initial:e.target.value};});}}/>
+        <div style={{fontSize:7,color:"#444",marginTop:2}}>Sirve como baseline para R1. Si no rellenas, se usa el SL indicado.</div>
+      </div>
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>BROKER</div>
+        <select value={f.broker||"quantfury"} onChange={function(e){setF(function(prev){return{...prev,broker:e.target.value};});}} style={{...S.inp,cursor:"pointer"}}>
+          <option value="quantfury">Quantfury</option>
+          <option value="margex">Margex</option>
+          <option value="otro">Otro</option>
+        </select>
+      </div>
+      <div style={{marginBottom:9}}>
+        <div style={S.lbl}>CAPTURA DE PANTALLA (URL opcional)</div>
+        <input style={S.inp} type="url" placeholder="https://..." value={f.thesis_screenshot_url||""} onChange={function(e){setF(function(prev){return{...prev,thesis_screenshot_url:e.target.value};});}}/>
+      </div>
       {!editId&&(
         <div style={{marginBottom:12}}>
           <div style={{fontSize:8,color:"#888",marginBottom:4,letterSpacing:1}}>REFLEXION PREVIA AL TRADE <span style={{color:"#555"}}>(opcional)</span></div>
