@@ -289,7 +289,7 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc,predictions){
   return items;
 }
 
-const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat"];
+const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat","Auditoría"];
 const TC={win:"#00ff88",mistake:"#ff4444",lesson:"#f0b429",analysis:"#888"};
 const TL={win:"VICTORIA",mistake:"ERROR",lesson:"LECCION",analysis:"ANALISIS"};
 
@@ -2501,6 +2501,11 @@ export default function App(){
         <div style={{display:tab==="Chat"?"block":"none"}}>
           <ChatTab S={S} pos={pos} PM={PM} pats={pats} ps={ps} sc={sc} jnl={jnl} hist={hist} xhist={xhist} SPs={SPs} SJ={SJ} D={D} save={save} predictions={predictions} SPred={SPred} initialChatMsgs={D.current.chatMsgs||[]}/>
         </div>
+
+        {/* ═══ AUDITORÍA ═══ */}
+        {tab==="Auditoría"&&(
+          <AuditoriaTab xhist={xhist} S={S} fmtNum={fmtNum} reaudit={runAuditForEntry}/>
+        )}
       </div>
 
       {/* ═══ MODAL CERRAR POSICION ═══ */}
@@ -6807,6 +6812,165 @@ function ModalCerrar({p,PM,getPnL,fmtNum,fmtP,closePos,setModal,S}){
       </button>
       <button onClick={()=>setModal(m=>({...m,close:null}))} style={{...S.btn(false),width:"100%",padding:8}}>CANCELAR</button>
     </div></div>
+  );
+}
+
+// - AUDITORIA -
+function AuditoriaTab({xhist,S,fmtNum,reaudit}){
+  const[selTrade,setSelTrade]=useState(null);
+  const[auditFilter,setAuditFilter]=useState("all");
+
+  var audited=(xhist||[]).filter(function(x){return x.audit_report&&!x.audit_report.error;});
+  var pending=(xhist||[]).filter(function(x){return !x.audit_report||x.audit_report.error;});
+  var avgScore=audited.length>0?parseFloat((audited.reduce(function(a,x){return a+(x.audit_score||0);},0)/audited.length).toFixed(1)):null;
+
+  // Rule violation counts
+  var RULE_IDS=["R1","R2","R3","R4","R5"];
+  var RULE_NAMES={R1:"SL es Ley",R2:"Sin hold indefinido",R3:"Sin ego",R4:"Trailing estructural",R5:"Tesis técnica"};
+  var failCounts={};
+  RULE_IDS.forEach(function(id){failCounts[id]=0;});
+  audited.forEach(function(x){
+    var rules=(x.audit_report&&x.audit_report.rules)||[];
+    rules.forEach(function(r){
+      if(r.status==="fail"&&failCounts[r.id]!=null)failCounts[r.id]++;
+    });
+  });
+  var maxFail=Math.max.apply(null,RULE_IDS.map(function(id){return failCounts[id];}));
+
+  var scoreColor=function(s){return s>=4?"#00ff88":s>=3?"#f0b429":s>=2?"#ff9944":"#ff4444";};
+
+  var displayList=(auditFilter==="pending"?pending:auditFilter==="audited"?audited:(xhist||[])).slice(0,80);
+
+  var modal=selTrade;
+
+  return(
+    <div>
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+        <div style={S.card}>
+          <div style={S.lbl}>SCORE MEDIO</div>
+          <div style={{fontSize:22,fontWeight:700,color:avgScore!=null?scoreColor(avgScore):"#555"}}>{avgScore!=null?avgScore+"/5":"—"}</div>
+        </div>
+        <div style={S.card}>
+          <div style={S.lbl}>AUDITADAS</div>
+          <div style={{fontSize:22,fontWeight:700,color:"#00ff88"}}>{audited.length}</div>
+        </div>
+        <div style={S.card}>
+          <div style={S.lbl}>PENDIENTES</div>
+          <div style={{fontSize:22,fontWeight:700,color:pending.length>0?"#f0b429":"#555"}}>{pending.length}</div>
+        </div>
+      </div>
+
+      {/* Violation bars */}
+      {audited.length>0&&(
+        <div style={{...S.card,marginBottom:12}}>
+          <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:8}}>REGLAS MÁS VIOLADAS</div>
+          {RULE_IDS.map(function(id){
+            var count=failCounts[id];
+            var pct=maxFail>0?Math.round(count/maxFail*100):0;
+            var col=count===0?"#00ff88":count<=2?"#f0b429":"#ff4444";
+            return(
+              <div key={id} style={{marginBottom:6}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}>
+                  <span style={{color:"#aaa"}}>{id} — {RULE_NAMES[id]}</span>
+                  <span style={{color:col,fontWeight:700}}>{count} fail</span>
+                </div>
+                <div style={S.bar}>
+                  <div style={S.fill(pct,col)}></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Filter + list */}
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        {["all","audited","pending"].map(function(f){
+          return(
+            <button key={f} onClick={function(){setAuditFilter(f);}} style={{...S.btn(auditFilter===f),fontSize:9,padding:"4px 10px"}}>
+              {f==="all"?"TODAS":f==="audited"?"AUDITADAS":"PENDIENTES"}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={S.card}>
+        {displayList.length===0&&(
+          <div style={{fontSize:10,color:"#555",textAlign:"center",padding:20}}>No hay operaciones</div>
+        )}
+        {displayList.map(function(x){
+          var rep=x.audit_report&&!x.audit_report.error?x.audit_report:null;
+          var score=x.audit_score;
+          var rules=rep?rep.rules:[];
+          return(
+            <div key={x.id} onClick={function(){setSelTrade(x);}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px",borderBottom:"1px solid #1a1a2a",cursor:"pointer"}}>
+              <div style={{width:28,height:28,borderRadius:14,background:rep?scoreColor(score):"#2a2a3a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:rep?"#0a0a0f":"#555",flexShrink:0}}>
+                {rep?score:"?"}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#e0e0e0"}}>{x.asset} {x.dir} — {fmtNum(x.result)}</div>
+                <div style={{fontSize:9,color:"#555"}}>{x.date} {x.note&&x.note.slice(0,30)}</div>
+              </div>
+              {rep&&(
+                <div style={{display:"flex",gap:3,flexShrink:0}}>
+                  {rules.filter(function(r){return r.status==="fail";}).map(function(r){
+                    return <span key={r.id} style={S.bdg("#ff4444")}>{r.id}</span>;
+                  })}
+                  {rules.filter(function(r){return r.status==="pass";}).slice(0,3).map(function(r){
+                    return <span key={r.id} style={S.bdg("#00ff88")}>{r.id}</span>;
+                  })}
+                </div>
+              )}
+              {!rep&&(
+                <button onClick={function(e){e.stopPropagation();reaudit(x.id);}} style={{...S.btn(true),fontSize:8,padding:"3px 7px"}}>AUDITAR</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Detail modal */}
+      {modal&&(
+        <div style={S.modal} onClick={function(){setSelTrade(null);}}>
+          <div style={{...S.mc,maxWidth:500}} onClick={function(e){e.stopPropagation();}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#e0e0e0"}}>{modal.asset} {modal.dir} — {fmtNum(modal.result)}</div>
+              <button onClick={function(){setSelTrade(null);}} style={{...S.btn(false),padding:"4px 8px",fontSize:10}}>✕</button>
+            </div>
+            {modal.audit_report&&!modal.audit_report.error?(
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                  <div style={{width:44,height:44,borderRadius:22,background:scoreColor(modal.audit_score),display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0a0a0f"}}>{modal.audit_score}/5</div>
+                  <div style={{fontSize:10,color:"#aaa",flex:1}}>{modal.audit_report.summary}</div>
+                </div>
+                {(modal.audit_report.rules||[]).map(function(r){
+                  var col=r.status==="pass"?"#00ff88":r.status==="fail"?"#ff4444":"#555";
+                  return(
+                    <div key={r.id} style={{display:"flex",gap:8,padding:"6px 0",borderBottom:"1px solid #1a1a2a",alignItems:"flex-start"}}>
+                      <span style={{...S.bdg(col),marginTop:1,flexShrink:0}}>{r.status.toUpperCase()}</span>
+                      <div>
+                        <div style={{fontSize:10,color:"#ccc",fontWeight:700}}>{r.id} — {r.name}</div>
+                        <div style={{fontSize:9,color:"#666",marginTop:2}}>{r.evidence}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {modal.audited_at&&(
+                  <div style={{fontSize:8,color:"#333",marginTop:8}}>Auditado: {new Date(modal.audited_at).toLocaleString("es-ES")}</div>
+                )}
+                <button onClick={function(){reaudit(modal.id);setSelTrade(null);}} style={{...S.btn(false),width:"100%",marginTop:10,fontSize:9}}>RE-AUDITAR</button>
+              </div>
+            ):(
+              <div>
+                <div style={{fontSize:10,color:"#555",marginBottom:12}}>{modal.audit_report&&modal.audit_report.error?"Error: "+modal.audit_report.error:"No auditado todavía"}</div>
+                <button onClick={function(){reaudit(modal.id);setSelTrade(null);}} style={{...S.btn(true),width:"100%",fontSize:10}}>AUDITAR AHORA</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

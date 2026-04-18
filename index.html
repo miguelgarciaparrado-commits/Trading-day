@@ -426,7 +426,7 @@ function generateProfileSummary(ps, pats, jnl, hist, xhist, sc, predictions) {
     }
     return items;
 }
-const TABS = ["Resumen", "Posiciones", "Historial", "Patrones", "Perfil", "Recuperacion", "Calendario", "Alertas", "Chat"];
+const TABS = ["Resumen", "Posiciones", "Historial", "Patrones", "Perfil", "Recuperacion", "Calendario", "Alertas", "Chat", "Auditoría"];
 const TC = { win: "#00ff88", mistake: "#ff4444", lesson: "#f0b429", analysis: "#888" };
 const TL = { win: "VICTORIA", mistake: "ERROR", lesson: "LECCION", analysis: "ANALISIS" };
 // - STYLES -
@@ -2789,7 +2789,8 @@ function App() {
             React.createElement("div", { style: { display: tab === "Alertas" ? "block" : "none" } },
                 React.createElement(AlertasTab, { S: S, predictions: predictions })),
             React.createElement("div", { style: { display: tab === "Chat" ? "block" : "none" } },
-                React.createElement(ChatTab, { S: S, pos: pos, PM: PM, pats: pats, ps: ps, sc: sc, jnl: jnl, hist: hist, xhist: xhist, SPs: SPs, SJ: SJ, D: D, save: save, predictions: predictions, SPred: SPred, initialChatMsgs: D.current.chatMsgs || [] }))),
+                React.createElement(ChatTab, { S: S, pos: pos, PM: PM, pats: pats, ps: ps, sc: sc, jnl: jnl, hist: hist, xhist: xhist, SPs: SPs, SJ: SJ, D: D, save: save, predictions: predictions, SPred: SPred, initialChatMsgs: D.current.chatMsgs || [] })),
+            tab === "Auditoría" && (React.createElement(AuditoriaTab, { xhist: xhist, S: S, fmtNum: fmtNum, reaudit: runAuditForEntry }))),
         modal.close && (React.createElement(ModalCerrar, { p: modal.close, PM: PM, getPnL: getPnL, fmtNum: fmtNum, fmtP: fmtP, closePos: closePos, setModal: setModal, S: S })),
         modal.prices && (React.createElement("div", { style: S.modal },
             React.createElement("div", { style: S.mc },
@@ -7448,6 +7449,123 @@ function ModalCerrar({ p, PM, getPnL, fmtNum, fmtP, closePos, setModal, S }) {
                     React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: curMktG >= 0 ? "#00ff88" : "#ff4444" } }, fmtNum(curMktG))),
                 React.createElement("div", { style: { fontSize: 9, color: "#f0b429", marginTop: 4 } }, "Te pedira el precio exacto de cierre")),
             React.createElement("button", { onClick: () => setModal(m => ({ ...m, close: null })), style: { ...S.btn(false), width: "100%", padding: 8 } }, "CANCELAR"))));
+}
+// - AUDITORIA -
+function AuditoriaTab({ xhist, S, fmtNum, reaudit }) {
+    const [selTrade, setSelTrade] = useState(null);
+    const [auditFilter, setAuditFilter] = useState("all");
+    var audited = (xhist || []).filter(function (x) { return x.audit_report && !x.audit_report.error; });
+    var pending = (xhist || []).filter(function (x) { return !x.audit_report || x.audit_report.error; });
+    var avgScore = audited.length > 0 ? parseFloat((audited.reduce(function (a, x) { return a + (x.audit_score || 0); }, 0) / audited.length).toFixed(1)) : null;
+    // Rule violation counts
+    var RULE_IDS = ["R1", "R2", "R3", "R4", "R5"];
+    var RULE_NAMES = { R1: "SL es Ley", R2: "Sin hold indefinido", R3: "Sin ego", R4: "Trailing estructural", R5: "Tesis técnica" };
+    var failCounts = {};
+    RULE_IDS.forEach(function (id) { failCounts[id] = 0; });
+    audited.forEach(function (x) {
+        var rules = (x.audit_report && x.audit_report.rules) || [];
+        rules.forEach(function (r) {
+            if (r.status === "fail" && failCounts[r.id] != null)
+                failCounts[r.id]++;
+        });
+    });
+    var maxFail = Math.max.apply(null, RULE_IDS.map(function (id) { return failCounts[id]; }));
+    var scoreColor = function (s) { return s >= 4 ? "#00ff88" : s >= 3 ? "#f0b429" : s >= 2 ? "#ff9944" : "#ff4444"; };
+    var displayList = (auditFilter === "pending" ? pending : auditFilter === "audited" ? audited : (xhist || [])).slice(0, 80);
+    var modal = selTrade;
+    return (React.createElement("div", null,
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 12 } },
+            React.createElement("div", { style: S.card },
+                React.createElement("div", { style: S.lbl }, "SCORE MEDIO"),
+                React.createElement("div", { style: { fontSize: 22, fontWeight: 700, color: avgScore != null ? scoreColor(avgScore) : "#555" } }, avgScore != null ? avgScore + "/5" : "—")),
+            React.createElement("div", { style: S.card },
+                React.createElement("div", { style: S.lbl }, "AUDITADAS"),
+                React.createElement("div", { style: { fontSize: 22, fontWeight: 700, color: "#00ff88" } }, audited.length)),
+            React.createElement("div", { style: S.card },
+                React.createElement("div", { style: S.lbl }, "PENDIENTES"),
+                React.createElement("div", { style: { fontSize: 22, fontWeight: 700, color: pending.length > 0 ? "#f0b429" : "#555" } }, pending.length))),
+        audited.length > 0 && (React.createElement("div", { style: { ...S.card, marginBottom: 12 } },
+            React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 8 } }, "REGLAS M\u00C1S VIOLADAS"),
+            RULE_IDS.map(function (id) {
+                var count = failCounts[id];
+                var pct = maxFail > 0 ? Math.round(count / maxFail * 100) : 0;
+                var col = count === 0 ? "#00ff88" : count <= 2 ? "#f0b429" : "#ff4444";
+                return (React.createElement("div", { key: id, style: { marginBottom: 6 } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 9, marginBottom: 2 } },
+                        React.createElement("span", { style: { color: "#aaa" } },
+                            id,
+                            " \u2014 ",
+                            RULE_NAMES[id]),
+                        React.createElement("span", { style: { color: col, fontWeight: 700 } },
+                            count,
+                            " fail")),
+                    React.createElement("div", { style: S.bar },
+                        React.createElement("div", { style: S.fill(pct, col) }))));
+            }))),
+        React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 8 } }, ["all", "audited", "pending"].map(function (f) {
+            return (React.createElement("button", { key: f, onClick: function () { setAuditFilter(f); }, style: { ...S.btn(auditFilter === f), fontSize: 9, padding: "4px 10px" } }, f === "all" ? "TODAS" : f === "audited" ? "AUDITADAS" : "PENDIENTES"));
+        })),
+        React.createElement("div", { style: S.card },
+            displayList.length === 0 && (React.createElement("div", { style: { fontSize: 10, color: "#555", textAlign: "center", padding: 20 } }, "No hay operaciones")),
+            displayList.map(function (x) {
+                var rep = x.audit_report && !x.audit_report.error ? x.audit_report : null;
+                var score = x.audit_score;
+                var rules = rep ? rep.rules : [];
+                return (React.createElement("div", { key: x.id, onClick: function () { setSelTrade(x); }, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 4px", borderBottom: "1px solid #1a1a2a", cursor: "pointer" } },
+                    React.createElement("div", { style: { width: 28, height: 28, borderRadius: 14, background: rep ? scoreColor(score) : "#2a2a3a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: rep ? "#0a0a0f" : "#555", flexShrink: 0 } }, rep ? score : "?"),
+                    React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#e0e0e0" } },
+                            x.asset,
+                            " ",
+                            x.dir,
+                            " \u2014 ",
+                            fmtNum(x.result)),
+                        React.createElement("div", { style: { fontSize: 9, color: "#555" } },
+                            x.date,
+                            " ",
+                            x.note && x.note.slice(0, 30))),
+                    rep && (React.createElement("div", { style: { display: "flex", gap: 3, flexShrink: 0 } },
+                        rules.filter(function (r) { return r.status === "fail"; }).map(function (r) {
+                            return React.createElement("span", { key: r.id, style: S.bdg("#ff4444") }, r.id);
+                        }),
+                        rules.filter(function (r) { return r.status === "pass"; }).slice(0, 3).map(function (r) {
+                            return React.createElement("span", { key: r.id, style: S.bdg("#00ff88") }, r.id);
+                        }))),
+                    !rep && (React.createElement("button", { onClick: function (e) { e.stopPropagation(); reaudit(x.id); }, style: { ...S.btn(true), fontSize: 8, padding: "3px 7px" } }, "AUDITAR"))));
+            })),
+        modal && (React.createElement("div", { style: S.modal, onClick: function () { setSelTrade(null); } },
+            React.createElement("div", { style: { ...S.mc, maxWidth: 500 }, onClick: function (e) { e.stopPropagation(); } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+                    React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#e0e0e0" } },
+                        modal.asset,
+                        " ",
+                        modal.dir,
+                        " \u2014 ",
+                        fmtNum(modal.result)),
+                    React.createElement("button", { onClick: function () { setSelTrade(null); }, style: { ...S.btn(false), padding: "4px 8px", fontSize: 10 } }, "\u2715")),
+                modal.audit_report && !modal.audit_report.error ? (React.createElement("div", null,
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 12 } },
+                        React.createElement("div", { style: { width: 44, height: 44, borderRadius: 22, background: scoreColor(modal.audit_score), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: "#0a0a0f" } },
+                            modal.audit_score,
+                            "/5"),
+                        React.createElement("div", { style: { fontSize: 10, color: "#aaa", flex: 1 } }, modal.audit_report.summary)),
+                    (modal.audit_report.rules || []).map(function (r) {
+                        var col = r.status === "pass" ? "#00ff88" : r.status === "fail" ? "#ff4444" : "#555";
+                        return (React.createElement("div", { key: r.id, style: { display: "flex", gap: 8, padding: "6px 0", borderBottom: "1px solid #1a1a2a", alignItems: "flex-start" } },
+                            React.createElement("span", { style: { ...S.bdg(col), marginTop: 1, flexShrink: 0 } }, r.status.toUpperCase()),
+                            React.createElement("div", null,
+                                React.createElement("div", { style: { fontSize: 10, color: "#ccc", fontWeight: 700 } },
+                                    r.id,
+                                    " \u2014 ",
+                                    r.name),
+                                React.createElement("div", { style: { fontSize: 9, color: "#666", marginTop: 2 } }, r.evidence))));
+                    }),
+                    modal.audited_at && (React.createElement("div", { style: { fontSize: 8, color: "#333", marginTop: 8 } },
+                        "Auditado: ",
+                        new Date(modal.audited_at).toLocaleString("es-ES"))),
+                    React.createElement("button", { onClick: function () { reaudit(modal.id); setSelTrade(null); }, style: { ...S.btn(false), width: "100%", marginTop: 10, fontSize: 9 } }, "RE-AUDITAR"))) : (React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 10, color: "#555", marginBottom: 12 } }, modal.audit_report && modal.audit_report.error ? "Error: " + modal.audit_report.error : "No auditado todavía"),
+                    React.createElement("button", { onClick: function () { reaudit(modal.id); setSelTrade(null); }, style: { ...S.btn(true), width: "100%", fontSize: 10 } }, "AUDITAR AHORA"))))))));
 }
 // - CALENDARIO -
 function CalendarioTab({ hist, fmtNum }) {
