@@ -342,6 +342,69 @@ git push -u origin <branch>
 
 ---
 
+---
+
+## Invariantes de dirección en alertas FVG
+
+Contratos que CUALQUIER cambio al módulo de imbalances debe respetar. Auditado
+en PR #23, tests en `src/imbalances/fvg-direction-tests.js`.
+
+### I1 — Clasificación de dirección
+Los detectores (`checkFVGCovered`, `detectVolumeImbalance`, `detectOpeningGap`,
+`detectLiquidityVoid`) DEBEN devolver objetos con:
+- `subtype: "alcista" | "bajista"` — dirección del imbalance
+- `kind: "fvg" | "vi" | "gap" | "void"` — tipo
+- `top`, `bot` — bordes numéricos (top > bot siempre)
+
+### I2 — Entrada en borde proximal
+- **Long (FVG alcista) con precio arriba del FVG:** entry = `top` (primer borde
+  que el precio toca al bajar).
+- **Short (FVG bajista) con precio abajo del FVG:** entry = `bot` (primer borde
+  que el precio toca al subir).
+
+Implementación correcta: `sendAlert` bloque `patron_fvg` línea ~4823
+(`fvgEdge = fvgIsLong ? fvgR.top : fvgR.bot`).
+
+### I3 — SL en el lado contrario + colchón ATR
+- **Long:** SL `< bot` del FVG, restando `0.3 × ATR(14)` de la TF correspondiente.
+- **Short:** SL `> top` del FVG, sumando `0.3 × ATR(14)`.
+
+Nunca SL del mismo lado que la dirección del trade.
+
+### I4 — TP en la dirección del trade
+- **Long:** el siguiente imbalance usado como TP DEBE ser `subtype === "alcista"`
+  y su precio `> entry`.
+- **Short:** el siguiente imbalance usado como TP DEBE ser `subtype === "bajista"`
+  y su precio `< entry`.
+
+Prohibido usar un imbalance de dirección contraria como TP (rompería la lógica
+operativa — el precio tendría que romper resistencia/soporte para llegar).
+
+### I5 — `findFVGforTP` filtra por dirección + posición
+La función acepta `bullish: boolean` y filtra candidatos por:
+1. Dirección del imbalance (alcista si `bullish`, bajista si no).
+2. Posición relativa a `refPrice` (por encima si bullish, por debajo si no).
+
+`findNearFVG` filtra SOLO por dirección y distancia — no por posición arriba/abajo
+del `refPrice`. Usarla solo para detectar "dónde estamos parados", nunca para TP.
+
+### I6 — R/R positivo y coherente (≥ 1.0)
+- `R/R = |TP − entry| / |entry − SL|` usando `Math.abs()` → siempre positivo.
+- Si un cap de TP (por ejemplo `tpMaxPct` por TF en línea ~4661) recorta el TP
+  de tal manera que `R/R < 1.0`, la señal DEBE marcarse "R/R insuficiente" o
+  bloquearse — nunca emitirse como OPERACIÓN válida.
+
+### Tests
+Cuatro casos canónicos en `src/imbalances/fvg-direction-tests.js`:
+1. FVG alcista + precio debajo → long con entry/SL/TP correctos.
+2. FVG bajista + precio arriba → short con entry/SL/TP correctos.
+3. Bullish search con solo bearish FVG disponible → devuelve `null`.
+4. R/R < 1.0 tras cap → debe bloquearse.
+
+Ejecutar: `node src/imbalances/fvg-direction-tests.js`.
+
+---
+
 ## Historical Data Constants
 
 ```javascript
