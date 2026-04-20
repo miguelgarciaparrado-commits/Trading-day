@@ -4423,6 +4423,10 @@ function AlertasTab({S,predictions}){
       });
       var crossTfCount=tfConfs.length;
       var hasMultiTfConf=crossTfCount>=2;
+      // TF menor de la confluencia dicta el rango de TP (TF menor manda)
+      var TF_LIST_ORD=["1h","4h","1d","1w"];
+      var lowestTf=interval;
+      for(var tfor=0;tfor<TF_LIST_ORD.length;tfor++){var tforK=TF_LIST_ORD[tfor];if(tfConfs.some(function(c){return c.tf===tforK;})){lowestTf=tforK;break;}}
       // ─── COOLDOWN + CONFIRMACIÓN de alertas OPERACIÓN por (label, interval, dir) ───
       var opCooldownCandles=3;
       var opIntervalMs={"1h":3600000,"4h":14400000,"1d":86400000,"1w":604800000}[interval]||14400000;
@@ -4556,7 +4560,7 @@ function AlertasTab({S,predictions}){
       var entryPrice=price||0;
       var entryNote="";
       if(fvgNearEntry){
-        entryPrice=parseFloat((isLong?fvgNearEntry.bot:fvgNearEntry.top).toFixed(2));
+        entryPrice=parseFloat((isLong?fvgNearEntry.top:fvgNearEntry.bot).toFixed(2));
         entryNote=isLong?"Zona FVG alcista (orden en $"+entryPrice.toLocaleString("es-ES",{maximumFractionDigits:2})+")":"Zona FVG bajista (orden en $"+entryPrice.toLocaleString("es-ES",{maximumFractionDigits:2})+")";
       }else if((type==="canal_alcista_soporte")&&extra.channelResult&&extra.channelResult.botLine){
         entryPrice=parseFloat(parseFloat(extra.channelResult.botLine).toFixed(2));
@@ -4612,21 +4616,25 @@ function AlertasTab({S,predictions}){
       // ─── TP: FVG más cercano válido en propia TF → FVG lejano con cap → fallback 1:2 ───
       var tpPrice=null;var tpNote="1:2 mínimo";
       var riskAmt=Math.abs(entryPrice-slPrice);
-      // Cap máximo de TP por temporalidad (alineación señal/TF — evita TPs de swing en señales cortas)
-      var tpMaxPct={"1h":0.025,"4h":0.05,"1d":0.10,"1w":0.25}[interval]||0.05;
-      // Primero: FVG más cercano válido en la propia temporalidad (ratio ≥ 1.5)
+      // Rango de TP por TF — la TF menor de la confluencia dicta el rango (TF menor manda)
+      var TP_RANGES={"1h":{min:0.008,max:0.025},"4h":{min:0.020,max:0.05},"1d":{min:0.040,max:0.10},"1w":{min:0.080,max:0.25}};
+      var tpRangeDictTf=hasMultiTfConf?lowestTf:interval;
+      var tpRangeObj=TP_RANGES[tpRangeDictTf]||{min:0.008,max:0.05};
+      var tpMinPct=tpRangeObj.min;
+      var tpMaxPct=tpRangeObj.max;
+      // Primero: FVG más cercano válido en la propia temporalidad (ratio ≥ 1.5, dentro del rango de TF menor)
       if(ohlcData.length>4&&riskAmt>0){
         var fvgTP=findFVGforTP(ohlcData,entryPrice,isLong,1.5,riskAmt);
         if(fvgTP){
           var fvgTPpct=Math.abs(fvgTP.price-entryPrice)/(entryPrice||1);
-          if(fvgTPpct<=tpMaxPct){tpPrice=fvgTP.price;tpNote="FVG "+interval.toUpperCase()+" $"+fvgTP.note.replace(/^FVG [a-z]+ /,"");}
+          if(fvgTPpct>=tpMinPct&&fvgTPpct<=tpMaxPct){tpPrice=fvgTP.price;tpNote="FVG "+interval.toUpperCase()+" $"+fvgTP.note.replace(/^FVG [a-z]+ /,"");}
         }
       }
-      // Segundo: FVG lejano multi-TF pero limitado por cap de temporalidad
+      // Segundo: FVG lejano multi-TF limitado por rango de TF menor
       if(!tpPrice&&fvgFarExit){
         var farRatio=riskAmt>0?Math.abs(fvgFarExit.mid-entryPrice)/riskAmt:0;
         var farPct=Math.abs(fvgFarExit.mid-entryPrice)/(entryPrice||1);
-        if(farRatio>=1.5&&farPct<=tpMaxPct){tpPrice=parseFloat(fvgFarExit.mid.toFixed(2));tpNote="FVG ["+fvgTfLabel+"] $"+fvgFarExit.bot.toFixed(2)+"–$"+fvgFarExit.top.toFixed(2);}
+        if(farRatio>=1.5&&farPct>=tpMinPct&&farPct<=tpMaxPct){tpPrice=parseFloat(fvgFarExit.mid.toFixed(2));tpNote="FVG ["+fvgTfLabel+"] $"+fvgFarExit.bot.toFixed(2)+"–$"+fvgFarExit.top.toFixed(2);}
       }
       // Death cross 7/25: TP primario = EMA50
       if(type==="death"&&extra.ema50&&extra.ema50>0&&extra.ema50<entryPrice){
@@ -4654,18 +4662,43 @@ function AlertasTab({S,predictions}){
         var e50r2=entryPrice-extra.ema50;
         if(riskAmt>0&&e50r2/riskAmt>=1.5){tpPrice=parseFloat(extra.ema50.toFixed(2));tpNote="EMA50";}
       }
+      // Swing estructural de la TF menor como fallback cuando no hay FVG en rango
+      var tpManualTarget=false;
+      if(!tpPrice&&hasMultiTfConf){
+        var lowestTfOhlcFb=ohlcByTf[lowestTf]||ohlcData;
+        if(lowestTfOhlcFb.length>=10){
+          var swCands=[];var swStart=Math.max(0,lowestTfOhlcFb.length-30);
+          for(var swi=swStart;swi<lowestTfOhlcFb.length-1;swi++){
+            var swLvl=isLong?lowestTfOhlcFb[swi].h:lowestTfOhlcFb[swi].l;
+            var swPct=Math.abs(swLvl-entryPrice)/(entryPrice||1);
+            if(isLong&&swLvl>entryPrice&&swPct>=tpMinPct&&swPct<=tpMaxPct)swCands.push({price:swLvl,pct:swPct});
+            else if(!isLong&&swLvl<entryPrice&&swPct>=tpMinPct&&swPct<=tpMaxPct)swCands.push({price:swLvl,pct:swPct});
+          }
+          swCands.sort(function(a,b){return a.pct-b.pct;});
+          for(var swci=0;swci<swCands.length;swci++){
+            if(riskAmt>0&&Math.abs(swCands[swci].price-entryPrice)/riskAmt>=1.5){
+              tpPrice=parseFloat(swCands[swci].price.toFixed(2));
+              tpNote="Swing "+lowestTf.toUpperCase()+" [rango "+lowestTf.toUpperCase()+": "+(tpMinPct*100).toFixed(1)+"–"+(tpMaxPct*100).toFixed(1)+"%]";
+              break;
+            }
+          }
+        }
+        if(!tpPrice)tpManualTarget=true;
+      }
       // Último fallback: 1:2
       if(!tpPrice){tpPrice=isLong?entryPrice+riskAmt*2:entryPrice-riskAmt*2;}
+      if(tpManualTarget){tpNote="⚠️ Sin objetivo en rango "+lowestTf.toUpperCase()+" ("+(tpMinPct*100).toFixed(1)+"–"+(tpMaxPct*100).toFixed(1)+"%) — gestión manual del objetivo";}
       // Cap FINAL — todas las rutas de TP deben respetar tpMaxPct para su TF
       var tpDistPct=Math.abs(tpPrice-entryPrice)/(entryPrice||1);
       if(tpDistPct>tpMaxPct){
         var cappedDist=entryPrice*tpMaxPct;
         tpPrice=isLong?parseFloat((entryPrice+cappedDist).toFixed(2)):parseFloat((entryPrice-cappedDist).toFixed(2));
-        tpNote=tpNote+" (recortado a TF "+interval.toUpperCase()+")";
+        tpNote=tpNote+" (recortado a TF "+lowestTf.toUpperCase()+")";
       }
       var rewardAmt=Math.abs(tpPrice-entryPrice);
       var ratioNum=riskAmt>0?rewardAmt/riskAmt:0;
       var ratioBot=riskAmt>0?ratioNum.toFixed(2):"--";
+      var rrInsufficient=riskAmt>0&&ratioNum<1.0;
       var slPctShow=((Math.abs(entryPrice-slPrice)/entryPrice)*100).toFixed(1);
       var tpPctShow=((Math.abs(tpPrice-entryPrice)/entryPrice)*100).toFixed(1);
       var hasConfluence=confluenceCount>=2;
@@ -4740,19 +4773,27 @@ function AlertasTab({S,predictions}){
         tgLines.push("⏸️ OPERACIÓN ("+sugDir+") — en cooldown ("+opCooldownCandles+" velas "+interval.toUpperCase()+")");
       }else if(hasMultiTfConf&&!opOppConfirmed){
         tgLines.push("⏸️ OPERACIÓN ("+sugDir+") — requiere 2 velas "+interval.toUpperCase()+" confirmando tras señal opuesta reciente");
+      }else if(opAllowed&&rrInsufficient){
+        tgLines.push("⚠️ OPERACIÓN ("+sugDir+") — R/R insuficiente (1:"+ratioBot+") tras cap TF "+interval.toUpperCase()+" — señal omitida.");
+        tgLines.push("   📍 Entrada ref: $"+parseFloat(entryPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" | 🛑 SL: $"+parseFloat(slPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" | TP recortado: $"+parseFloat(tpPrice).toLocaleString("es-ES",{maximumFractionDigits:4}));
       }else if(opAllowed){
         tgLines.push("💡 OPERACIÓN ("+sugDir+") — "+crossTfCount+" TFs alineadas"+(htfCounterTrend?" ⚠️ CONTRA TENDENCIA HTF (solo scalp)":"")+":");
         if(fbLowPerf){
           tgLines.push("   ⚠️ Historial bajo ("+Math.round(fbRate*100)+"% / "+fbStatsProb.total+" señales) — precaución");
         }
         tgLines.push("   📍 ENTRADA: $"+parseFloat(entryPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+(entryNote?" — "+entryNote:""));
-        tgLines.push("   🎯 TP: $"+parseFloat(tpPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (+"+tpPctShow+"%) — "+tpNote);
+        if(tpManualTarget){
+          tgLines.push("   ⚠️ Sin TP en rango "+lowestTf.toUpperCase()+" ("+(tpMinPct*100).toFixed(1)+"–"+(tpMaxPct*100).toFixed(1)+"%) — gestión manual del objetivo");
+        }else{
+          var tpRangeAnnot=hasMultiTfConf&&lowestTf!==interval?" [rango dictado por "+lowestTf.toUpperCase()+": "+(tpMinPct*100).toFixed(1)+"–"+(tpMaxPct*100).toFixed(1)+"%]":"";
+          tgLines.push("   🎯 TP: $"+parseFloat(tpPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (+"+tpPctShow+"%) — "+tpNote+tpRangeAnnot);
+        }
         tgLines.push("   🛑 SL: $"+parseFloat(slPrice).toLocaleString("es-ES",{maximumFractionDigits:4})+" (-"+slPctShow+"%)");
         tgLines.push("   ⚖️ Ratio: 1:"+ratioBot);
         tgLines.push("   ⏱ TF: "+interval.toUpperCase()+" | Horizonte: "+(interval==="1h"?"8–20h":interval==="4h"?"2–5 días":interval==="1d"?"1–10 días":"6+ semanas"));
         if(probPct!==null){var probSrc2=fbStatsProb.total>=3?"("+fbStatsProb.total+" señales previas)":"(base estadística)";tgLines.push("   🧠 Prob. "+probPct+"% "+probSrc2);}
         if(!fvgNearEntry)tgLines.push("   ⚠️ Sin FVG cercano — precio actual como referencia de entrada");
-        if(!fvgFarExit)tgLines.push("   ⚠️ Sin FVG lejano — TP calculado por ratio");
+        if(!fvgFarExit&&!tpManualTarget)tgLines.push("   ⚠️ Sin FVG lejano — TP calculado por ratio");
         // Registrar emisión para cooldown
         opAlertRef.current[opKeySame]=Date.now();
       }
@@ -4822,7 +4863,9 @@ function AlertasTab({S,predictions}){
         var fvgIsLong=fvgR.subtype==="alcista";
         var fvgEdge=fvgIsLong?fvgR.top:fvgR.bot;
         var fvgFarEdge=fvgIsLong?fvgR.bot:fvgR.top;
-        var fvgSlRaw=fvgIsLong?fvgFarEdge:fvgFarEdge;
+        var atr14pf=0;
+        if(ohlcData.length>=15){var trSumPf=0;for(var aip=ohlcData.length-14;aip<ohlcData.length;aip++){var trHp=ohlcData[aip].h,trLp=ohlcData[aip].l,trPcp=(aip>0?ohlcData[aip-1].c:trHp);trSumPf+=Math.max(trHp-trLp,Math.abs(trHp-trPcp),Math.abs(trLp-trPcp));}atr14pf=trSumPf/14;}
+        var fvgSlRaw=fvgIsLong?parseFloat((fvgFarEdge-atr14pf*0.3).toFixed(2)):parseFloat((fvgFarEdge+atr14pf*0.3).toFixed(2));
         tgLines.push("");
         tgLines.push("⚡ FVG "+fvgR.subtype.toUpperCase()+" — "+(fvgIsLong?"Ineficiencia alcista sin cubrir":"Ineficiencia bajista sin cubrir"));
         tgLines.push("   Rango FVG: $"+parseFloat(fvgR.bot).toLocaleString("es-ES",{maximumFractionDigits:2})+" – $"+parseFloat(fvgR.top).toLocaleString("es-ES",{maximumFractionDigits:2})+(extra.imbSizePct?" ("+(extra.imbSizePct*100).toFixed(2)+"% ancho)":""));
@@ -4857,6 +4900,22 @@ function AlertasTab({S,predictions}){
         }
         if(extra.fvgVolMult!==null&&extra.fvgVolMult!==undefined){
           tgLines.push("   📊 Vol. actual: "+extra.fvgVolMult+"× MA20 "+(extra.fvgVolOk?"✅":"⚠️ volumen alto — posible capitulación"));
+        }
+        // TP para patron_fvg (H3 fix)
+        var fvgRiskPf=Math.abs(fvgEdge-fvgSlRaw);
+        var fvgTpPf=fvgRiskPf>0?findFVGforTP(ohlcData,fvgEdge,fvgIsLong,1.5,fvgRiskPf):null;
+        if(fvgTpPf&&fvgTpPf.price){
+          var fvgTpPctPf=Math.abs(fvgTpPf.price-fvgEdge)/(fvgEdge||1);
+          var fvgTpFinalPf=fvgTpPctPf>tpMaxPct?parseFloat((fvgIsLong?fvgEdge+fvgEdge*tpMaxPct:fvgEdge-fvgEdge*tpMaxPct).toFixed(2)):fvgTpPf.price;
+          var fvgRrPf=fvgRiskPf>0?Math.abs(fvgTpFinalPf-fvgEdge)/fvgRiskPf:0;
+          if(fvgRrPf>=1.0){
+            tgLines.push("   🎯 TP: $"+parseFloat(fvgTpFinalPf).toLocaleString("es-ES",{maximumFractionDigits:2})+" (R:R 1:"+fvgRrPf.toFixed(1)+")");
+          }else{
+            tgLines.push("   ⚠️ R/R insuficiente (1:"+fvgRrPf.toFixed(2)+") tras cap TF — TP orientativo $"+parseFloat(fvgTpFinalPf).toLocaleString("es-ES",{maximumFractionDigits:2}));
+          }
+        }else{
+          var fvgFallbackTpPf=fvgIsLong?parseFloat((fvgEdge+fvgRiskPf*2).toFixed(2)):parseFloat((fvgEdge-fvgRiskPf*2).toFixed(2));
+          tgLines.push("   🎯 TP (1:2): $"+parseFloat(fvgFallbackTpPf).toLocaleString("es-ES",{maximumFractionDigits:2})+" — sin FVG objetivo");
         }
       }
       var tgFullText=tgLines.join("\n");

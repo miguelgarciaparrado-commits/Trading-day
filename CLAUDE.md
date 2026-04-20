@@ -405,6 +405,61 @@ Ejecutar: `node src/imbalances/fvg-direction-tests.js`.
 
 ---
 
+## Cascada de TP por TF en multi-TF OPERACIÓN
+
+**Regla:** la TF **menor** de la confluencia dicta el rango válido de TP.
+
+| TF menor de la confluencia | Rango TP válido |
+|---|---|
+| 1H | 0.8% – 2.5% |
+| 4H | 2.0% – 5.0% |
+| 1D | 4.0% – 10.0% |
+| 1W | 8.0% – 25.0% |
+
+**Ejemplo:** confluencia 1H + 1D → `lowestTf = "1h"` → TP debe estar en **0.8–2.5%** del entry.
+Un FVG de 1D a +6% se rechaza aunque esté dentro del rango 1D, porque la TF menor (1H) manda.
+
+### Implementación
+
+Variable `lowestTf` calculada justo después de `tfConfs` (bloque multi-TF en `sendAlert`):
+```javascript
+var lowestTf = interval; // fallback
+for (var i = 0; i < ["1h","4h","1d","1w"].length; i++) {
+  if (tfConfs.some(c => c.tf === TF_LIST_ORD[i])) { lowestTf = TF_LIST_ORD[i]; break; }
+}
+```
+
+`tpMaxPct` y `tpMinPct` se derivan de `TP_RANGES[lowestTf]` (no de `interval`).
+
+Cascada de búsqueda de TP:
+1. FVG próximo en `ohlcData` (TF de la señal) dentro del rango `[tpMinPct, tpMaxPct]` con R/R ≥ 1.5.
+2. FVG lejano multi-TF (`fvgFarExit`) dentro del mismo rango.
+3. Señales específicas de tipo (EMA50, canal opuesto, soporte/resistencia estructura).
+4. **Swing estructural** de `ohlcByTf[lowestTf]` — últimas 30 velas, nivel H/L más cercano en rango.
+5. Si ninguno aplica → `tpManualTarget = true` → se emite la señal **sin TP** con nota `"gestión manual del objetivo"`.
+
+El cap final también respeta `tpMaxPct` derivado de `lowestTf`.
+
+### Nota en Telegram
+
+Cuando `lowestTf !== interval` (la TF menor no es la del alert), la línea de TP incluye:
+```
+🎯 TP: $X (+1.8%) — FVG 1H [rango dictado por 1H: 0.8–2.5%]
+```
+Cuando no hay TP válido:
+```
+⚠️ Sin TP en rango 1H (0.8–2.5%) — gestión manual del objetivo
+```
+
+### Tests
+
+`src/imbalances/tp-cascade-tests.js` — 30 assertions, ejecutar:
+```
+node src/imbalances/tp-cascade-tests.js
+```
+
+---
+
 ## Historical Data Constants
 
 ```javascript
