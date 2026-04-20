@@ -1,8 +1,8 @@
 {
   "name": "Trading Diary — Miguel Garcia",
   "short_name": "TradingDay",
-  "description": "Diario de trading personal con alertas en tiempo real",
-  "start_url": "/",
+  "description": "Diario de trading personal con alertas en tiempo real y push nativo.",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -11,17 +11,22 @@
   "lang": "es",
   "icons": [
     {
-      "src": "https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     },
     {
-      "src": "https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "src": "/icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    { "name": "Alertas",    "short_name": "Alertas",    "url": "/?tab=7", "description": "Monitor de alertas en tiempo real" },
+    { "name": "Posiciones", "short_name": "Posiciones", "url": "/?tab=1", "description": "Posiciones abiertas" },
+    { "name": "Chat IA",    "short_name": "Chat",       "url": "/?tab=8", "description": "Chat con IA" }
   ],
   "categories": ["finance", "productivity"]
 }

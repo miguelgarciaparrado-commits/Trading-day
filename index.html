@@ -429,6 +429,36 @@ function generateProfileSummary(ps, pats, jnl, hist, xhist, sc, predictions) {
 const TABS = ["Resumen", "Posiciones", "Historial", "Patrones", "Perfil", "Recuperacion", "Calendario", "Alertas", "Chat", "Auditoría"];
 const TC = { win: "#00ff88", mistake: "#ff4444", lesson: "#f0b429", analysis: "#888" };
 const TL = { win: "VICTORIA", mistake: "ERROR", lesson: "LECCION", analysis: "ANALISIS" };
+// ── WEB PUSH (PWA notifications) ──────────────────────────────────────
+// Replace with your own key — generate via `node scripts/generate-vapid.js`.
+// Public key only; private key lives in the Supabase Edge Function secret.
+const VAPID_PUBLIC_KEY = "BHgYilUYl_61I-86siTLFYhvf7M_N2rrWZ7IENZ_Idc5O_8vUou1_WcJDrU0ZUz0xNPcDesSWOLwq4lW2Jmiofw";
+const PUSH_USER_ID = "miguel"; // matches Supabase trading_data.user_id
+function urlBase64ToUint8Array(base64String) {
+    var padding = "=".repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    var rawData = window.atob(base64);
+    var outputArray = new Uint8Array(rawData.length);
+    for (var i = 0; i < rawData.length; i++)
+        outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+}
+// Fan-out a notification payload to all registered push subscriptions via the
+// Edge Function. Silently no-ops if Supabase is not configured. Telegram keeps
+// running in parallel (see `sendAlert` / `notifyAutoClose`) as a fallback.
+function sendPushFanout(payload) {
+    try {
+        var cfg = window.SUPABASE_CFG;
+        if (!cfg || !cfg.url || !cfg.key)
+            return;
+        fetch(cfg.url + "/functions/v1/send-push", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.key, "apikey": cfg.key },
+            body: JSON.stringify({ user_id: PUSH_USER_ID, payload: payload })
+        }).catch(function () { });
+    }
+    catch (e) { }
+}
 // - STYLES -
 const S = {
     app: { fontFamily: "monospace", background: "#0a0a0f", minHeight: "100vh", color: "#e0e0e0" },
@@ -734,6 +764,48 @@ function App() {
         catch (e) { }
         return [];
     });
+    // ── Deep link handler: read ?tab=N on load + listen to SW postMessage ──
+    useEffect(function () {
+        function applyDeepLinkFromUrl(href) {
+            try {
+                var u = new URL(href || window.location.href, window.location.origin);
+                var tabIdx = u.searchParams.get("tab");
+                if (tabIdx !== null && !isNaN(parseInt(tabIdx, 10))) {
+                    var idx = parseInt(tabIdx, 10);
+                    if (idx >= 0 && idx < TABS.length)
+                        setTab(TABS[idx]);
+                }
+                var action = u.searchParams.get("action");
+                if (action === "open_trade") {
+                    try {
+                        localStorage.setItem("td-pending-trade-action", JSON.stringify({ action: "open_trade", ts: Date.now() }));
+                    }
+                    catch (e) { }
+                }
+            }
+            catch (e) { }
+        }
+        applyDeepLinkFromUrl(window.location.href);
+        function onSwMsg(ev) {
+            if (!ev || !ev.data)
+                return;
+            if (ev.data.type === "deep-link" && ev.data.url)
+                applyDeepLinkFromUrl(ev.data.url);
+            if (ev.data.type === "pushsubscriptionchange") {
+                try {
+                    console.warn("Push subscription expired — re-subscribe required");
+                }
+                catch (e) { }
+            }
+        }
+        if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.addEventListener("message", onSwMsg);
+        }
+        return function () {
+            if ("serviceWorker" in navigator)
+                navigator.serviceWorker.removeEventListener("message", onSwMsg);
+        };
+    }, []);
     // D ref always has latest state for storage writes
     const D = useRef({ pr: { SOL: 91.33, BTC: 84000, ETH: 2000, MSTR: 300, GOOGL: 170, LINK: 9.20 }, pos: P0, pats: PAT0, jnl: J0, ps: PS0,
         xhist: [], ethClosed: false, predictions: [], chatMsgs: [] });
@@ -1622,6 +1694,17 @@ function App() {
         if (tk && cid) {
             fetch("https://api.telegram.org/bot" + tk + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: cid, text: title + "\n" + body + "\n⏰ " + new Date().toLocaleTimeString("es-ES") }) }).catch(function () { });
         }
+        // Web Push fan-out: land in the Android tray even if tab is closed
+        sendPushFanout({
+            title: title,
+            body: body,
+            tag: "td-autoclose-" + asset + "-" + Date.now(),
+            icon: "/icon.svg",
+            badge: "/icon.svg",
+            vibrate: [200, 100, 200],
+            data: { deepLink: "/?tab=2", autoClose: true, asset: asset },
+            actions: [{ action: "dismiss", title: "Ignorar" }]
+        });
     }
     function clearPosProximityKeys(posId) {
         var prefix = "prox_" + posId + "_";
@@ -4236,6 +4319,7 @@ function AlertasTab({ S, predictions }) {
     const [customCheckStatus, setCustomCheckStatus] = useState(null);
     const [logs, setLogs] = useState([]);
     const [notifPerm, setNotifPerm] = useState("default");
+    const [pushSubStatus, setPushSubStatus] = useState("idle"); // idle | subscribing | subscribed | error
     const [lastAlert, setLastAlert] = useState(null);
     const [globalPaused, setGlobalPaused] = useState(false);
     const globalPausedRef = useRef(false);
@@ -4500,7 +4584,7 @@ function AlertasTab({ S, predictions }) {
     }
     function sendTestNotif() {
         const title = "Trading Diary";
-        const opts = { body: "Notificaciones funcionando en tu dispositivo", icon: "https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png", silent: false };
+        const opts = { body: "Notificaciones funcionando en tu dispositivo", icon: "/icon.svg", silent: false };
         function doNotif() { try {
             new Notification(title, opts);
         }
@@ -4526,6 +4610,114 @@ function AlertasTab({ S, predictions }) {
             doNotif();
         }
     }
+    // ── Web Push: subscribe the browser and save the subscription to Supabase ──
+    async function subscribePush() {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+            alert("Tu navegador no soporta Web Push. Usa Chrome en Android.");
+            return;
+        }
+        if (Notification.permission !== "granted") {
+            var perm = await Notification.requestPermission();
+            setNotifPerm(perm);
+            if (perm !== "granted") {
+                setPushSubStatus("error");
+                return;
+            }
+        }
+        setPushSubStatus("subscribing");
+        try {
+            var reg = await navigator.serviceWorker.ready;
+            var sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+                sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                });
+            }
+            var subJson = sub.toJSON();
+            var cfg = window.SUPABASE_CFG;
+            if (cfg && cfg.url && cfg.key) {
+                var res = await fetch(cfg.url + "/rest/v1/push_subscriptions", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "apikey": cfg.key,
+                        "Authorization": "Bearer " + cfg.key,
+                        "Prefer": "resolution=merge-duplicates,return=minimal"
+                    },
+                    body: JSON.stringify({
+                        user_id: PUSH_USER_ID,
+                        endpoint: subJson.endpoint,
+                        p256dh: subJson.keys && subJson.keys.p256dh,
+                        auth: subJson.keys && subJson.keys.auth,
+                        user_agent: navigator.userAgent.slice(0, 250),
+                        is_active: true,
+                        failure_count: 0
+                    })
+                });
+                if (!res.ok && res.status !== 409) {
+                    var txt = "";
+                    try {
+                        txt = await res.text();
+                    }
+                    catch (e) { }
+                    setPushSubStatus("error");
+                    alert("Error al guardar suscripción: HTTP " + res.status + "\n" + txt.slice(0, 200));
+                    return;
+                }
+            }
+            try {
+                localStorage.setItem("td-push-endpoint", subJson.endpoint);
+            }
+            catch (e) { }
+            setPushSubStatus("subscribed");
+            try {
+                reg.showNotification("Trading Diary", { body: "Web Push activado en este dispositivo.", icon: "/icon.svg" });
+            }
+            catch (e) { }
+        }
+        catch (err) {
+            setPushSubStatus("error");
+            alert("Suscripción push falló: " + ((err && err.message) || String(err)));
+        }
+    }
+    async function unsubscribePush() {
+        try {
+            var reg = await navigator.serviceWorker.ready;
+            var sub = await reg.pushManager.getSubscription();
+            if (sub) {
+                var endpoint = sub.endpoint;
+                await sub.unsubscribe();
+                var cfg = window.SUPABASE_CFG;
+                if (cfg && cfg.url && cfg.key) {
+                    await fetch(cfg.url + "/rest/v1/push_subscriptions?endpoint=eq." + encodeURIComponent(endpoint), {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json", "apikey": cfg.key, "Authorization": "Bearer " + cfg.key, "Prefer": "return=minimal" },
+                        body: JSON.stringify({ is_active: false })
+                    }).catch(function () { });
+                }
+                try {
+                    localStorage.removeItem("td-push-endpoint");
+                }
+                catch (e) { }
+            }
+            setPushSubStatus("idle");
+        }
+        catch (err) {
+            setPushSubStatus("error");
+        }
+    }
+    // Detect existing subscription on mount so the UI reflects current state
+    useEffect(function () {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window))
+            return;
+        navigator.serviceWorker.ready.then(function (reg) {
+            return reg.pushManager.getSubscription();
+        }).then(function (sub) {
+            if (sub)
+                setPushSubStatus("subscribed");
+        }).catch(function () { });
+    }, []);
     function rateFeedback(logId, patternType, isCorrect) {
         var fbAll = {};
         try {
@@ -5474,8 +5666,29 @@ function AlertasTab({ S, predictions }) {
                 }
             }).catch(function () { });
         }
+        // ── Web Push fan-out (runs in parallel with Telegram, no-op if not configured) ──
+        var pushTag = "td-" + (label || "sym") + "-" + (interval || "x") + "-" + (type || "gen");
+        var pushActions = hasConfluence
+            ? [{ action: "open_trade", title: "Abrí la orden" }, { action: "dismiss", title: "Ignorar" }]
+            : [{ action: "dismiss", title: "Ignorar" }];
+        var pushBody = body || (title + priceStr);
+        sendPushFanout({
+            title: title,
+            body: (pushBody || "").slice(0, 240),
+            tag: pushTag,
+            icon: "/icon.svg",
+            badge: "/icon.svg",
+            vibrate: [200, 100, 200],
+            data: {
+                deepLink: "/?tab=7&sym=" + encodeURIComponent(label || "") + "&tf=" + (interval || ""),
+                signalType: type,
+                symbol: label,
+                interval: interval
+            },
+            actions: pushActions
+        });
         if (Notification.permission === "granted") {
-            const notifOpts = { body: body, icon: "https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png", requireInteraction: true, silent: false };
+            const notifOpts = { body: body, icon: "/icon.svg", requireInteraction: true, silent: false };
             function doNotif() { try {
                 new Notification(title, notifOpts);
             }
@@ -6607,6 +6820,10 @@ function AlertasTab({ S, predictions }) {
                         globalPausedRef.current = next;
                     }, title: globalPaused ? "Reanudar notificaciones" : "Pausar todas las notificaciones", style: { background: globalPaused ? "rgba(240,180,41,.2)" : "transparent", border: "1px solid " + (globalPaused ? "#f0b429" : "#2a2a3a"), color: globalPaused ? "#f0b429" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, globalPaused ? "▶" : "⏸"),
                 React.createElement("button", { onClick: function () { setShowFinnhubConfig(!showFinnhubConfig); setShowTgConfig(false); }, title: "Finnhub \u2014 acciones y ETFs", style: { background: finnhubKey ? "rgba(0,180,80,.15)" : "transparent", border: "1px solid " + (finnhubKey ? "#00b450" : "#2a2a3a"), color: finnhubKey ? "#00cc66" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 10, cursor: "pointer" } }, "\uD83D\uDCC8"),
+                React.createElement("button", { onClick: function () { if (pushSubStatus === "subscribed")
+                        unsubscribePush();
+                    else
+                        subscribePush(); }, title: pushSubStatus === "subscribed" ? "Web Push activo — pulsa para desactivar" : pushSubStatus === "subscribing" ? "Activando..." : pushSubStatus === "error" ? "Error al activar push" : "Activar notificaciones push nativas (Android)", style: { background: pushSubStatus === "subscribed" ? "rgba(0,255,136,.15)" : pushSubStatus === "error" ? "rgba(255,68,68,.15)" : "transparent", border: "1px solid " + (pushSubStatus === "subscribed" ? "#00ff88" : pushSubStatus === "error" ? "#ff4444" : "#2a2a3a"), color: pushSubStatus === "subscribed" ? "#00ff88" : pushSubStatus === "error" ? "#ff4444" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, pushSubStatus === "subscribing" ? "…" : "🔔"),
                 React.createElement("button", { onClick: function () { setShowTgConfig(!showTgConfig); setShowFinnhubConfig(false); }, title: "Notificaciones Telegram", style: { background: tgToken && tgChatId ? "rgba(0,136,204,.15)" : "transparent", border: "1px solid " + (tgToken && tgChatId ? "#0088cc" : "#2a2a3a"), color: tgToken && tgChatId ? "#0088cc" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, "\u2708\uFE0F"),
                 tgToken && tgChatId && React.createElement("button", { title: "Probar conexi\u00F3n Telegram", onClick: function () {
                         var tk = localStorage.getItem("td-tg-token") || "";
