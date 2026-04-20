@@ -291,6 +291,68 @@ Every `sendAlert()` call:
 
 ---
 
+## Auditoría de operaciones — compatibilidad con registros históricos
+
+El botón "Auditar" evalúa operaciones cerradas contra 5 reglas de disciplina
+(R1–R5, ver `AUDIT_SYSTEM_PROMPT`). Las operaciones cerradas antes de que
+existiera la feature de auditoría no tienen todos los campos enriquecidos
+(`sl_initial`, `sl_modifications`, `thesis_text`, etc.). El auditor es
+**tolerante**: audita con lo que hay y marca explícitamente lo que no puede.
+
+### Clasificación de campos
+
+```javascript
+AUDIT_CORE_FIELDS     = ["asset","dir","result","date","note"];
+AUDIT_ENRICHED_FIELDS = ["sl_initial","sl_modifications","thesis_text",
+                         "ratio","patternId","broker","reopen_after_sl"];
+```
+
+- **Core:** identidad de la operación. Si falta algo de esto → la operación
+  se marca `nonAuditable` (sin llamada a la API).
+- **Enriched:** necesarios para puntuar reglas específicas. Si faltan → se
+  informa al modelo en el prompt para que devuelva `status:"na"` en esas
+  reglas, no `"fail"`.
+
+### Helpers (top-level en `trading-diary.jsx`)
+
+| Función | Rol |
+|---|---|
+| `detectMissingFields(op)` | `{core, enriched, hasMinimum}` |
+| `hasMinimumAuditData(op)` | atajo booleano |
+| `buildNonAuditableReport(op, missing)` | reporte sin AI para ops sin core |
+
+### Flujo de `runAuditForEntry(entryId)`
+
+1. Buscar `trade` en `D.current.xhist`. Si no existe → `console.warn` y salir.
+2. Calcular `missing = detectMissingFields(trade)`; `console.warn` si faltan.
+3. Si `!missing.hasMinimum` → persistir `nonAuditable` y volver.
+4. Llamar `auditTrade(trade, null, missing)`; el prompt incluye los campos
+   faltantes y pide marcarlos como `"na"`.
+5. Sea cual sea el resultado (éxito, error API, excepción), **siempre** se
+   persiste un `audit_report`. Nunca se falla en silencio.
+
+### Estados UI en el modal
+
+| Estado | Trigger | Render |
+|---|---|---|
+| ✅ pass | regla cumplida | badge verde |
+| ❌ fail | regla rota | badge rojo |
+| 🔘 N/D | `status==="na"` | badge gris + explicación |
+| Auditoría limitada | `missingEnriched.length ≥ 3` | badge `📋` en listado + nota en modal |
+| No auditable | `nonAuditable:true` | panel ámbar con razón + campos disponibles |
+| Error API | `audit_report.error` | panel rojo + lista de campos faltantes + botón reaudit |
+
+### Restricciones
+
+- **No migrar datos históricos.** Las operaciones viejas conservan su
+  estructura original. No se rellenan campos sintéticamente.
+- **No cambiar la lógica de las 5 reglas.** El auditor ya usa `"na"` para
+  evaluaciones sin datos — solo hay que avisarle de qué falta.
+- La racha `ps.tpStreak` y los KPIs (`avgScore`, `audited`, `pending`) filtran
+  `nonAuditable` para no contaminar estadísticas.
+
+---
+
 ## Profile Score System
 
 `calcScore(ps, pats, jnl, xhist, predictions)` returns 0-100:
