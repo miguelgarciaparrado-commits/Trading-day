@@ -346,6 +346,54 @@ const S={
 };
 
 // - AUDIT AGENT -
+// Campos requeridos mínimos para cualquier auditoría (siempre presentes en xhist).
+var AUDIT_CORE_FIELDS=["asset","dir","result","date","note"];
+// Campos enriquecidos que pueden faltar en operaciones cerradas antes de la feature de auditoría.
+var AUDIT_ENRICHED_FIELDS=["sl_initial","sl_modifications","thesis_text","ratio","patternId","broker","reopen_after_sl"];
+
+// Devuelve {core:[], enriched:[], hasMinimum:bool} listando campos ausentes.
+function detectMissingFields(op){
+  if(!op||typeof op!=="object"){
+    return{core:AUDIT_CORE_FIELDS.slice(),enriched:AUDIT_ENRICHED_FIELDS.slice(),hasMinimum:false};
+  }
+  var missingCore=[];
+  for(var i=0;i<AUDIT_CORE_FIELDS.length;i++){
+    var f=AUDIT_CORE_FIELDS[i];
+    var v=op[f];
+    if(v==null||v==="")missingCore.push(f);
+  }
+  var missingEnr=[];
+  for(var j=0;j<AUDIT_ENRICHED_FIELDS.length;j++){
+    var g=AUDIT_ENRICHED_FIELDS[j];
+    if(op[g]==null)missingEnr.push(g);
+  }
+  return{core:missingCore,enriched:missingEnr,hasMinimum:missingCore.length===0};
+}
+
+function hasMinimumAuditData(op){ return detectMissingFields(op).hasMinimum; }
+
+// Construye un reporte para operaciones que no tienen datos mínimos (no llamamos a la API).
+function buildNonAuditableReport(op,missing){
+  var avail=[];
+  if(op&&typeof op==="object"){
+    var keys=Object.keys(op);
+    for(var i=0;i<keys.length;i++){
+      var k=keys[i];
+      if(k==="audit_report"||k==="audit_score"||k==="audited_at")continue;
+      if(op[k]!=null&&op[k]!=="")avail.push(k);
+    }
+  }
+  return{
+    nonAuditable:true,
+    reason:"Faltan campos mínimos: "+missing.core.join(", "),
+    availableFields:avail,
+    missingCore:missing.core,
+    missingEnriched:missing.enriched,
+    summary:"Esta operación no puede auditarse — faltan datos mínimos.",
+    rules:[]
+  };
+}
+
 var AUDIT_SYSTEM_PROMPT=[
   "Eres un auditor de disciplina de trading. Evalúas operaciones cerradas según 5 reglas estrictas de gestión de riesgo.",
   "",
@@ -379,10 +427,10 @@ var AUDIT_SYSTEM_PROMPT=[
   "Usa \"na\" cuando no hay datos suficientes para evaluar (no penaliza)."
 ].join("\n");
 
-async function auditTrade(trade, marketContextAtOpen){
+async function auditTrade(trade, marketContextAtOpen, missingFields){
   var apiKey="";
   try{ apiKey=localStorage.getItem("td-anthropic-key")||""; }catch(e){}
-  if(!apiKey) return {error:"No API key configured"};
+  if(!apiKey) return {error:"No hay API key configurada (ajustes → Anthropic key)"};
 
   var tradeJson="";
   try{ tradeJson=JSON.stringify(trade,null,2); }catch(e){ tradeJson=String(trade); }
@@ -392,7 +440,13 @@ async function auditTrade(trade, marketContextAtOpen){
     try{ contextSection="\n\nCONTEXTO DE MERCADO EN APERTURA:\n"+JSON.stringify(marketContextAtOpen,null,2); }catch(e){}
   }
 
-  var userMsg="Audita esta operación cerrada:\n\n"+tradeJson+contextSection;
+  var missingNote="";
+  if(missingFields&&missingFields.enriched&&missingFields.enriched.length>0){
+    missingNote="\n\nCAMPOS NO REGISTRADOS (operación anterior a la feature de auditoría): "+missingFields.enriched.join(", ")+
+      ".\nPara cualquier regla cuya evaluación dependa de uno de estos campos, devuelve status \"na\" con evidence = \"Dato no registrado en el momento de la operación\". No la marques \"fail\" por falta de dato.";
+  }
+
+  var userMsg="Audita esta operación cerrada:\n\n"+tradeJson+contextSection+missingNote;
 
   var response;
   try{
@@ -1306,18 +1360,43 @@ export default function App(){
 
   function runAuditForEntry(entryId){
     var trade=(D.current.xhist||[]).filter(function(x){return x.id===entryId;})[0];
-    if(!trade)return;
-    auditTrade(trade,null).then(function(auditResult){
-      if(!auditResult||auditResult.error)return;
+    if(!trade){
+      console.warn("[Auditor] Operación no encontrada para id",entryId);
+      return;
+    }
+    var missing=detectMissingFields(trade);
+    if(missing.enriched.length>0||missing.core.length>0){
+      console.warn("[Auditor] Campos faltantes en op",trade.id,"→ core:",missing.core,"enriched:",missing.enriched);
+    }
+    // Función auxiliar: persistir reporte y reflejar en estado sin fallos silenciosos.
+    function commitReport(report,scoreOpt){
       var updated=(D.current.xhist||[]).map(function(x){
         if(x.id!==entryId)return x;
-        return Object.assign({},x,{audit_score:auditResult.score,audit_report:auditResult,audited_at:new Date().toISOString()});
+        var patch={audit_report:report,audited_at:new Date().toISOString()};
+        if(scoreOpt!=null)patch.audit_score=scoreOpt;
+        return Object.assign({},x,patch);
       });
       D.current.xhist=updated;
       setXhist(updated);
       try{localStorage.setItem("td-user",JSON.stringify({pr:D.current.pr,pos:D.current.pos,pats:D.current.pats,jnl:D.current.jnl,ps:D.current.ps,xhist:updated,ethClosed:D.current.ethClosed||false,_savedAt:Date.now()}));}catch(e){}
       save();
-    }).catch(function(){});
+    }
+    // Operación corrupta: sin campos mínimos → no llamamos a la API, guardamos reporte explicativo.
+    if(!missing.hasMinimum){
+      commitReport(buildNonAuditableReport(trade,missing),null);
+      return;
+    }
+    // Auditoría normal con AI, informando de campos faltantes para que el modelo use "na".
+    auditTrade(trade,null,missing).then(function(auditResult){
+      var result=auditResult||{error:"Respuesta vacía del auditor"};
+      // Propagar metadata de campos faltantes al reporte — la UI los muestra como 🔘.
+      var enriched=Object.assign({},result,{missingEnriched:missing.enriched});
+      var score=(!enriched.error&&enriched.score!=null)?enriched.score:null;
+      commitReport(enriched,score);
+    }).catch(function(e){
+      console.warn("[Auditor] Excepción en op",trade.id,":",e);
+      commitReport({error:"Excepción: "+((e&&e.message)||String(e)),missingEnriched:missing.enriched},null);
+    });
   }
 
   function notifyProximity(asset,dir,level,targetPrice,currentPrice){
@@ -4306,7 +4385,7 @@ function AlertasTab({S,predictions}){
 
   function sendTestNotif(){
     const title="Trading Diary";
-    const opts={body:"Notificaciones funcionando en tu dispositivo",icon:"/icon.svg",silent:false};
+    const opts={body:"Notificaciones funcionando en tu dispositivo",icon:"/icon.svg",badge:"/icon.svg",silent:false};
     function doNotif(){try{new Notification(title,opts);}catch(e){console.warn("Notif fallback",e);}}
     if("serviceWorker" in navigator){
       navigator.serviceWorker.getRegistration().then(function(reg){
@@ -5935,6 +6014,9 @@ function AlertasTab({S,predictions}){
           </button>
           <button onClick={function(){setShowTgConfig(!showTgConfig);setShowFinnhubConfig(false);}} title="Notificaciones Telegram"
             style={{background:tgToken&&tgChatId?"rgba(0,136,204,.15)":"transparent",border:"1px solid "+(tgToken&&tgChatId?"#0088cc":"#2a2a3a"),color:tgToken&&tgChatId?"#0088cc":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>✈️</button>
+          <button title="Test alerta completa (pipeline real: in-app + Telegram + notificación)" onClick={function(){
+            sendAlert("🧪 TEST","1h",28,"rsi_oversold",null,null,null,50000,{});
+          }} style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",padding:"7px 8px",borderRadius:6,fontSize:9,cursor:"pointer",fontWeight:700}}>🧪</button>
           {tgToken&&tgChatId&&<button title="Probar conexión Telegram" onClick={function(){
             var tk=localStorage.getItem("td-tg-token")||"";
             var cid=localStorage.getItem("td-tg-chatid")||"";
@@ -6177,6 +6259,25 @@ function AlertasTab({S,predictions}){
           <span style={{fontSize:9,color:"#f0b429"}}>⏸ Notificaciones pausadas — el monitoreo sigue activo pero no se envían alertas</span>
           <button onClick={function(){setGlobalPaused(false);globalPausedRef.current=false;}}
             style={{background:"#f0b429",border:"none",color:"#0a0a0f",fontSize:8,fontWeight:700,padding:"4px 10px",borderRadius:4,cursor:"pointer"}}>Reanudar</button>
+        </div>
+      )}
+
+      {/* Banner de permisos del navegador */}
+      {notifPerm!=="granted"&&(
+        <div style={{background:notifPerm==="denied"?"rgba(255,68,68,.08)":"rgba(0,136,204,.08)",border:"1px solid "+(notifPerm==="denied"?"rgba(255,68,68,.35)":"rgba(0,136,204,.35)"),borderRadius:6,padding:"8px 12px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div>
+            <div style={{fontSize:9,color:notifPerm==="denied"?"#ff6666":"#4db8ff",fontWeight:700}}>
+              {notifPerm==="denied"?"🔕 Notificaciones del navegador bloqueadas":"🔔 Notificaciones del navegador no activadas"}
+            </div>
+            <div style={{fontSize:8,color:"#555",marginTop:2}}>
+              {notifPerm==="denied"
+                ?"Ve a ajustes del navegador → Permisos del sitio → Notificaciones y desbloquéalas."
+                :"Necesitas activarlas para recibir alertas aunque la app esté en segundo plano."}
+            </div>
+          </div>
+          {notifPerm!=="denied"&&(
+            <button onClick={requestNotif} style={{background:"#0088cc",border:"none",color:"#fff",fontSize:8,fontWeight:700,padding:"5px 10px",borderRadius:4,cursor:"pointer",flexShrink:0}}>Activar</button>
+          )}
         </div>
       )}
 
@@ -7200,7 +7301,7 @@ function AuditoriaTab({xhist,S,fmtNum,reaudit}){
   const[selTrade,setSelTrade]=useState(null);
   const[auditFilter,setAuditFilter]=useState("all");
 
-  var audited=(xhist||[]).filter(function(x){return x.audit_report&&!x.audit_report.error;});
+  var audited=(xhist||[]).filter(function(x){return x.audit_report&&!x.audit_report.error&&!x.audit_report.nonAuditable&&x.audit_score!=null;});
   var pending=(xhist||[]).filter(function(x){return !x.audit_report||x.audit_report.error;});
   var avgScore=audited.length>0?parseFloat((audited.reduce(function(a,x){return a+(x.audit_score||0);},0)/audited.length).toFixed(1)):null;
 
@@ -7280,17 +7381,23 @@ function AuditoriaTab({xhist,S,fmtNum,reaudit}){
           <div style={{fontSize:10,color:"#555",textAlign:"center",padding:20}}>No hay operaciones</div>
         )}
         {displayList.map(function(x){
-          var rep=x.audit_report&&!x.audit_report.error?x.audit_report:null;
+          var rep=x.audit_report&&!x.audit_report.error&&!x.audit_report.nonAuditable?x.audit_report:null;
+          var nonAudit=x.audit_report&&x.audit_report.nonAuditable;
           var score=x.audit_score;
-          var rules=rep?rep.rules:[];
+          var rules=rep?(rep.rules||[]):[];
+          var missing=detectMissingFields(x);
+          var limited=(rep&&rep.missingEnriched&&rep.missingEnriched.length>=3)||(!rep&&!nonAudit&&missing.enriched.length>=3);
           return(
             <div key={x.id} onClick={function(){setSelTrade(x);}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px",borderBottom:"1px solid #1a1a2a",cursor:"pointer"}}>
-              <div style={{width:28,height:28,borderRadius:14,background:rep?scoreColor(score):"#2a2a3a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:rep?"#0a0a0f":"#555",flexShrink:0}}>
-                {rep?score:"?"}
+              <div style={{width:28,height:28,borderRadius:14,background:rep?scoreColor(score):nonAudit?"#444":"#2a2a3a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:rep?"#0a0a0f":"#555",flexShrink:0}}>
+                {rep?score:nonAudit?"—":"?"}
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:10,fontWeight:700,color:"#e0e0e0"}}>{x.asset} {x.dir} — {fmtNum(x.result)}</div>
                 <div style={{fontSize:9,color:"#555"}}>{x.date} {x.note&&x.note.slice(0,30)}</div>
+                {limited&&(
+                  <div style={{fontSize:8,color:"#888",marginTop:2}}>📋 Auditoría limitada</div>
+                )}
               </div>
               {rep&&(
                 <div style={{display:"flex",gap:3,flexShrink:0}}>
@@ -7318,17 +7425,43 @@ function AuditoriaTab({xhist,S,fmtNum,reaudit}){
               <div style={{fontSize:12,fontWeight:700,color:"#e0e0e0"}}>{modal.asset} {modal.dir} — {fmtNum(modal.result)}</div>
               <button onClick={function(){setSelTrade(null);}} style={{...S.btn(false),padding:"4px 8px",fontSize:10}}>✕</button>
             </div>
-            {modal.audit_report&&!modal.audit_report.error?(
+            {modal.audit_report&&modal.audit_report.nonAuditable?(
+              <div>
+                <div style={{padding:"10px 12px",background:"rgba(255,170,68,.08)",border:"1px solid rgba(255,170,68,.3)",borderRadius:6,marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#ffaa44",marginBottom:6}}>⚠️ Esta operación no se puede auditar</div>
+                  <div style={{fontSize:9,color:"#aaa",lineHeight:1.5}}>Motivo: {modal.audit_report.reason}</div>
+                  <div style={{fontSize:8,color:"#666",marginTop:4}}>Causa probable: operación registrada antes de la feature de auditoría.</div>
+                </div>
+                {modal.audit_report.availableFields&&modal.audit_report.availableFields.length>0&&(
+                  <div style={{fontSize:9,color:"#888",marginBottom:10}}>
+                    <div style={{fontWeight:700,color:"#aaa",marginBottom:3}}>Datos disponibles:</div>
+                    {modal.audit_report.availableFields.join(", ")}
+                  </div>
+                )}
+                {modal.audited_at&&(
+                  <div style={{fontSize:8,color:"#333",marginTop:8}}>Evaluado: {new Date(modal.audited_at).toLocaleString("es-ES")}</div>
+                )}
+              </div>
+            ):modal.audit_report&&!modal.audit_report.error?(
               <div>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
                   <div style={{width:44,height:44,borderRadius:22,background:scoreColor(modal.audit_score),display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0a0a0f"}}>{modal.audit_score}/5</div>
                   <div style={{fontSize:10,color:"#aaa",flex:1}}>{modal.audit_report.summary}</div>
                 </div>
+                {modal.audit_report.missingEnriched&&modal.audit_report.missingEnriched.length>0&&(
+                  <div style={{padding:"6px 10px",background:"rgba(136,136,136,.08)",border:"1px solid #2a2a3a",borderRadius:4,marginBottom:10,fontSize:8,color:"#888",lineHeight:1.5}}>
+                    📋 Auditoría limitada — campos no registrados: {modal.audit_report.missingEnriched.join(", ")}
+                  </div>
+                )}
                 {(modal.audit_report.rules||[]).map(function(r){
-                  var col=r.status==="pass"?"#00ff88":r.status==="fail"?"#ff4444":"#555";
+                  var isNa=r.status==="na";
+                  var col=r.status==="pass"?"#00ff88":r.status==="fail"?"#ff4444":"#888";
+                  var icon=r.status==="pass"?"✅":r.status==="fail"?"❌":"🔘";
+                  var label=isNa?"N/D":r.status.toUpperCase();
                   return(
                     <div key={r.id} style={{display:"flex",gap:8,padding:"6px 0",borderBottom:"1px solid #1a1a2a",alignItems:"flex-start"}}>
-                      <span style={{...S.bdg(col),marginTop:1,flexShrink:0}}>{r.status.toUpperCase()}</span>
+                      <span style={{fontSize:12,marginTop:1,flexShrink:0}}>{icon}</span>
+                      <span style={{...S.bdg(col),marginTop:1,flexShrink:0}}>{label}</span>
                       <div>
                         <div style={{fontSize:10,color:"#ccc",fontWeight:700}}>{r.id} — {r.name}</div>
                         <div style={{fontSize:9,color:"#666",marginTop:2}}>{r.evidence}</div>
@@ -7343,7 +7476,17 @@ function AuditoriaTab({xhist,S,fmtNum,reaudit}){
               </div>
             ):(
               <div>
-                <div style={{fontSize:10,color:"#555",marginBottom:12}}>{modal.audit_report&&modal.audit_report.error?"Error: "+modal.audit_report.error:"No auditado todavía"}</div>
+                {modal.audit_report&&modal.audit_report.error?(
+                  <div style={{padding:"10px 12px",background:"rgba(255,68,68,.08)",border:"1px solid rgba(255,68,68,.3)",borderRadius:6,marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#ff6666",marginBottom:4}}>Auditoría no completada</div>
+                    <div style={{fontSize:9,color:"#aaa",lineHeight:1.5}}>{modal.audit_report.error}</div>
+                    {modal.audit_report.missingEnriched&&modal.audit_report.missingEnriched.length>0&&(
+                      <div style={{fontSize:8,color:"#888",marginTop:6}}>Campos no registrados: {modal.audit_report.missingEnriched.join(", ")}</div>
+                    )}
+                  </div>
+                ):(
+                  <div style={{fontSize:10,color:"#555",marginBottom:12}}>No auditado todavía</div>
+                )}
                 <button onClick={function(){reaudit(modal.id);setSelTrade(null);}} style={{...S.btn(true),width:"100%",fontSize:10}}>AUDITAR AHORA</button>
               </div>
             )}
