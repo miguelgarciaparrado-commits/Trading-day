@@ -309,8 +309,10 @@ function qfLoadPdfJs(cb){
 function qfParseAmount(str){
   if(!str&&str!==0)return null;
   var s=String(str).trim();
-  var neg=s.charAt(0)==="-";
-  var cleaned=s.replace(/[+\-₸₮\$€,\s]/g,"");
+  // Use indexOf so "- ₮ 1,946.84" (spaced format) is caught by the minus anywhere in the token
+  var neg=s.indexOf("-")>=0;
+  // Strip everything except digits and decimal point — immune to any currency symbol or spacing
+  var cleaned=s.replace(/[^0-9.]/g,"");
   var n=parseFloat(cleaned);
   return isNaN(n)?null:(neg?-n:n);
 }
@@ -343,14 +345,14 @@ function qfParseDataRow(text){
   var symbol="",datetime="";
   if(dm){var di=before.indexOf(dm[1]);symbol=before.substring(0,di).trim();datetime=dm[1];}
   else{symbol=before;}
-  // G&P at end — has explicit +/- sign
+  // G&P at end — has explicit +/- sign. Handles spaced format: "+ ₮ 1.71" or "-$1.39"
   var pnl=null;
-  var pnlM=after.match(/([+\-][₸₮\$€][\d,]+\.?\d*)$/);
-  if(!pnlM)pnlM=after.match(/([+\-][\d,]+\.?\d*[₸₮\$€]?)$/);
+  var pnlM=after.match(/([+\-]\s*\S?\s*[\d,]+\.?\d*)$/);
+  if(!pnlM)pnlM=after.match(/([+\-][\d,]+\.?\d*)$/);
   if(pnlM){pnl=qfParseAmount(pnlM[1]);after=after.substring(0,after.length-pnlM[1].length).trim();}
-  // Value at end: currency symbol + number
+  // Value at end: currency symbol + optional space + number (e.g. "₮ 2,850.00" or "$210.01")
   var value=null;
-  var valM=after.match(/([₸₮\$€][\d,]+\.?\d*)$/);
+  var valM=after.match(/([^\d\s+\-]\s*[\d,]+\.?\d*)$/);
   if(valM){value=qfParseAmount(valM[1]);after=after.substring(0,after.length-valM[1].length).trim();}
   // Remaining: PRICE [QUANTITY UNIT]
   var price=null,quantity=null,unit=null;
@@ -427,7 +429,7 @@ function qfParseAllRows(textRows,onProgress){
     if(t.indexOf("Quantfury Trading")>=0||t.indexOf("support@")>=0||t.indexOf("Por favor")>=0)return;
     if(!section)return;
     if(t.startsWith("Total")){
-      var tm=t.match(/Total\s+([+\-]?[₸₮\$€]?[\d,]+\.?\d*)/);
+      var tm=t.match(/Total\s+([+\-]?\s*\S?\s*[\d,]+\.?\d*)/);
       var tpnl=tm?qfParseAmount(tm[1]):null;
       if(currentGroup){currentGroup.pnlTotal=tpnl;closedGroups.push(currentGroup);currentGroup=null;}
       return;
