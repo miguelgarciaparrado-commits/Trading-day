@@ -4661,7 +4661,7 @@ function AlertasTab({ S, predictions }) {
     }
     function sendTestNotif() {
         const title = "Trading Diary";
-        const opts = { body: "Notificaciones funcionando en tu dispositivo", icon: "/icon.svg", silent: false };
+        const opts = { body: "Notificaciones funcionando en tu dispositivo", icon: "/icon.svg", badge: "/icon.svg", silent: false };
         function doNotif() { try {
             new Notification(title, opts);
         }
@@ -6902,6 +6902,9 @@ function AlertasTab({ S, predictions }) {
                     else
                         subscribePush(); }, title: pushSubStatus === "subscribed" ? "Web Push activo — pulsa para desactivar" : pushSubStatus === "subscribing" ? "Activando..." : pushSubStatus === "error" ? "Error al activar push" : "Activar notificaciones push nativas (Android)", style: { background: pushSubStatus === "subscribed" ? "rgba(0,255,136,.15)" : pushSubStatus === "error" ? "rgba(255,68,68,.15)" : "transparent", border: "1px solid " + (pushSubStatus === "subscribed" ? "#00ff88" : pushSubStatus === "error" ? "#ff4444" : "#2a2a3a"), color: pushSubStatus === "subscribed" ? "#00ff88" : pushSubStatus === "error" ? "#ff4444" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, pushSubStatus === "subscribing" ? "…" : "🔔"),
                 React.createElement("button", { onClick: function () { setShowTgConfig(!showTgConfig); setShowFinnhubConfig(false); }, title: "Notificaciones Telegram", style: { background: tgToken && tgChatId ? "rgba(0,136,204,.15)" : "transparent", border: "1px solid " + (tgToken && tgChatId ? "#0088cc" : "#2a2a3a"), color: tgToken && tgChatId ? "#0088cc" : "#555", padding: "7px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" } }, "\u2708\uFE0F"),
+                React.createElement("button", { title: "Test alerta completa (pipeline real: in-app + Telegram + notificaci\u00F3n)", onClick: function () {
+                        sendAlert("🧪 TEST", "1h", 28, "rsi_oversold", null, null, null, 50000, {});
+                    }, style: { background: "rgba(0,255,136,.1)", border: "1px solid #00ff88", color: "#00ff88", padding: "7px 8px", borderRadius: 6, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "\uD83E\uDDEA"),
                 tgToken && tgChatId && React.createElement("button", { title: "Probar conexi\u00F3n Telegram", onClick: function () {
                         var tk = localStorage.getItem("td-tg-token") || "";
                         var cid = localStorage.getItem("td-tg-chatid") || "";
@@ -7136,6 +7139,13 @@ function AlertasTab({ S, predictions }) {
         globalPaused && (React.createElement("div", { style: { background: "rgba(240,180,41,.1)", border: "1px solid rgba(240,180,41,.35)", borderRadius: 6, padding: "8px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" } },
             React.createElement("span", { style: { fontSize: 9, color: "#f0b429" } }, "\u23F8 Notificaciones pausadas \u2014 el monitoreo sigue activo pero no se env\u00EDan alertas"),
             React.createElement("button", { onClick: function () { setGlobalPaused(false); globalPausedRef.current = false; }, style: { background: "#f0b429", border: "none", color: "#0a0a0f", fontSize: 8, fontWeight: 700, padding: "4px 10px", borderRadius: 4, cursor: "pointer" } }, "Reanudar"))),
+        notifPerm !== "granted" && (React.createElement("div", { style: { background: notifPerm === "denied" ? "rgba(255,68,68,.08)" : "rgba(0,136,204,.08)", border: "1px solid " + (notifPerm === "denied" ? "rgba(255,68,68,.35)" : "rgba(0,136,204,.35)"), borderRadius: 6, padding: "8px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 } },
+            React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 9, color: notifPerm === "denied" ? "#ff6666" : "#4db8ff", fontWeight: 700 } }, notifPerm === "denied" ? "🔕 Notificaciones del navegador bloqueadas" : "🔔 Notificaciones del navegador no activadas"),
+                React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 2 } }, notifPerm === "denied"
+                    ? "Ve a ajustes del navegador → Permisos del sitio → Notificaciones y desbloquéalas."
+                    : "Necesitas activarlas para recibir alertas aunque la app esté en segundo plano.")),
+            notifPerm !== "denied" && (React.createElement("button", { onClick: requestNotif, style: { background: "#0088cc", border: "none", color: "#fff", fontSize: 8, fontWeight: 700, padding: "5px 10px", borderRadius: 4, cursor: "pointer", flexShrink: 0 } }, "Activar")))),
         showForm && (React.createElement("div", { style: { background: "#111118", border: "1px solid rgba(240,180,41,.35)", borderRadius: 8, padding: 14, marginBottom: 12 } },
             React.createElement("div", { style: { fontSize: 10, color: "#f0b429", fontWeight: 700, marginBottom: 12 } }, "NUEVA ALERTA"),
             React.createElement("div", { style: { marginBottom: 10 } },

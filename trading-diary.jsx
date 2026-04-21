@@ -4385,7 +4385,7 @@ function AlertasTab({S,predictions}){
 
   function sendTestNotif(){
     const title="Trading Diary";
-    const opts={body:"Notificaciones funcionando en tu dispositivo",icon:"/icon.svg",silent:false};
+    const opts={body:"Notificaciones funcionando en tu dispositivo",icon:"/icon.svg",badge:"/icon.svg",silent:false};
     function doNotif(){try{new Notification(title,opts);}catch(e){console.warn("Notif fallback",e);}}
     if("serviceWorker" in navigator){
       navigator.serviceWorker.getRegistration().then(function(reg){
@@ -6014,6 +6014,9 @@ function AlertasTab({S,predictions}){
           </button>
           <button onClick={function(){setShowTgConfig(!showTgConfig);setShowFinnhubConfig(false);}} title="Notificaciones Telegram"
             style={{background:tgToken&&tgChatId?"rgba(0,136,204,.15)":"transparent",border:"1px solid "+(tgToken&&tgChatId?"#0088cc":"#2a2a3a"),color:tgToken&&tgChatId?"#0088cc":"#555",padding:"7px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>✈️</button>
+          <button title="Test alerta completa (pipeline real: in-app + Telegram + notificación)" onClick={function(){
+            sendAlert("🧪 TEST","1h",28,"rsi_oversold",null,null,null,50000,{});
+          }} style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",padding:"7px 8px",borderRadius:6,fontSize:9,cursor:"pointer",fontWeight:700}}>🧪</button>
           {tgToken&&tgChatId&&<button title="Probar conexión Telegram" onClick={function(){
             var tk=localStorage.getItem("td-tg-token")||"";
             var cid=localStorage.getItem("td-tg-chatid")||"";
@@ -6256,6 +6259,25 @@ function AlertasTab({S,predictions}){
           <span style={{fontSize:9,color:"#f0b429"}}>⏸ Notificaciones pausadas — el monitoreo sigue activo pero no se envían alertas</span>
           <button onClick={function(){setGlobalPaused(false);globalPausedRef.current=false;}}
             style={{background:"#f0b429",border:"none",color:"#0a0a0f",fontSize:8,fontWeight:700,padding:"4px 10px",borderRadius:4,cursor:"pointer"}}>Reanudar</button>
+        </div>
+      )}
+
+      {/* Banner de permisos del navegador */}
+      {notifPerm!=="granted"&&(
+        <div style={{background:notifPerm==="denied"?"rgba(255,68,68,.08)":"rgba(0,136,204,.08)",border:"1px solid "+(notifPerm==="denied"?"rgba(255,68,68,.35)":"rgba(0,136,204,.35)"),borderRadius:6,padding:"8px 12px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div>
+            <div style={{fontSize:9,color:notifPerm==="denied"?"#ff6666":"#4db8ff",fontWeight:700}}>
+              {notifPerm==="denied"?"🔕 Notificaciones del navegador bloqueadas":"🔔 Notificaciones del navegador no activadas"}
+            </div>
+            <div style={{fontSize:8,color:"#555",marginTop:2}}>
+              {notifPerm==="denied"
+                ?"Ve a ajustes del navegador → Permisos del sitio → Notificaciones y desbloquéalas."
+                :"Necesitas activarlas para recibir alertas aunque la app esté en segundo plano."}
+            </div>
+          </div>
+          {notifPerm!=="denied"&&(
+            <button onClick={requestNotif} style={{background:"#0088cc",border:"none",color:"#fff",fontSize:8,fontWeight:700,padding:"5px 10px",borderRadius:4,cursor:"pointer",flexShrink:0}}>Activar</button>
+          )}
         </div>
       )}
 
