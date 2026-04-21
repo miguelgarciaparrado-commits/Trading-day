@@ -310,7 +310,7 @@ function qfParseAmount(str){
   if(!str&&str!==0)return null;
   var s=String(str).trim();
   var neg=s.charAt(0)==="-";
-  var cleaned=s.replace(/[+\-₸\$€,\s]/g,"");
+  var cleaned=s.replace(/[+\-₸₮\$€,\s]/g,"");
   var n=parseFloat(cleaned);
   return isNaN(n)?null:(neg?-n:n);
 }
@@ -345,12 +345,12 @@ function qfParseDataRow(text){
   else{symbol=before;}
   // G&P at end — has explicit +/- sign
   var pnl=null;
-  var pnlM=after.match(/([+\-][₸\$€][\d,]+\.?\d*)$/);
-  if(!pnlM)pnlM=after.match(/([+\-][\d,]+\.?\d*[₸\$€]?)$/);
+  var pnlM=after.match(/([+\-][₸₮\$€][\d,]+\.?\d*)$/);
+  if(!pnlM)pnlM=after.match(/([+\-][\d,]+\.?\d*[₸₮\$€]?)$/);
   if(pnlM){pnl=qfParseAmount(pnlM[1]);after=after.substring(0,after.length-pnlM[1].length).trim();}
   // Value at end: currency symbol + number
   var value=null;
-  var valM=after.match(/([₸\$€][\d,]+\.?\d*)$/);
+  var valM=after.match(/([₸₮\$€][\d,]+\.?\d*)$/);
   if(valM){value=qfParseAmount(valM[1]);after=after.substring(0,after.length-valM[1].length).trim();}
   // Remaining: PRICE [QUANTITY UNIT]
   var price=null,quantity=null,unit=null;
@@ -427,7 +427,7 @@ function qfParseAllRows(textRows,onProgress){
     if(t.indexOf("Quantfury Trading")>=0||t.indexOf("support@")>=0||t.indexOf("Por favor")>=0)return;
     if(!section)return;
     if(t.startsWith("Total")){
-      var tm=t.match(/Total\s+([+\-]?[₸\$€]?[\d,]+\.?\d*)/);
+      var tm=t.match(/Total\s+([+\-]?[₸₮\$€]?[\d,]+\.?\d*)/);
       var tpnl=tm?qfParseAmount(tm[1]):null;
       if(currentGroup){currentGroup.pnlTotal=tpnl;closedGroups.push(currentGroup);currentGroup=null;}
       return;
