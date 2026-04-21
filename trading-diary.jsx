@@ -296,7 +296,7 @@ const TL={win:"VICTORIA",mistake:"ERROR",lesson:"LECCION",analysis:"ANALISIS"};
 // ── WEB PUSH (PWA notifications) ──────────────────────────────────────
 // Replace with your own key — generate via `node scripts/generate-vapid.js`.
 // Public key only; private key lives in the Supabase Edge Function secret.
-const VAPID_PUBLIC_KEY="BHgYilUYl_61I-86siTLFYhvf7M_N2rrWZ7IENZ_Idc5O_8vUou1_WcJDrU0ZUz0xNPcDesSWOLwq4lW2Jmiofw";
+const VAPID_PUBLIC_KEY="BO2tqw71Ldp5YRpYds7NqsiBkVE3BAGZl2XcVAQYdJq8a03DY8efCjabKSq9fQQ8igRvU53BkOyxC9xcoPUpOVE";
 const PUSH_USER_ID="miguel"; // matches Supabase trading_data.user_id
 
 function urlBase64ToUint8Array(base64String){
