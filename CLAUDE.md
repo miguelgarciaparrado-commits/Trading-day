@@ -460,6 +460,112 @@ node src/imbalances/tp-cascade-tests.js
 
 ---
 
+## PWA + Web Push Notifications
+
+The app is an installable PWA on Android with native push notifications fanned
+out by a Supabase Edge Function (`send-push`). Telegram runs in parallel as a
+fallback during the transition window.
+
+### Files
+
+| File | Role |
+|------|------|
+| `manifest.json` | PWA manifest (install metadata, icons, shortcuts) |
+| `sw.js` | Service Worker (push handler, notificationclick router, cache shell) |
+| `icon.svg` | App icon — referenced by manifest and notifications |
+| `migrations/add_push_subscriptions.sql` | `public.push_subscriptions` DDL (one row per device) |
+| `supabase/functions/send-push/index.ts` | Edge Function: fan-out push to active subs via `web-push` |
+| `scripts/generate-vapid.js` | Generate VAPID keypair (Node built-in crypto, no deps) |
+
+### Setup (one-time)
+
+```bash
+# 1. Generate VAPID keys
+node scripts/generate-vapid.js
+# → copy VAPID_PUBLIC_KEY into trading-diary.jsx (constant VAPID_PUBLIC_KEY)
+# → store both keys as Supabase secrets
+
+# 2. Create the DB table
+# Open Supabase SQL editor → paste migrations/add_push_subscriptions.sql → run
+
+# 3. Set Edge Function secrets
+supabase secrets set VAPID_PUBLIC_KEY=<public>
+supabase secrets set VAPID_PRIVATE_KEY=<private>
+supabase secrets set VAPID_SUBJECT=mailto:you@example.com
+
+# 4. Deploy the Edge Function
+supabase functions deploy send-push --no-verify-jwt
+
+# 5. Rebuild and redeploy the frontend
+node build.js && cp trading-diary.html index.html
+git add … && git commit -m "…" && git push
+```
+
+### Subscription flow
+
+1. User opens Alertas tab → clicks 🔔 button.
+2. `subscribePush()` requests `Notification.permission` (Chrome Android shows OS prompt).
+3. On grant: `pushManager.subscribe({userVisibleOnly:true, applicationServerKey:VAPID_PUBLIC_KEY})`.
+4. Endpoint + `p256dh` + `auth` are POSTed to `push_subscriptions` via PostgREST.
+5. Button turns green; the SW will now handle incoming push events even when the tab is closed.
+
+Unsubscribe: pulsar el botón 🔔 activo → `sub.unsubscribe()` + PATCH row `is_active=false`.
+
+### Payload format (client → Edge Function)
+
+```json
+{
+  "user_id": "miguel",
+  "payload": {
+    "title": "🎯 ORDEN LONG 4H — FVG alcista",
+    "body":  "Entry $60,680 | SL $59,820 | R/R 2.1:1",
+    "tag":   "td-BTC/USD-4h-patron_fvg",
+    "icon":  "/icon.svg",
+    "badge": "/icon.svg",
+    "vibrate": [200, 100, 200],
+    "data": {
+      "deepLink":   "/?tab=7&sym=BTC%2FUSD&tf=4h",
+      "signalType": "patron_fvg"
+    },
+    "actions": [
+      {"action": "open_trade", "title": "Abrí la orden"},
+      {"action": "dismiss",    "title": "Ignorar"}
+    ]
+  }
+}
+```
+
+### Deep link routing
+
+The SW's `notificationclick` handler opens/focuses a client window at the
+`deepLink` URL. `trading-diary.jsx` reads `?tab=N` on load and sets the active
+tab. When `action=open_trade`, a flag is persisted to
+`localStorage["td-pending-trade-action"]` so the Posiciones tab can pick it up.
+
+Tab indices (see `TABS` array):
+
+| Tab | Index | URL |
+|---|---|---|
+| Resumen | 0 | `/?tab=0` |
+| Posiciones | 1 | `/?tab=1` |
+| Historial | 2 | `/?tab=2` |
+| Alertas | 7 | `/?tab=7` |
+| Chat | 8 | `/?tab=8` |
+
+### Fallback behaviour
+
+- Telegram still fires on every `sendAlert` / `notifyAutoClose` → push is purely additive right now.
+- If the push endpoint returns 404/410 (expired subscription), the Edge Function marks it `is_active=false` automatically.
+- `pushsubscriptionchange` event in the SW posts a message to open clients so the app can re-subscribe (automatic renewal: future enhancement).
+
+### iOS note
+
+Out of scope for this PR. iOS Safari requires the user to install the PWA to
+the home screen **before** push works, and even then the VAPID delivery path
+has quirks. Android Chrome is the primary target.
+
+---
+
 ## Historical Data Constants
 
 ```javascript

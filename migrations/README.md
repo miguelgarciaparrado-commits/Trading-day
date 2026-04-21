@@ -17,6 +17,7 @@ same fields to each `xhist` entry at runtime.
 | File | Purpose | Status |
 |------|---------|--------|
 | `add_audit_fields.sql` | v1 audit fields (sl_initial, thesis_text, audit_report, broker, …) | Not executed |
+| `add_push_subscriptions.sql` | Web Push subscription storage (one row per device) | TO EXECUTE once |
 
 ## Running a migration (future)
 
