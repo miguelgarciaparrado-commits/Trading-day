@@ -571,6 +571,45 @@ function qfGenerateDiagnosis(trades){
   };
 }
 
+function mapQfTradeToHist(t){
+  // Strip quote currency for display: ETH/USDT → ETH, BTC/USD → BTC
+  var asset=t.symbol.replace(/\/(USDT|USD|EUR|GBP|BUSD|BTC|ETH)$/i,"");
+  if(!asset)asset=t.symbol;
+  var dir=t.direction==="long"?"Long":"Short";
+  // Date from closed_at (prefer) else opened_at
+  var dateStr="";
+  var dtSrc=t.closed_at||t.opened_at;
+  if(dtSrc){
+    var d=new Date(dtSrc);
+    if(!isNaN(d.getTime())){
+      var dd=String(d.getDate()).padStart(2,"0");
+      var mm=String(d.getMonth()+1).padStart(2,"0");
+      dateStr=dd+"/"+mm+"/"+d.getFullYear();
+    }
+  }
+  var flags=t.auto_flags||{};
+  var noteParts=[];
+  if(flags.averaged_down)noteParts.push("prom.baja");
+  if(flags.catastrophic_loss)noteParts.push("pérdida cat.");
+  else if(flags.large_loss)noteParts.push("pérdida grande");
+  if(flags.micro_gain)noteParts.push("micro ganancia");
+  if(flags.held_over_30d)noteParts.push("held >30d");
+  var note="QF"+(noteParts.length>0?" · "+noteParts.join(", "):"");
+  return{
+    id:"qf_"+t.symbol+"_"+(t.opened_at||Math.random()),
+    asset:asset,
+    dir:dir,
+    cap:Math.round(t.total_size_usd||0),
+    result:t.pnl_usd!==null&&t.pnl_usd!==undefined?t.pnl_usd:0,
+    date:dateStr,
+    note:note,
+    source:"imported_quantfury",
+    qf_symbol:t.symbol,
+    qf_auto_flags:flags,
+    qf_duration_hours:t.duration_hours
+  };
+}
+
 const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat","Auditoría","Importar","Diagnóstico"];
 const TC={win:"#00ff88",mistake:"#ff4444",lesson:"#f0b429",analysis:"#888"};
 const TL={win:"VICTORIA",mistake:"ERROR",lesson:"LECCION",analysis:"ANALISIS"};
@@ -915,6 +954,7 @@ export default function App(){
   const[hSearch,setHSearch]=useState("");
   const[hFilter,setHFilter]=useState("all");
   const[hSort,setHSort]=useState("desc");
+  const[hSource,setHSource]=useState("all"); // all | quantfury | sistema
   const[showManualTrade,setShowManualTrade]=useState(false);
   const[manualForm,setManualForm]=useState({asset:"",dir:"Long",capital:"",entry:"",close:"",note:"",date:""});
   const[predictions,setPredictions]=useState(function(){
@@ -1483,11 +1523,13 @@ export default function App(){
     return m;
   })();
   const getPnL=p=>{const c=PM[p.asset]||p.entry;const r=p.dir==="Short"?(p.entry-c)/p.entry:(c-p.entry)/p.entry;return p.capital*r;};
-  const hist=[...xhist,...H0];
-  // Base exacta de Quantfury (244 ops cerradas al 23/03/2026) + nuevos cierres via app
-  // QUANTFURY_BASE = perdida total oficial Quantfury al 23/03/2026 (246 operaciones cerradas)
-  // xhistTotal = P&L de closes hechos VIA LA APP despues del 23/03/2026
-  const QUANTFURY_BASE=-7471.73;
+  // Imported Quantfury trades take priority over the hardcoded H0 array
+  var qfHistEntries=qfTrades&&qfTrades.length>0?qfTrades.map(mapQfTradeToHist):H0;
+  const hist=[...xhist,...qfHistEntries];
+  // QUANTFURY_BASE: use live imported total when available, else hardcoded March 2026 total
+  const QUANTFURY_BASE=qfTrades&&qfTrades.length>0
+    ?qfTrades.reduce(function(s,t){return s+(t.pnl_usd||0);},0)
+    :-7471.73;
   const xhistTotal=xhist.reduce((a,h)=>a+(h.result||0),0);
   const h0Total=QUANTFURY_BASE+xhistTotal;
   const ethU=(pr.ETH-3621.58)*1.95209253;
@@ -1505,7 +1547,12 @@ export default function App(){
     return p[2]+p[1].padStart(2,"0")+p[0].padStart(2,"0");
   }
   const fH=hist
-    .filter(h=>(hFilter==="all"||hFilter===h.dir.toLowerCase())&&(!hSearch||h.asset.toLowerCase().includes(hSearch.toLowerCase())))
+    .filter(function(h){
+      var srcOk=hSource==="all"||(hSource==="quantfury"&&h.source==="imported_quantfury")||(hSource==="sistema"&&h.source!=="imported_quantfury");
+      var dirOk=hFilter==="all"||hFilter===h.dir.toLowerCase();
+      var schOk=!hSearch||h.asset.toLowerCase().indexOf(hSearch.toLowerCase())>=0;
+      return srcOk&&dirOk&&schOk;
+    })
     .sort((a,b)=>{
       const da=dateKey(a.date);
       const db=dateKey(b.date);
@@ -2394,8 +2441,22 @@ export default function App(){
         {/* ═══ HISTORIAL ═══ */}
         {tab==="Historial"&&(
           <div>
-            <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:4}}>HISTORIAL QUANTFURY</div>
-            <div style={{fontSize:9,color:"#555",marginBottom:10}}>239 ops. PDF oficial</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{fontSize:10,color:"#f0b429",fontWeight:700}}>HISTORIAL COMPLETO</div>
+              <div style={{fontSize:9,color:"#444"}}>
+                {(qfTrades&&qfTrades.length>0)?(
+                  <span style={{color:"#00ff88"}}>{qfTrades.length} QF importadas</span>
+                ):(
+                  <span style={{color:"#555"}}>H0 ({H0.length} hardcodeadas)</span>
+                )}
+                {xhist.length>0&&<span style={{color:"#666"}}>{" + "+xhist.length+" app"}</span>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
+              {[["all","Todo"],["quantfury","Quantfury"],["sistema","Con sistema"]].map(function(f){
+                return <button key={f[0]} onClick={function(){setHSource(f[0]);}} style={{padding:"3px 8px",borderRadius:3,fontSize:9,fontWeight:700,border:"none",cursor:"pointer",background:hSource===f[0]?"#f0b429":"#1e1e2e",color:hSource===f[0]?"#0a0a0f":"#555"}}>{f[1].toUpperCase()}</button>;
+              })}
+            </div>
             <div style={S.grid(110)}>
               {[
                 {l:"REGISTRADAS",v:hist.length,c:"#e0e0e0"},
@@ -2548,12 +2609,14 @@ export default function App(){
                     var result=over.result!==undefined?over.result:h.result;
                     var note=over.note||h.note||"";
                     var isAppEntry=xhist.some(function(x){return x.id===h.id;});
+                    var isQfEntry=h.source==="imported_quantfury";
                     return(
                       <div key={h.id} style={S.row}>
                         <div style={{display:"flex",gap:7,alignItems:"center",flex:1,minWidth:0}}>
                           <span style={{fontSize:9,color:"#444",width:70,flexShrink:0}}>{h.date}</span>
                           <span style={{fontWeight:600}}>{h.asset}</span>
                           <span style={S.bdg(h.dir==="Short"?"#ff4444":"#00ff88")}>{h.dir}</span>
+                          {isQfEntry&&<span style={{...S.bdg("#0d2a1a"),color:"#00aa55",fontSize:8,letterSpacing:1}}>QF</span>}
                           {note&&<span style={{...S.bdg(note.includes("LIQUIDACION")?"#ff6600":"#555"),maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{note}</span>}
                         </div>
                         <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
