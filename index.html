@@ -426,7 +426,400 @@ function generateProfileSummary(ps, pats, jnl, hist, xhist, sc, predictions) {
     }
     return items;
 }
-const TABS = ["Resumen", "Posiciones", "Historial", "Patrones", "Perfil", "Recuperacion", "Calendario", "Alertas", "Chat", "Auditoría"];
+// ==================== QUANTFURY PDF PARSER + DIAGNOSIS ====================
+function qfLoadPdfJs(cb) {
+    if (window.pdfjsLib) {
+        cb(null);
+        return;
+    }
+    var s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    s.onload = function () {
+        if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+                "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        }
+        cb(null);
+    };
+    s.onerror = function () { cb(new Error("No se pudo cargar pdf.js")); };
+    document.head.appendChild(s);
+}
+function qfParseAmount(str) {
+    if (!str && str !== 0)
+        return null;
+    var s = String(str).trim();
+    var neg = s.charAt(0) === "-";
+    var cleaned = s.replace(/[+\-₸\$€,\s]/g, "");
+    var n = parseFloat(cleaned);
+    return isNaN(n) ? null : (neg ? -n : n);
+}
+function qfParseDate(str) {
+    if (!str)
+        return null;
+    var m = str.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+([AP]M)\s+UTC/);
+    if (!m)
+        return null;
+    var d = parseInt(m[1]), mo = parseInt(m[2]) - 1, y = parseInt(m[3]);
+    var h = parseInt(m[4]), mi = parseInt(m[5]), sec = parseInt(m[6]), ampm = m[7];
+    if (ampm === "PM" && h !== 12)
+        h += 12;
+    if (ampm === "AM" && h === 12)
+        h = 0;
+    return new Date(Date.UTC(y, mo, d, h, mi, sec));
+}
+var QF_ACTIONS = ["COMPRAR (abrir)", "VENDER (abrir)", "COMPRAR (añadir)", "VENDER (añadir)", "COMPRAR (reducir)", "VENDER (reducir)", "COMPRAR (cerrar)", "VENDER (cerrar)"];
+function qfDetectAction(text) {
+    for (var i = 0; i < QF_ACTIONS.length; i++) {
+        if (text.indexOf(QF_ACTIONS[i]) >= 0)
+            return QF_ACTIONS[i];
+    }
+    return null;
+}
+function qfParseDataRow(text) {
+    var action = qfDetectAction(text);
+    if (!action)
+        return null;
+    var ai = text.indexOf(action);
+    var before = text.substring(0, ai).trim();
+    var after = text.substring(ai + action.length).trim();
+    var dm = before.match(/(\d{2}\/\d{2}\/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s+UTC)/);
+    var symbol = "", datetime = "";
+    if (dm) {
+        var di = before.indexOf(dm[1]);
+        symbol = before.substring(0, di).trim();
+        datetime = dm[1];
+    }
+    else {
+        symbol = before;
+    }
+    // G&P at end — has explicit +/- sign
+    var pnl = null;
+    var pnlM = after.match(/([+\-][₸\$€][\d,]+\.?\d*)$/);
+    if (!pnlM)
+        pnlM = after.match(/([+\-][\d,]+\.?\d*[₸\$€]?)$/);
+    if (pnlM) {
+        pnl = qfParseAmount(pnlM[1]);
+        after = after.substring(0, after.length - pnlM[1].length).trim();
+    }
+    // Value at end: currency symbol + number
+    var value = null;
+    var valM = after.match(/([₸\$€][\d,]+\.?\d*)$/);
+    if (valM) {
+        value = qfParseAmount(valM[1]);
+        after = after.substring(0, after.length - valM[1].length).trim();
+    }
+    // Remaining: PRICE [QUANTITY UNIT]
+    var price = null, quantity = null, unit = null;
+    var restM = after.match(/^(\$?[\d,]+\.?\d*)\s*(.*)$/);
+    if (restM) {
+        price = qfParseAmount(restM[1]);
+        var qtyPart = restM[2].trim();
+        if (qtyPart) {
+            var qtyM = qtyPart.match(/^([\d,]+\.?\d*)\s+(.+)$/);
+            if (qtyM) {
+                quantity = parseFloat(qtyM[1].replace(/,/g, ""));
+                unit = qtyM[2].trim();
+            }
+            else {
+                unit = qtyPart;
+            }
+        }
+    }
+    return { symbol: symbol, datetime: datetime, action: action, price: price, quantity: quantity, unit: unit, value: value, pnl: pnl };
+}
+async function qfExtractTextRows(file, onProgress) {
+    return new Promise(function (resolve, reject) {
+        qfLoadPdfJs(async function (err) {
+            if (err) {
+                reject(err);
+                return;
+            }
+            try {
+                var buf = await file.arrayBuffer();
+                var pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+                var textRows = [];
+                for (var p = 1; p <= pdf.numPages; p++) {
+                    if (onProgress)
+                        onProgress(Math.round(p / pdf.numPages * 50));
+                    var page = await pdf.getPage(p);
+                    var vp = page.getViewport({ scale: 1 });
+                    var content = await page.getTextContent();
+                    var items = [];
+                    content.items.forEach(function (item) {
+                        if (!item.str || !item.str.trim())
+                            return;
+                        items.push({ text: item.str, x: Math.round(item.transform[4]), y: Math.round(vp.height - item.transform[5]) });
+                    });
+                    items.sort(function (a, b) { var yd = a.y - b.y; if (Math.abs(yd) > 4)
+                        return yd; return a.x - b.x; });
+                    var rows = [], cur = null;
+                    items.forEach(function (item) {
+                        if (!cur || Math.abs(item.y - cur.y) > 4) {
+                            cur = { y: item.y, texts: [item.text] };
+                            rows.push(cur);
+                        }
+                        else {
+                            cur.texts.push(item.text);
+                        }
+                    });
+                    rows.forEach(function (r) { textRows.push(r.texts.join(" ").trim()); });
+                }
+                resolve(textRows);
+            }
+            catch (e) {
+                reject(e);
+            }
+        });
+    });
+}
+function qfParseAllRows(textRows, onProgress) {
+    var section = null, subsection = null;
+    var openGroups = [], closedGroups = [];
+    var currentGroup = null;
+    function pushCurrent() {
+        if (currentGroup && currentGroup.rows.length > 0) {
+            if (section === "open")
+                openGroups.push(currentGroup);
+            else if (section === "closed")
+                closedGroups.push(currentGroup);
+        }
+        currentGroup = null;
+    }
+    textRows.forEach(function (text, idx) {
+        if (onProgress && idx % 50 === 0)
+            onProgress(50 + Math.round(idx / textRows.length * 30));
+        var t = text.trim();
+        if (!t)
+            return;
+        if (t === "Posiciones Abiertas") {
+            section = "open";
+            subsection = null;
+            return;
+        }
+        if (t === "Posiciones Cerradas") {
+            pushCurrent();
+            section = "closed";
+            subsection = null;
+            return;
+        }
+        if (t === "Información importante") {
+            pushCurrent();
+            section = null;
+            return;
+        }
+        if (t === "Acciones y ETFs") {
+            if (section === "open")
+                pushCurrent();
+            subsection = "stocks";
+            return;
+        }
+        if (t === "Pares de criptomonedas") {
+            if (section === "open")
+                pushCurrent();
+            subsection = "crypto";
+            return;
+        }
+        if (t === "Pares de divisas") {
+            if (section === "open")
+                pushCurrent();
+            subsection = "forex";
+            return;
+        }
+        if (t.indexOf("Símbolo") >= 0 || t.indexOf("Fecha/Hora") >= 0)
+            return;
+        if (t.indexOf("Informe del historial") >= 0 || t.indexOf("Página:") >= 0)
+            return;
+        if (t.indexOf("Información de la cuenta") >= 0 || t.indexOf("Nombre del cliente") >= 0)
+            return;
+        if (t.indexOf("MIGUEL") >= 0 || t.indexOf("Generado:") >= 0 || t.indexOf("QUANTFURY") >= 0)
+            return;
+        if (t.indexOf("Quantfury Trading") >= 0 || t.indexOf("support@") >= 0 || t.indexOf("Por favor") >= 0)
+            return;
+        if (!section)
+            return;
+        if (t.startsWith("Total")) {
+            var tm = t.match(/Total\s+([+\-]?[₸\$€]?[\d,]+\.?\d*)/);
+            var tpnl = tm ? qfParseAmount(tm[1]) : null;
+            if (currentGroup) {
+                currentGroup.pnlTotal = tpnl;
+                closedGroups.push(currentGroup);
+                currentGroup = null;
+            }
+            return;
+        }
+        var row = qfParseDataRow(t);
+        if (row && row.symbol && row.action) {
+            row.subsection = subsection;
+            if (section === "closed") {
+                if (!currentGroup) {
+                    currentGroup = { symbol: row.symbol, subsection: subsection, rows: [], pnlTotal: null };
+                }
+                currentGroup.rows.push(row);
+            }
+            else {
+                if (!currentGroup || currentGroup.symbol !== row.symbol) {
+                    pushCurrent();
+                    currentGroup = { symbol: row.symbol, subsection: subsection, rows: [], pnlTotal: null };
+                }
+                currentGroup.rows.push(row);
+            }
+        }
+    });
+    pushCurrent();
+    return { openGroups: openGroups, closedGroups: closedGroups };
+}
+function qfCalcMetrics(group) {
+    var rows = group.rows;
+    if (!rows || rows.length === 0)
+        return null;
+    var firstRow = rows[0];
+    var dir = "unknown";
+    if (firstRow.action === "COMPRAR (abrir)")
+        dir = "long";
+    else if (firstRow.action === "VENDER (abrir)")
+        dir = "short";
+    var openRows = rows.filter(function (r) { return r.action.indexOf("abrir") >= 0; });
+    var addRows = rows.filter(function (r) { return r.action.indexOf("añadir") >= 0; });
+    var reduceRows = rows.filter(function (r) { return r.action.indexOf("reducir") >= 0; });
+    var closeRows = rows.filter(function (r) { return r.action.indexOf("cerrar") >= 0; });
+    var entryRows = openRows.concat(addRows);
+    var exitRows = reduceRows.concat(closeRows);
+    var entryAvg = null, totalEntryQty = 0, weightedEntry = 0;
+    entryRows.forEach(function (r) { if (r.price && r.quantity) {
+        totalEntryQty += r.quantity;
+        weightedEntry += r.price * r.quantity;
+    } });
+    if (totalEntryQty > 0)
+        entryAvg = weightedEntry / totalEntryQty;
+    else if (firstRow.price)
+        entryAvg = firstRow.price;
+    var exitAvg = null, totalExitQty = 0, weightedExit = 0;
+    exitRows.forEach(function (r) { if (r.price && r.quantity) {
+        totalExitQty += r.quantity;
+        weightedExit += r.price * r.quantity;
+    } });
+    if (totalExitQty > 0)
+        exitAvg = weightedExit / totalExitQty;
+    var peakSize = 0;
+    entryRows.forEach(function (r) { if (r.value)
+        peakSize += Math.abs(r.value); });
+    var pnl = group.pnlTotal;
+    if (pnl === null || pnl === undefined) {
+        var ps2 = 0;
+        rows.forEach(function (r) { if (r.pnl !== null && r.pnl !== undefined)
+            ps2 += r.pnl; });
+        pnl = ps2;
+    }
+    var openedAt = qfParseDate(firstRow.datetime);
+    var lastRow = rows[rows.length - 1];
+    var closedAt = qfParseDate(lastRow.datetime);
+    var durationHours = null;
+    if (openedAt && closedAt && closedAt > openedAt)
+        durationHours = (closedAt - openedAt) / 3600000;
+    var avgDown = false, scaledWinner = false;
+    if (addRows.length > 0 && firstRow.price) {
+        addRows.forEach(function (r) {
+            if (!r.price)
+                return;
+            if (dir === "long" && r.price < firstRow.price)
+                avgDown = true;
+            if (dir === "short" && r.price > firstRow.price)
+                avgDown = true;
+            if (dir === "long" && r.price > firstRow.price)
+                scaledWinner = true;
+            if (dir === "short" && r.price < firstRow.price)
+                scaledWinner = true;
+        });
+    }
+    return {
+        symbol: group.symbol, subsection: group.subsection || "unknown", direction: dir,
+        entry_avg_price: entryAvg, exit_avg_price: exitAvg, total_size_usd: peakSize,
+        pnl_usd: pnl, pnl_pct: peakSize > 0 && pnl !== null ? pnl / peakSize * 100 : null,
+        opened_at: openedAt ? openedAt.toISOString() : null,
+        closed_at: closedAt ? closedAt.toISOString() : null,
+        duration_hours: durationHours,
+        num_additions: addRows.length, num_partials: reduceRows.length,
+        auto_flags: {
+            averaged_down: avgDown, scaled_winner: scaledWinner,
+            held_over_30d: durationHours !== null && durationHours > 720,
+            micro_gain: pnl !== null && pnl > 0 && pnl < 5 && peakSize > 500,
+            large_loss: pnl !== null && pnl < -100,
+            catastrophic_loss: pnl !== null && pnl < -500
+        },
+        raw_rows: rows
+    };
+}
+function qfGenerateDiagnosis(trades) {
+    var valid = (trades || []).filter(function (t) { return t.pnl_usd !== null; });
+    var n = valid.length;
+    if (n === 0)
+        return null;
+    var winners = valid.filter(function (t) { return t.pnl_usd > 0; });
+    var losers = valid.filter(function (t) { return t.pnl_usd < 0; });
+    var breakeven = valid.filter(function (t) { return t.pnl_usd === 0; });
+    var totalPnl = valid.reduce(function (s, t) { return s + t.pnl_usd; }, 0);
+    var avgWin = winners.length > 0 ? winners.reduce(function (s, t) { return s + t.pnl_usd; }, 0) / winners.length : 0;
+    var avgLossAbs = losers.length > 0 ? Math.abs(losers.reduce(function (s, t) { return s + t.pnl_usd; }, 0) / losers.length) : 0;
+    var grossWin = winners.reduce(function (s, t) { return s + t.pnl_usd; }, 0);
+    var grossLoss = Math.abs(losers.reduce(function (s, t) { return s + t.pnl_usd; }, 0));
+    var pf = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? 999 : 0);
+    var maxWin = winners.length > 0 ? winners.reduce(function (mx, t) { return t.pnl_usd > mx.pnl_usd ? t : mx; }, winners[0]) : null;
+    var maxLoss = losers.length > 0 ? losers.reduce(function (mn, t) { return t.pnl_usd < mn.pnl_usd ? t : mn; }, losers[0]) : null;
+    var dates = valid.filter(function (t) { return t.opened_at; }).map(function (t) { return new Date(t.opened_at).getTime(); });
+    var firstDate = dates.length > 0 ? new Date(Math.min.apply(null, dates)) : null;
+    var lastDate = dates.length > 0 ? new Date(Math.max.apply(null, dates)) : null;
+    var assetMap = {};
+    valid.forEach(function (t) {
+        var sym = t.symbol;
+        if (!assetMap[sym])
+            assetMap[sym] = { trades: 0, pnl: 0, wins: 0 };
+        assetMap[sym].trades++;
+        assetMap[sym].pnl += t.pnl_usd;
+        if (t.pnl_usd > 0)
+            assetMap[sym].wins++;
+    });
+    var assetList = Object.keys(assetMap).map(function (sym) {
+        var a = assetMap[sym];
+        return { symbol: sym, trades: a.trades, pnl: a.pnl, winRate: a.wins / a.trades, pct: totalPnl !== 0 ? a.pnl / totalPnl : 0 };
+    }).sort(function (a, b) { return Math.abs(b.pnl) - Math.abs(a.pnl); });
+    var monthMap = {};
+    valid.forEach(function (t) {
+        if (!t.opened_at)
+            return;
+        var d = new Date(t.opened_at);
+        var k = d.getFullYear() + "-" + (d.getMonth() + 1 < 10 ? "0" : "") + (d.getMonth() + 1);
+        if (!monthMap[k])
+            monthMap[k] = 0;
+        monthMap[k] += t.pnl_usd;
+    });
+    var months = Object.keys(monthMap).sort().map(function (k) { return { month: k, pnl: monthMap[k] }; });
+    var bestMonth = months.length > 0 ? months.reduce(function (mx, m) { return m.pnl > mx.pnl ? m : mx; }, months[0]) : { month: "N/D", pnl: 0 };
+    var worstMonth = months.length > 0 ? months.reduce(function (mn, m) { return m.pnl < mn.pnl ? m : mn; }, months[0]) : { month: "N/D", pnl: 0 };
+    var avgDownTrades = valid.filter(function (t) { return t.auto_flags && t.auto_flags.averaged_down; });
+    var microGainTrades = valid.filter(function (t) { return t.auto_flags && t.auto_flags.micro_gain; });
+    var catLossTrades = valid.filter(function (t) { return t.auto_flags && t.auto_flags.catastrophic_loss; });
+    var largeLossTrades = valid.filter(function (t) { return t.auto_flags && t.auto_flags.large_loss && !t.auto_flags.catastrophic_loss; });
+    var heldLongTrades = valid.filter(function (t) { return t.auto_flags && t.auto_flags.held_over_30d; });
+    return {
+        n: n, winRate: winners.length / n, winners: winners.length, losers: losers.length, breakeven: breakeven.length,
+        totalPnl: totalPnl, avgWin: avgWin, avgLossAbs: avgLossAbs, profitFactor: pf, expectancy: totalPnl / n,
+        maxWin: maxWin, maxLoss: maxLoss, firstDate: firstDate, lastDate: lastDate,
+        assets: assetList, months: months, bestMonth: bestMonth, worstMonth: worstMonth,
+        avgDownTrades: avgDownTrades, microGainTrades: microGainTrades,
+        catLossTrades: catLossTrades, largeLossTrades: largeLossTrades, heldLongTrades: heldLongTrades,
+        buckets: {
+            loss_cat: catLossTrades.length,
+            loss_large: largeLossTrades.length,
+            loss_med: valid.filter(function (t) { return t.pnl_usd < -10 && t.pnl_usd >= -100; }).length,
+            loss_small: valid.filter(function (t) { return t.pnl_usd < 0 && t.pnl_usd >= -10; }).length,
+            gain_small: valid.filter(function (t) { return t.pnl_usd > 0 && t.pnl_usd < 10; }).length,
+            gain_med: valid.filter(function (t) { return t.pnl_usd >= 10 && t.pnl_usd < 100; }).length,
+            gain_large: valid.filter(function (t) { return t.pnl_usd >= 100 && t.pnl_usd < 500; }).length,
+            gain_cat: valid.filter(function (t) { return t.pnl_usd >= 500; }).length
+        }
+    };
+}
+const TABS = ["Resumen", "Posiciones", "Historial", "Patrones", "Perfil", "Recuperacion", "Calendario", "Alertas", "Chat", "Auditoría", "Importar", "Diagnóstico"];
 const TC = { win: "#00ff88", mistake: "#ff4444", lesson: "#f0b429", analysis: "#888" };
 const TL = { win: "VICTORIA", mistake: "ERROR", lesson: "LECCION", analysis: "ANALISIS" };
 // ── WEB PUSH (PWA notifications) ──────────────────────────────────────
@@ -816,6 +1209,33 @@ function App() {
         }
         catch (e) { }
         return [];
+    });
+    const [qfTrades, setQfTrades] = useState(function () {
+        try {
+            var s = localStorage.getItem("td-qf-trades");
+            if (s)
+                return JSON.parse(s);
+        }
+        catch (e) { }
+        return [];
+    });
+    const [qfOpen, setQfOpen] = useState(function () {
+        try {
+            var s = localStorage.getItem("td-qf-open");
+            if (s)
+                return JSON.parse(s);
+        }
+        catch (e) { }
+        return [];
+    });
+    const [qfMeta, setQfMeta] = useState(function () {
+        try {
+            var s = localStorage.getItem("td-qf-meta");
+            if (s)
+                return JSON.parse(s);
+        }
+        catch (e) { }
+        return null;
     });
     // ── Deep link handler: read ?tab=N on load + listen to SW postMessage ──
     useEffect(function () {
@@ -2950,7 +3370,9 @@ function App() {
                 React.createElement(AlertasTab, { S: S, predictions: predictions })),
             React.createElement("div", { style: { display: tab === "Chat" ? "block" : "none" } },
                 React.createElement(ChatTab, { S: S, pos: pos, PM: PM, pats: pats, ps: ps, sc: sc, jnl: jnl, hist: hist, xhist: xhist, SPs: SPs, SJ: SJ, D: D, save: save, predictions: predictions, SPred: SPred, initialChatMsgs: D.current.chatMsgs || [] })),
-            tab === "Auditoría" && (React.createElement(AuditoriaTab, { xhist: xhist, S: S, fmtNum: fmtNum, reaudit: runAuditForEntry }))),
+            tab === "Auditoría" && (React.createElement(AuditoriaTab, { xhist: xhist, S: S, fmtNum: fmtNum, reaudit: runAuditForEntry })),
+            tab === "Importar" && (React.createElement(ImportarTab, { S: S, qfTrades: qfTrades, qfOpen: qfOpen, qfMeta: qfMeta, setQfTrades: setQfTrades, setQfOpen: setQfOpen, setQfMeta: setQfMeta })),
+            tab === "Diagnóstico" && (React.createElement(DiagnosticoTab, { S: S, qfTrades: qfTrades, qfOpen: qfOpen, qfMeta: qfMeta }))),
         modal.close && (React.createElement(ModalCerrar, { p: modal.close, PM: PM, getPnL: getPnL, fmtNum: fmtNum, fmtP: fmtP, closePos: closePos, setModal: setModal, S: S })),
         modal.prices && (React.createElement("div", { style: S.modal },
             React.createElement("div", { style: S.mc },
@@ -8246,6 +8668,405 @@ function CalendarioTab({ hist, fmtNum }) {
                             mData.reduce((a, [, v]) => a + v.ops.length, 0),
                             " ops"),
                         React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: mTot >= 0 ? "#00ff88" : "#ff4444", minWidth: 70, textAlign: "right" } }, fmtNum(mTot)))));
+            }))));
+}
+// ==================== IMPORTAR TAB ====================
+function ImportarTab({ S, qfTrades, qfOpen, qfMeta, setQfTrades, setQfOpen, setQfMeta }) {
+    const [importing, setImporting] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [error, setError] = useState(null);
+    const [result, setResult] = useState(null);
+    async function handleFile(ev) {
+        var file = ev.target.files && ev.target.files[0];
+        if (!file)
+            return;
+        if (file.type !== "application/pdf" && file.name.indexOf(".pdf") < 0) {
+            setError("El archivo debe ser un PDF");
+            return;
+        }
+        setImporting(true);
+        setProgress(5);
+        setError(null);
+        setResult(null);
+        try {
+            // Hash for duplicate detection
+            var buf = await file.arrayBuffer();
+            var hashBuf = await crypto.subtle.digest("SHA-256", buf);
+            var hashArr = Array.from(new Uint8Array(hashBuf));
+            var hash = hashArr.map(function (b) { return b.toString(16).padStart(2, "0"); }).join("").substring(0, 16);
+            if (qfMeta && qfMeta.hash === hash) {
+                setError("Este PDF ya fue importado el " + (qfMeta.importedAt ? new Date(qfMeta.importedAt).toLocaleDateString("es-ES") : ""));
+                setImporting(false);
+                return;
+            }
+            setProgress(10);
+            var textRows = await qfExtractTextRows(file, function (p) { setProgress(p); });
+            setProgress(80);
+            var parsed = qfParseAllRows(textRows, function (p) { setProgress(p); });
+            setProgress(92);
+            var closedTrades = parsed.closedGroups.map(qfCalcMetrics).filter(Boolean);
+            var openPositions = parsed.openGroups.map(qfCalcMetrics).filter(Boolean);
+            var meta = { hash: hash, importedAt: Date.now(), count: closedTrades.length, openCount: openPositions.length, filename: file.name };
+            try {
+                localStorage.setItem("td-qf-trades", JSON.stringify(closedTrades));
+            }
+            catch (e) { }
+            try {
+                localStorage.setItem("td-qf-open", JSON.stringify(openPositions));
+            }
+            catch (e) { }
+            try {
+                localStorage.setItem("td-qf-meta", JSON.stringify(meta));
+            }
+            catch (e) { }
+            setQfTrades(closedTrades);
+            setQfOpen(openPositions);
+            setQfMeta(meta);
+            setResult({ count: closedTrades.length, openCount: openPositions.length });
+            setProgress(100);
+        }
+        catch (err2) {
+            setError("Error al parsear el PDF: " + ((err2 && err2.message) || String(err2)));
+        }
+        setImporting(false);
+    }
+    return (React.createElement("div", { style: { padding: 16, maxWidth: 680 } },
+        React.createElement("div", { style: { fontSize: 13, color: "#00ff88", fontWeight: 700, marginBottom: 16, letterSpacing: 1 } }, "IMPORTAR HISTORIAL QUANTFURY"),
+        !result && (React.createElement("div", { style: { background: "rgba(255,255,255,.03)", border: "1px solid #333", borderRadius: 8, padding: 20, marginBottom: 16 } },
+            React.createElement("div", { style: { fontSize: 10, color: "#777", marginBottom: 14, lineHeight: 1.6 } }, "Sube el PDF \"Informe del historial de trading\" exportado desde Quantfury. Los datos se guardan localmente \u2014 el PDF se descarta tras el parseo. Importar el mismo PDF dos veces no duplica datos (detectado por hash)."),
+            React.createElement("label", { style: { cursor: importing ? "not-allowed" : "pointer", display: "block" } },
+                React.createElement("div", { style: { border: "2px dashed " + (importing ? "#333" : "#444"), borderRadius: 8, padding: 28, textAlign: "center", color: importing ? "#444" : "#666", fontSize: 11, transition: "border-color .2s" } }, importing ? "Procesando... " + progress + "%" : "📄 Clic para seleccionar PDF"),
+                React.createElement("input", { type: "file", accept: ".pdf,application/pdf", style: { display: "none" }, onChange: handleFile, disabled: importing })),
+            importing && (React.createElement("div", { style: { marginTop: 10, background: "#111", borderRadius: 4, height: 6, overflow: "hidden" } },
+                React.createElement("div", { style: { background: "#00ff88", height: 6, borderRadius: 4, width: progress + "%", transition: "width .3s" } }))))),
+        error && (React.createElement("div", { style: { background: "rgba(255,68,68,.08)", border: "1px solid rgba(255,68,68,.4)", borderRadius: 6, padding: 12, marginBottom: 12, fontSize: 11, color: "#ff6666" } },
+            "\u26A0\uFE0F ",
+            error)),
+        result && (React.createElement("div", { style: { background: "rgba(0,255,136,.05)", border: "1px solid rgba(0,255,136,.4)", borderRadius: 8, padding: 16, marginBottom: 16 } },
+            React.createElement("div", { style: { fontSize: 12, color: "#00ff88", fontWeight: 700, marginBottom: 8 } }, "\u2705 Importaci\u00F3n completada"),
+            React.createElement("div", { style: { fontSize: 11, color: "#ccc", lineHeight: 1.8 } },
+                React.createElement("div", null,
+                    "Operaciones cerradas: ",
+                    React.createElement("strong", { style: { color: "#fff" } }, result.count)),
+                React.createElement("div", null,
+                    "Posiciones abiertas (snapshot): ",
+                    React.createElement("strong", { style: { color: "#fff" } }, result.openCount)),
+                React.createElement("div", { style: { marginTop: 8, fontSize: 9, color: "#555" } }, "Ve a la tab Diagn\u00F3stico para ver el an\u00E1lisis completo.")),
+            React.createElement("button", { onClick: function () { setResult(null); setError(null); }, style: { marginTop: 10, background: "transparent", border: "1px solid #444", borderRadius: 4, color: "#666", padding: "4px 12px", fontSize: 9, cursor: "pointer" } }, "Reimportar otro PDF"))),
+        qfMeta && !result && (React.createElement("div", { style: { background: "rgba(255,255,255,.02)", border: "1px solid #222", borderRadius: 6, padding: 12, fontSize: 9, color: "#444" } },
+            React.createElement("div", { style: { color: "#666", marginBottom: 3 } }, "\u00DAltima importaci\u00F3n:"),
+            React.createElement("div", { style: { color: "#555" } }, qfMeta.filename),
+            React.createElement("div", null,
+                qfMeta.count,
+                " operaciones cerradas \u00B7 ",
+                qfMeta.openCount,
+                " abiertas"),
+            React.createElement("div", null, new Date(qfMeta.importedAt).toLocaleString("es-ES"))))));
+}
+// ==================== DIAGNÓSTICO TAB ====================
+function DiagnosticoTab({ S, qfTrades, qfOpen, qfMeta }) {
+    var trades = qfTrades || [];
+    var diag = trades.length > 0 ? qfGenerateDiagnosis(trades) : null;
+    function fmtD(d) {
+        if (!d)
+            return "N/D";
+        return new Date(d).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+    }
+    function fmtPct(v) {
+        if (v === null || v === undefined || isNaN(v))
+            return "N/D";
+        return (v * 100).toFixed(1) + "%";
+    }
+    function sign(v) { return v >= 0 ? "+" : ""; }
+    if (trades.length === 0) {
+        return (React.createElement("div", { style: { padding: 40, textAlign: "center", color: "#333" } },
+            React.createElement("div", { style: { fontSize: 28, marginBottom: 12 } }, "\uD83D\uDCCA"),
+            React.createElement("div", { style: { fontSize: 12, color: "#444" } }, "No hay datos importados."),
+            React.createElement("div", { style: { fontSize: 10, color: "#333", marginTop: 6 } }, "Ve a la tab \"Importar\" y sube el PDF de Quantfury.")));
+    }
+    if (!diag)
+        return React.createElement("div", { style: { padding: 16, fontSize: 11, color: "#666" } }, "Error calculando diagn\u00F3stico.");
+    var pf = diag.profitFactor;
+    var pfColor = pf >= 2 ? "#00ff88" : pf >= 1.5 ? "#f0b429" : pf >= 1 ? "#ff8800" : "#ff4444";
+    var pfLabel = pf >= 2 ? "Bueno (>2.0)" : pf >= 1.5 ? "Decente (1.5–2.0)" : pf >= 1 ? "Marginal (1.0–1.5)" : "Sistema perdedor (<1.0)";
+    var maxBkt = Math.max(1, diag.buckets.loss_cat, diag.buckets.loss_large, diag.buckets.loss_med, diag.buckets.loss_small, diag.buckets.gain_small, diag.buckets.gain_med, diag.buckets.gain_large, diag.buckets.gain_cat);
+    function BucketBar(props) {
+        var pct = Math.round(props.val / maxBkt * 100);
+        return (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 } },
+            React.createElement("div", { style: { fontSize: 9, color: "#555", width: 140, textAlign: "right", flexShrink: 0 } }, props.label),
+            React.createElement("div", { style: { flex: 1, background: "#0d0d14", height: 14, borderRadius: 2, overflow: "hidden" } },
+                React.createElement("div", { style: { background: props.color, height: 14, width: pct + "%" } })),
+            React.createElement("div", { style: { fontSize: 9, color: "#666", width: 28, flexShrink: 0 } }, props.val)));
+    }
+    var block = { background: "rgba(255,255,255,.025)", border: "1px solid #1e1e2e", borderRadius: 6, padding: 14, marginBottom: 12 };
+    var bh = { fontSize: 9, color: "#555", fontWeight: 700, marginBottom: 10, letterSpacing: 1.5 };
+    var warn = { background: "rgba(255,68,68,.07)", border: "1px solid rgba(255,68,68,.25)", borderRadius: 4, padding: 10, fontSize: 10, color: "#ff7777", marginTop: 8, lineHeight: 1.5 };
+    var note = { background: "rgba(240,180,41,.07)", border: "1px solid rgba(240,180,41,.25)", borderRadius: 4, padding: 10, fontSize: 10, color: "#f0b429", marginTop: 8, lineHeight: 1.5 };
+    return (React.createElement("div", { style: { padding: 16, maxWidth: 720 } },
+        React.createElement("div", { style: { fontSize: 13, color: "#00ff88", fontWeight: 700, marginBottom: 4, letterSpacing: 1 } }, "DIAGN\u00D3STICO \u2014 HISTORIAL QUANTFURY"),
+        qfMeta && React.createElement("div", { style: { fontSize: 9, color: "#333", marginBottom: 20 } },
+            qfMeta.filename,
+            " \u00B7 importado ",
+            new Date(qfMeta.importedAt).toLocaleDateString("es-ES")),
+        React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "RESUMEN EJECUTIVO"),
+            React.createElement("div", { style: { fontSize: 11, color: "#aaa", lineHeight: 2 } },
+                React.createElement("div", null,
+                    "Per\u00EDodo analizado: ",
+                    React.createElement("span", { style: { color: "#ccc" } },
+                        fmtD(diag.firstDate),
+                        " \u2014 ",
+                        fmtD(diag.lastDate))),
+                React.createElement("div", null,
+                    "Operaciones cerradas: ",
+                    React.createElement("strong", { style: { color: "#fff" } }, diag.n)),
+                React.createElement("div", null,
+                    "Posiciones abiertas al corte: ",
+                    React.createElement("strong", { style: { color: "#fff" } }, (qfOpen || []).length)),
+                React.createElement("div", null,
+                    "P&L total realizado: ",
+                    React.createElement("strong", { style: { color: diag.totalPnl >= 0 ? "#00ff88" : "#ff4444", fontSize: 13 } },
+                        sign(diag.totalPnl),
+                        diag.totalPnl.toFixed(2),
+                        " $")))),
+        React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "M\u00C9TRICAS ESTAD\u00CDSTICAS"),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", fontSize: 10, color: "#888" } },
+                React.createElement("div", null,
+                    "Win rate: ",
+                    React.createElement("span", { style: { color: "#ccc" } },
+                        fmtPct(diag.winRate),
+                        " (",
+                        diag.winners,
+                        "W / ",
+                        diag.losers,
+                        "L / ",
+                        diag.breakeven,
+                        "BE)")),
+                React.createElement("div", null,
+                    "Expectancy/trade: ",
+                    React.createElement("span", { style: { color: diag.expectancy >= 0 ? "#00ff88" : "#ff4444", fontWeight: 700 } },
+                        sign(diag.expectancy),
+                        diag.expectancy.toFixed(2),
+                        " $")),
+                React.createElement("div", null,
+                    "Ganancia promedio: ",
+                    React.createElement("span", { style: { color: "#00ff88" } },
+                        "+",
+                        diag.avgWin.toFixed(2),
+                        " $")),
+                React.createElement("div", null,
+                    "P\u00E9rdida promedio: ",
+                    React.createElement("span", { style: { color: "#ff4444" } },
+                        "-",
+                        diag.avgLossAbs.toFixed(2),
+                        " $")),
+                React.createElement("div", null,
+                    "Mayor ganancia: ",
+                    React.createElement("span", { style: { color: "#00ff88" } }, diag.maxWin ? "+" + diag.maxWin.pnl_usd.toFixed(2) + " $ (" + diag.maxWin.symbol + ")" : "N/D")),
+                React.createElement("div", null,
+                    "Mayor p\u00E9rdida: ",
+                    React.createElement("span", { style: { color: "#ff4444" } }, diag.maxLoss ? diag.maxLoss.pnl_usd.toFixed(2) + " $ (" + diag.maxLoss.symbol + ")" : "N/D")),
+                React.createElement("div", { style: { gridColumn: "1/3" } },
+                    "Profit Factor: ",
+                    React.createElement("span", { style: { color: pfColor, fontWeight: 700 } }, pf >= 999 ? "∞" : pf.toFixed(2)),
+                    " ",
+                    React.createElement("span", { style: { color: pfColor } },
+                        "\u2014 ",
+                        pfLabel))),
+            (diag.expectancy < 0 || pf < 1) && (React.createElement("div", { style: warn },
+                "\u26A0\uFE0F ",
+                React.createElement("strong", null, "Interpretaci\u00F3n:"),
+                " Con estas m\u00E9tricas, operar con mayor tama\u00F1o amplifica p\u00E9rdidas, no ganancias. La prioridad no es ganar m\u00E1s \u2014 es dejar de perder."))),
+        React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "DISTRIBUCI\u00D3N DE RESULTADOS"),
+            React.createElement(BucketBar, { val: diag.buckets.loss_cat, color: "#ff1111", label: "P\u00E9rdida >$500" }),
+            React.createElement(BucketBar, { val: diag.buckets.loss_large, color: "#ff4444", label: "P\u00E9rdida $100\u2013500" }),
+            React.createElement(BucketBar, { val: diag.buckets.loss_med, color: "#ff7777", label: "P\u00E9rdida $10\u2013100" }),
+            React.createElement(BucketBar, { val: diag.buckets.loss_small, color: "#ffaaaa", label: "P\u00E9rdida <$10" }),
+            React.createElement(BucketBar, { val: diag.buckets.gain_small, color: "#aaffe0", label: "Ganancia <$10" }),
+            React.createElement(BucketBar, { val: diag.buckets.gain_med, color: "#66ff99", label: "Ganancia $10\u2013100" }),
+            React.createElement(BucketBar, { val: diag.buckets.gain_large, color: "#33ff88", label: "Ganancia $100\u2013500" }),
+            React.createElement(BucketBar, { val: diag.buckets.gain_cat, color: "#00ff88", label: "Ganancia >$500" }),
+            (diag.buckets.loss_cat / diag.n > 0.03 && diag.buckets.gain_small / diag.n > 0.30) && (React.createElement("div", { style: warn },
+                "\u26A0\uFE0F ",
+                React.createElement("strong", null, "Perfil detectado:"),
+                " p\u00E9rdidas grandes vs ganancias peque\u00F1as. Matem\u00E1ticamente, pocos trades malos deshacen muchos trades buenos."))),
+        React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "PATRONES DE COMPORTAMIENTO DETECTADOS"),
+            [
+                { label: "Averaged down (promediado a la baja)", arr: diag.avgDownTrades, critical: diag.avgDownTrades.length / diag.n > 0.10 },
+                { label: "Micro gains (ganancia <$5 con posición >$500)", arr: diag.microGainTrades, critical: false },
+                { label: "Catastrophic losses (pérdida >$500)", arr: diag.catLossTrades, critical: diag.catLossTrades.length > 0 },
+                { label: "Held >30 días", arr: diag.heldLongTrades, critical: false }
+            ].map(function (item) {
+                var pnlSum = item.arr.reduce(function (s, t) { return s + t.pnl_usd; }, 0);
+                return (React.createElement("div", { key: item.label, style: { marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #111" } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3 } },
+                        React.createElement("span", { style: { color: item.critical ? "#ff6666" : "#888" } }, item.label),
+                        React.createElement("span", { style: { color: "#ccc" } },
+                            item.arr.length,
+                            " (",
+                            fmtPct(item.arr.length / diag.n),
+                            ")")),
+                    React.createElement("div", { style: { fontSize: 9, color: "#444" } },
+                        "P&L agregado: ",
+                        React.createElement("span", { style: { color: pnlSum >= 0 ? "#00ff88" : "#ff4444" } },
+                            sign(pnlSum),
+                            pnlSum.toFixed(2),
+                            " $"))));
+            }),
+            diag.catLossTrades.length > 0 && (React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 9, color: "#444", marginBottom: 4 } }, "Top p\u00E9rdidas catastr\u00F3ficas:"),
+                diag.catLossTrades.slice().sort(function (a, b) { return a.pnl_usd - b.pnl_usd; }).slice(0, 5).map(function (t, i) {
+                    return React.createElement("div", { key: i, style: { fontSize: 9, color: "#ff4444", marginBottom: 2 } },
+                        t.symbol,
+                        " ",
+                        t.opened_at ? new Date(t.opened_at).toLocaleDateString("es-ES") : "",
+                        " \u2192 ",
+                        t.pnl_usd.toFixed(2),
+                        " $");
+                })))),
+        React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "DISPERSI\u00D3N POR ACTIVO"),
+            React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 9 } },
+                React.createElement("thead", null,
+                    React.createElement("tr", { style: { color: "#444", borderBottom: "1px solid #1a1a2a" } },
+                        React.createElement("th", { style: { textAlign: "left", padding: "3px 6px", fontWeight: 400 } }, "Activo"),
+                        React.createElement("th", { style: { textAlign: "right", padding: "3px 6px", fontWeight: 400 } }, "Trades"),
+                        React.createElement("th", { style: { textAlign: "right", padding: "3px 6px", fontWeight: 400 } }, "P&L total"),
+                        React.createElement("th", { style: { textAlign: "right", padding: "3px 6px", fontWeight: 400 } }, "Win%"),
+                        React.createElement("th", { style: { textAlign: "right", padding: "3px 6px", fontWeight: 400 } }, "Contribuci\u00F3n"))),
+                React.createElement("tbody", null, diag.assets.map(function (a) {
+                    return (React.createElement("tr", { key: a.symbol, style: { borderBottom: "1px solid #0d0d14" } },
+                        React.createElement("td", { style: { padding: "4px 6px", color: "#ccc" } }, a.symbol),
+                        React.createElement("td", { style: { padding: "4px 6px", textAlign: "right", color: "#555" } }, a.trades),
+                        React.createElement("td", { style: { padding: "4px 6px", textAlign: "right", color: a.pnl >= 0 ? "#00ff88" : "#ff4444" } },
+                            sign(a.pnl),
+                            a.pnl.toFixed(2)),
+                        React.createElement("td", { style: { padding: "4px 6px", textAlign: "right", color: "#555" } }, fmtPct(a.winRate)),
+                        React.createElement("td", { style: { padding: "4px 6px", textAlign: "right", color: "#333" } }, isFinite(a.pct) ? (a.pct * 100).toFixed(0) + "%" : "—")));
+                }))),
+            diag.assets.filter(function (a) { return a.trades < 5; }).length > 5 && (React.createElement("div", { style: note },
+                "\u26A0\uFE0F Dispersi\u00F3n alta: est\u00E1s operando ",
+                diag.assets.length,
+                " activos con muestra insuficiente. Concentra en 2-3 principales para construir edge estad\u00EDstico."))),
+        React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "P&L MENSUAL"),
+            (function () {
+                var maxAbs = Math.max(1, Math.max.apply(null, diag.months.map(function (m) { return Math.abs(m.pnl); })));
+                return diag.months.map(function (m) {
+                    var pct = Math.round(Math.abs(m.pnl) / maxAbs * 100);
+                    var parts = m.month.split("-");
+                    var lbl = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"][parseInt(parts[1]) - 1] + " " + parts[0];
+                    return (React.createElement("div", { key: m.month, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 3 } },
+                        React.createElement("div", { style: { fontSize: 8, color: "#444", width: 60, flexShrink: 0 } }, lbl),
+                        React.createElement("div", { style: { flex: 1, background: "#0d0d14", height: 12, borderRadius: 2, overflow: "hidden" } },
+                            React.createElement("div", { style: { background: m.pnl >= 0 ? "#00ff88" : "#ff4444", height: 12, width: pct + "%" } })),
+                        React.createElement("div", { style: { fontSize: 8, color: m.pnl >= 0 ? "#00ff88" : "#ff4444", width: 60, flexShrink: 0, textAlign: "right" } },
+                            sign(m.pnl),
+                            m.pnl.toFixed(0),
+                            "$")));
+                });
+            })(),
+            React.createElement("div", { style: { fontSize: 9, color: "#444", marginTop: 10 } },
+                "Mejor mes: ",
+                React.createElement("span", { style: { color: "#00ff88" } },
+                    diag.bestMonth.month,
+                    " (",
+                    sign(diag.bestMonth.pnl),
+                    diag.bestMonth.pnl.toFixed(2),
+                    "$)"),
+                "  ·  ",
+                "Peor mes: ",
+                React.createElement("span", { style: { color: "#ff4444" } },
+                    diag.worstMonth.month,
+                    " (",
+                    diag.worstMonth.pnl.toFixed(2),
+                    "$)"))),
+        (qfOpen || []).length > 0 && (React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "POSICIONES ABIERTAS AL CORTE"),
+            (qfOpen || []).map(function (p, i) {
+                var daysOpen = p.opened_at ? Math.round((Date.now() - new Date(p.opened_at)) / (86400000)) : null;
+                var danger = (p.auto_flags && p.auto_flags.averaged_down) && daysOpen !== null && daysOpen > 60;
+                return (React.createElement("div", { key: i, style: { marginBottom: 10, padding: 10, background: danger ? "rgba(255,68,68,.04)" : "rgba(255,255,255,.015)", border: "1px solid " + (danger ? "rgba(255,68,68,.25)" : "#1a1a2a"), borderRadius: 4 } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 4 } },
+                        React.createElement("span", { style: { fontSize: 11, color: danger ? "#ff7777" : "#ccc", fontWeight: 700 } }, p.symbol),
+                        React.createElement("span", { style: { fontSize: 9, color: p.direction === "long" ? "#00ff88" : "#ff4444", border: "1px solid " + (p.direction === "long" ? "rgba(0,255,136,.3)" : "rgba(255,68,68,.3)"), padding: "1px 6px", borderRadius: 3 } }, (p.direction || "").toUpperCase())),
+                    React.createElement("div", { style: { fontSize: 9, color: "#555", display: "flex", gap: 14, flexWrap: "wrap" } },
+                        p.entry_avg_price && React.createElement("span", null,
+                            "Entry avg: ",
+                            React.createElement("span", { style: { color: "#777" } }, p.entry_avg_price.toLocaleString("en-US", { maximumFractionDigits: 4 }))),
+                        p.total_size_usd > 0 && React.createElement("span", null,
+                            "Tama\u00F1o: ",
+                            React.createElement("span", { style: { color: "#777" } },
+                                p.total_size_usd.toFixed(0),
+                                " $")),
+                        daysOpen !== null && React.createElement("span", null,
+                            "D\u00EDas abierta: ",
+                            React.createElement("span", { style: { color: "#777" } }, daysOpen)),
+                        p.num_additions > 0 && React.createElement("span", null,
+                            "A\u00F1adidos: ",
+                            React.createElement("span", { style: { color: "#777" } }, p.num_additions)),
+                        (p.auto_flags && p.auto_flags.averaged_down) && React.createElement("span", { style: { color: "#ff8800" } }, "\u26A0 averaged_down")),
+                    danger && (React.createElement("div", { style: { marginTop: 6, fontSize: 9, color: "#ff9966", lineHeight: 1.5 } }, "\u26A0\uFE0F Se\u00F1ales de anclaje emocional detectadas. Eval\u00FAa si la tesis original sigue siendo v\u00E1lida o si es retenci\u00F3n por aversi\u00F3n a p\u00E9rdida."))));
+            }))),
+        React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "CONCLUSIONES AUTOM\u00C1TICAS"),
+            pf < 1 && (React.createElement("div", { style: warn },
+                "\uD83D\uDD34 ",
+                React.createElement("strong", null, "CONCLUSI\u00D3N CR\u00CDTICA:"),
+                " Tu sistema actual tiene expectancy negativa. Operar m\u00E1s amplifica p\u00E9rdidas. Prioridad #1: NO A\u00D1ADIR RIESGO. Reducir tama\u00F1o o pausar operativa hasta construir proceso disciplinado.")),
+            diag.avgDownTrades.length / diag.n > 0.10 && (React.createElement("div", { style: { ...warn, marginTop: pf < 1 ? 8 : 0 } },
+                "\uD83D\uDD34 ",
+                React.createElement("strong", null, "PATR\u00D3N CR\u00CDTICO:"),
+                " Promediado a la baja recurrente (",
+                (diag.avgDownTrades.length / diag.n * 100).toFixed(0),
+                "% de trades). Estad\u00EDsticamente asociado con la causa #1 de cuentas liquidadas. Activar regla \"prohibido a\u00F1adir a p\u00E9rdida\".")),
+            diag.microGainTrades.length / diag.n > 0.30 && (React.createElement("div", { style: note },
+                "\uD83D\uDFE1 ",
+                React.createElement("strong", null, "PATR\u00D3N DETECTADO:"),
+                " Cierre prematuro de ganadores (",
+                (diag.microGainTrades.length / diag.n * 100).toFixed(0),
+                "% de trades terminan con ganancia <$5 sobre posici\u00F3n grande). Define TPs t\u00E9cnicos y resp\u00E9talos.")),
+            diag.assets.filter(function (a) { return a.trades >= 10 && a.winRate < 0.30; }).map(function (a) {
+                return (React.createElement("div", { key: a.symbol, style: note },
+                    "\uD83D\uDFE1 ",
+                    React.createElement("strong", null,
+                        "Edge negativo en ",
+                        a.symbol,
+                        ":"),
+                    " win rate ",
+                    fmtPct(a.winRate),
+                    " sobre ",
+                    a.trades,
+                    " trades \u2014 muestra suficiente para ser significativo. Considera excluirlo de la operativa nueva."));
+            }),
+            pf >= 1.5 && diag.expectancy > 0 && (React.createElement("div", { style: { background: "rgba(0,255,136,.05)", border: "1px solid rgba(0,255,136,.2)", borderRadius: 4, padding: 10, fontSize: 10, color: "#00ff88", lineHeight: 1.5, marginTop: 8 } },
+                "\uD83D\uDFE2 Profit Factor de ",
+                pf.toFixed(2),
+                " indica sistema con edge positivo. El problema es gesti\u00F3n de tama\u00F1o y consistencia, no la direcci\u00F3n del sistema.")),
+            pf >= 1 && pf < 1.5 && (React.createElement("div", { style: note },
+                "\uD83D\uDFE1 Sistema marginalmente rentable (PF ",
+                pf.toFixed(2),
+                "). Peque\u00F1os cambios en gesti\u00F3n de riesgo y filtrado de setups pueden llevarlo a terreno s\u00F3lido."))),
+        React.createElement("div", { style: block },
+            React.createElement("div", { style: bh }, "REGLAS SUGERIDAS POR EL SISTEMA"),
+            React.createElement("div", { style: { fontSize: 9, color: "#333", marginBottom: 10 } }, "Basadas en tu hist\u00F3rico. Apl\u00EDcalas manualmente en tu operativa."),
+            [
+                { text: "Max 1% riesgo por trade", active: true },
+                { text: "Solo BTC/ETH operables sin override justificado", active: true },
+                { text: "Prohibido añadir a posición en pérdida", active: diag.avgDownTrades.length / diag.n > 0.05 },
+                { text: "TPs técnicos obligatorios — no cerrar antes de TP1 sin motivo escrito", active: diag.microGainTrades.length / diag.n > 0.20 },
+                { text: "Max 2 trades simultáneos abiertos", active: true },
+                { text: "Cooldown 24h tras 2 SL consecutivos", active: true },
+                { text: "Freeze 48h tras día negativo >2%", active: true },
+                { text: "Freeze 7 días tras semana negativa >5%", active: true },
+                { text: "Revisión semanal de posiciones abiertas >60 días", active: (qfOpen || []).some(function (p) { return (p.auto_flags && p.auto_flags.averaged_down) && p.opened_at && (Date.now() - new Date(p.opened_at)) > 5184000000; }) }
+            ].map(function (rule, i) {
+                return (React.createElement("div", { key: i, style: { display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 7 } },
+                    React.createElement("span", { style: { color: rule.active ? "#00ff88" : "#2a2a2a", fontSize: 11, flexShrink: 0 } }, rule.active ? "☑" : "☐"),
+                    React.createElement("span", { style: { fontSize: 9, color: rule.active ? "#aaa" : "#333" } }, rule.text)));
             }))));
 }
 function ModalPos({ form, editId, currentPos, PM, pr, SPr, SPos, setModal, fmtNum, S, pats, jnl, SJ }) {
