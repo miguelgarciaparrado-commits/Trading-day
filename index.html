@@ -2201,6 +2201,12 @@ function App() {
             commitReport(buildNonAuditableReport(trade, missing), null);
             return;
         }
+        // Sin API key de Anthropic → error visible, no fallo silencioso.
+        var anthropicKey = localStorage.getItem("td-anthropic-key");
+        if (!anthropicKey) {
+            commitReport({ error: "Configura tu API key de Anthropic en Ajustes → Auditoría." }, null);
+            return;
+        }
         // Auditoría normal con AI, informando de campos faltantes para que el modelo use "na".
         auditTrade(trade, null, missing).then(function (auditResult) {
             var result = auditResult || { error: "Respuesta vacía del auditor" };
@@ -6653,6 +6659,20 @@ function AlertasTab({ S, predictions }) {
                 if (alZsInit[dKey])
                     lastTrigRef.current[dKey] = alZsInit[dKey];
             });
+            // Canal: restaurar máquina de estados si fue guardada en los últimos 3 períodos
+            var chanSavedTs = alZsInit[ak0Init + "chan_last_updated"] || 0;
+            if ((nowInit - chanSavedTs) < intrMsInit * 3) {
+                lastTrigRef.current[ak0Init + "chan_type"] = alZsInit[ak0Init + "chan_type"] || null;
+                lastTrigRef.current[ak0Init + "chan_state"] = alZsInit[ak0Init + "chan_state"] || null;
+                lastTrigRef.current[ak0Init + "chan_break_dir"] = alZsInit[ak0Init + "chan_break_dir"] || null;
+                lastTrigRef.current[ak0Init + "chan_break_line"] = alZsInit[ak0Init + "chan_break_line"] || 0;
+                lastTrigRef.current[ak0Init + "chan_break_price"] = alZsInit[ak0Init + "chan_break_price"] || 0;
+                lastTrigRef.current[ak0Init + "chan_confirm_ts"] = alZsInit[ak0Init + "chan_confirm_ts"] || 0;
+                lastTrigRef.current[ak0Init + "chan_atr_at_break"] = alZsInit[ak0Init + "chan_atr_at_break"] || 0;
+                lastTrigRef.current[ak0Init + "chan_height_at_break"] = alZsInit[ak0Init + "chan_height_at_break"] || 0;
+                lastTrigRef.current[ak0Init + "chan_retest_done"] = alZsInit[ak0Init + "chan_retest_done"] || false;
+                lastTrigRef.current[ak0Init + "chan_break_vol_ok"] = alZsInit[ak0Init + "chan_break_vol_ok"] || false;
+            }
         }
         catch (e) {
             lastTrigRef.current[ak0Init + "fvg"] = false;
@@ -7072,6 +7092,26 @@ function AlertasTab({ S, predictions }) {
                                     }
                                 }
                             }
+                            // Persistir estado del canal tras cada vela cerrada
+                            try {
+                                var czSave = {};
+                                var czSaveStr = localStorage.getItem("td-alert-zones");
+                                if (czSaveStr)
+                                    czSave = JSON.parse(czSaveStr);
+                                czSave[ak + "chan_type"] = lastTrigRef.current[ak + "chan_type"];
+                                czSave[ak + "chan_state"] = lastTrigRef.current[ak + "chan_state"];
+                                czSave[ak + "chan_break_dir"] = lastTrigRef.current[ak + "chan_break_dir"];
+                                czSave[ak + "chan_break_line"] = lastTrigRef.current[ak + "chan_break_line"] || 0;
+                                czSave[ak + "chan_break_price"] = lastTrigRef.current[ak + "chan_break_price"] || 0;
+                                czSave[ak + "chan_confirm_ts"] = lastTrigRef.current[ak + "chan_confirm_ts"] || 0;
+                                czSave[ak + "chan_atr_at_break"] = lastTrigRef.current[ak + "chan_atr_at_break"] || 0;
+                                czSave[ak + "chan_height_at_break"] = lastTrigRef.current[ak + "chan_height_at_break"] || 0;
+                                czSave[ak + "chan_retest_done"] = lastTrigRef.current[ak + "chan_retest_done"] || false;
+                                czSave[ak + "chan_break_vol_ok"] = lastTrigRef.current[ak + "chan_break_vol_ok"] || false;
+                                czSave[ak + "chan_last_updated"] = Date.now();
+                                localStorage.setItem("td-alert-zones", JSON.stringify(czSave));
+                            }
+                            catch (e) { }
                             // FVG / VI / Gap / Void — con score de calidad, tamaño mínimo, mitigación, HTF y confluencia multi-TF
                             var fvgResult = checkFVGCovered(ohlc, closePrice);
                             if (!fvgResult)
