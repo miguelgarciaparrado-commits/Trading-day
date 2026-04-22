@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Personal trading journal for Miguel Garcia Parrado. Single-file React app (~556 KB compiled HTML) that tracks operations, monitors technical indicators in real time, fires smart alerts, and provides AI-powered analysis via Claude.
+Personal trading journal for Miguel Garcia Parrado. Single-file React app (~717 KB compiled HTML) that tracks operations, monitors technical indicators in real time, fires smart alerts, and provides AI-powered analysis via Claude.
 
 **Production URL:** `https://tradingday.netlify.app` (or Vercel — check current deploy target)
 **Supabase:** `https://ifqftuqkdgsepvtqwefp.supabase.co` (table: `trading_data`)
@@ -122,6 +122,8 @@ save(); // debounced Supabase sync
 | `td-predictions` | AI predictions |
 | `td-pinned-msgs` | Pinned chat messages |
 | `td-ai-profile` | Cached AI profile analysis |
+| `td-alert-zones` | FVG cooldown timestamps, EMA cross timestamps, RSI zone states, **channel state machine fields** (all per-alert, keyed by `alertId_`) |
+| `td-alert-logs` | Last 50 alert log entries (survives page reload) |
 | `td-chan-{alertId}{canalType}` | Timestamp of last channel notification (reconnect anti-spam) |
 
 ---
@@ -250,12 +252,20 @@ Detects ascending and descending parallel channels on closed candles only (`k.x 
 8. Zone alerts: `pos < 0.18` → support, `pos > 0.82` → resistance, middle → no alert
 
 **State machine (WS handler):**
-- New channel type detected (including first detection from `prevCT=null`): fires immediately unless localStorage cooldown active (`td-chan-{ak}{canalType}`, cooldown = 3× interval period)
-- Same channel, zone transitions: support↔resistance fires on zone change; breakout fires once per channel (`chan_hp_done` flag)
-- Re-entry after breakout: fires re-entry alert
-- Channel lost (`detectChannelAlert` returns null): resets all state
+- States: `null → active → break_pending → confirmed → retested → done`
+- `active`: channel detected, watching for breakout (close outside + ≥0.5 ATR displacement)
+- `break_pending`: first candle closed outside — waits for second candle to confirm or reject
+- `confirmed`: two consecutive closes outside → fires `canal_{type}_ruptura_{dir}` alert
+- `retested`: price returns to broken line (±0.2 ATR) with candlestick confirmation → fires retest alert
+- `done`: retest fired or retest window (10× interval) expired
+- Channel lost (`detectChannelAlert` returns null): resets all state to null
 
-**`startAlert` initialises per alert:** `chan_type=null`, `chan_zone=null`, `chan_was_out=false`, `chan_hp_done=false`
+**Persistence (PR #32):** All `chan_*` fields are saved to `td-alert-zones` after every closed candle and restored in `startAlert()` with a staleness window of **3× interval**. If the saved state is older than 3 periods it is discarded and the machine starts fresh. This means breakout detection survives page reloads as long as the reload happens within 3 candle periods.
+
+Channel state fields persisted per alert (key prefix `alertId_`):
+`chan_type`, `chan_state`, `chan_break_dir`, `chan_break_line`, `chan_break_price`, `chan_confirm_ts`, `chan_atr_at_break`, `chan_height_at_break`, `chan_retest_done`, `chan_break_vol_ok`, `chan_last_updated`
+
+Tests: `src/imbalances/chan-state-persist-tests.js` — 19 assertions. Run: `node src/imbalances/chan-state-persist-tests.js`
 
 ### Cooldown / Anti-spam
 `lastTrigRef.current[key]` tracks fired state per alert+type. Fires once when condition becomes true, resets when it becomes false.
@@ -326,9 +336,11 @@ AUDIT_ENRICHED_FIELDS = ["sl_initial","sl_modifications","thesis_text",
 1. Buscar `trade` en `D.current.xhist`. Si no existe → `console.warn` y salir.
 2. Calcular `missing = detectMissingFields(trade)`; `console.warn` si faltan.
 3. Si `!missing.hasMinimum` → persistir `nonAuditable` y volver.
-4. Llamar `auditTrade(trade, null, missing)`; el prompt incluye los campos
+4. Comprobar `localStorage.getItem("td-anthropic-key")`. Si está vacío →
+   `commitReport({error:"Configura tu API key de Anthropic en Ajustes → Auditoría."})` y volver.
+5. Llamar `auditTrade(trade, null, missing)`; el prompt incluye los campos
    faltantes y pide marcarlos como `"na"`.
-5. Sea cual sea el resultado (éxito, error API, excepción), **siempre** se
+6. Sea cual sea el resultado (éxito, error API, excepción), **siempre** se
    persiste un `audit_report`. Nunca se falla en silencio.
 
 ### Estados UI en el modal
@@ -391,7 +403,7 @@ git push -u origin <branch>
 
 ### Branch Strategy
 - Feature branches: `claude/fix-*` or `claude/feat-*`
-- Current active branch: `claude/fix-syntax-error-8RmAS`
+- Last merged: `claude/fix-chan-persist-audit-key` (PR #32)
 - Merge to `main` via PR (GitHub MCP tools available)
 - **Always build and commit both HTML files before pushing**
 
@@ -401,6 +413,8 @@ git push -u origin <branch>
 - Runtime errors won't show in `node --check` — test in browser console
 - `save()` debounces 600ms to Supabase; critical writes (close position, auto-close, manual add) also write localStorage synchronously first
 - Channel never firing? Check `detectPivots` returns `{x,y}` objects — touch filter must use `.x`/`.y` not `[0]`/`[1]`
+- Channel state not persisting across reloads? Check `td-alert-zones` in localStorage for `{alertId}_chan_state` and `{alertId}_chan_last_updated`. Staleness window = 3× interval — if reload happens later, state is intentionally discarded.
+- Audit button shows no error and does nothing? Check `td-anthropic-key` in localStorage — if empty the modal now shows a config prompt instead of a silent failure.
 
 ---
 
