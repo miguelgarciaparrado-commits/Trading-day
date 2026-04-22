@@ -4526,7 +4526,9 @@ function AlertasTab({S,predictions}){
   const[draft,setDraft]=useState({selectedSymbols:["BTCUSDT"],interval:"4h",rsiCustomEnabled:false,rsiCustomTarget:50,rsiCustomCondition:"below"});
   const[customInput,setCustomInput]=useState("");
   const[customCheckStatus,setCustomCheckStatus]=useState(null);
-  const[logs,setLogs]=useState([]);
+  const[logs,setLogs]=useState(function(){
+    try{var s=localStorage.getItem("td-alert-logs");return s?JSON.parse(s):[];}catch(e){return[];}
+  });
   const[notifPerm,setNotifPerm]=useState("default");
   const[pushSubStatus,setPushSubStatus]=useState("idle"); // idle | subscribing | subscribed | error
   const[lastAlert,setLastAlert]=useState(null);
@@ -4988,8 +4990,12 @@ function AlertasTab({S,predictions}){
     if(!body)body=label+" "+tf+priceStr;
     // ─── IN-APP: log + banner + vibración ───
     var ts=new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"});
-    var logEntry={id:Date.now()+Math.random(),type:type,label:label,interval:interval,title:title,body:body,time:ts};
-    setLogs(function(prev){return [logEntry].concat(prev).slice(0,50);});
+    var logEntry={id:Date.now()+Math.random(),type:type,label:label,interval:interval,title:title,body:body,time:ts,date:new Date().toLocaleDateString("es-ES")};
+    setLogs(function(prev){
+      var next=[logEntry].concat(prev).slice(0,50);
+      try{localStorage.setItem("td-alert-logs",JSON.stringify(next));}catch(e){}
+      return next;
+    });
     setLastAlert(logEntry);
     if(navigator.vibrate)navigator.vibrate([200,100,200]);
     setTimeout(function(){setLastAlert(function(cur){return cur&&cur===logEntry?null:cur;});},8000);
@@ -7144,7 +7150,7 @@ function AlertasTab({S,predictions}){
         <div style={{background:"#111118",border:"1px solid #1e1e2e",borderRadius:8,padding:12,marginTop:4}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <div style={{fontSize:9,color:"#f0b429",fontWeight:700}}>HISTORIAL DE ALERTAS</div>
-            <button onClick={()=>setLogs([])} style={{background:"transparent",border:"none",color:"#444",fontSize:8,cursor:"pointer"}}>Limpiar</button>
+            <button onClick={function(){setLogs([]);try{localStorage.removeItem("td-alert-logs");}catch(e){}}} style={{background:"transparent",border:"none",color:"#444",fontSize:8,cursor:"pointer"}}>Limpiar</button>
           </div>
           {logs.slice(0,20).map(function(log){
             var icon="🔔";
@@ -7181,7 +7187,7 @@ function AlertasTab({S,predictions}){
                       <div style={{color:color,marginTop:2,fontWeight:700,fontSize:8}}>{log.body}</div>
                     </div>
                   </div>
-                  <span style={{color:"#444",fontSize:8,whiteSpace:"nowrap",marginLeft:8}}>{log.time}</span>
+                  <span style={{color:"#444",fontSize:8,whiteSpace:"nowrap",marginLeft:8}}>{log.date&&log.date!==new Date().toLocaleDateString("es-ES")?log.date+" ":""}{log.time}</span>
                 </div>
                 {canRate&&!rated&&(
                   <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5,marginLeft:22}}>

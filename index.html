@@ -4883,7 +4883,15 @@ function AlertasTab({ S, predictions }) {
     const [draft, setDraft] = useState({ selectedSymbols: ["BTCUSDT"], interval: "4h", rsiCustomEnabled: false, rsiCustomTarget: 50, rsiCustomCondition: "below" });
     const [customInput, setCustomInput] = useState("");
     const [customCheckStatus, setCustomCheckStatus] = useState(null);
-    const [logs, setLogs] = useState([]);
+    const [logs, setLogs] = useState(function () {
+        try {
+            var s = localStorage.getItem("td-alert-logs");
+            return s ? JSON.parse(s) : [];
+        }
+        catch (e) {
+            return [];
+        }
+    });
     const [notifPerm, setNotifPerm] = useState("default");
     const [pushSubStatus, setPushSubStatus] = useState("idle"); // idle | subscribing | subscribed | error
     const [lastAlert, setLastAlert] = useState(null);
@@ -5535,8 +5543,15 @@ function AlertasTab({ S, predictions }) {
             body = label + " " + tf + priceStr;
         // ─── IN-APP: log + banner + vibración ───
         var ts = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
-        var logEntry = { id: Date.now() + Math.random(), type: type, label: label, interval: interval, title: title, body: body, time: ts };
-        setLogs(function (prev) { return [logEntry].concat(prev).slice(0, 50); });
+        var logEntry = { id: Date.now() + Math.random(), type: type, label: label, interval: interval, title: title, body: body, time: ts, date: new Date().toLocaleDateString("es-ES") };
+        setLogs(function (prev) {
+            var next = [logEntry].concat(prev).slice(0, 50);
+            try {
+                localStorage.setItem("td-alert-logs", JSON.stringify(next));
+            }
+            catch (e) { }
+            return next;
+        });
         setLastAlert(logEntry);
         if (navigator.vibrate)
             navigator.vibrate([200, 100, 200]);
@@ -8048,7 +8063,10 @@ function AlertasTab({ S, predictions }) {
         logs.length > 0 && (React.createElement("div", { style: { background: "#111118", border: "1px solid #1e1e2e", borderRadius: 8, padding: 12, marginTop: 4 } },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
                 React.createElement("div", { style: { fontSize: 9, color: "#f0b429", fontWeight: 700 } }, "HISTORIAL DE ALERTAS"),
-                React.createElement("button", { onClick: () => setLogs([]), style: { background: "transparent", border: "none", color: "#444", fontSize: 8, cursor: "pointer" } }, "Limpiar")),
+                React.createElement("button", { onClick: function () { setLogs([]); try {
+                        localStorage.removeItem("td-alert-logs");
+                    }
+                    catch (e) { } }, style: { background: "transparent", border: "none", color: "#444", fontSize: 8, cursor: "pointer" } }, "Limpiar")),
             logs.slice(0, 20).map(function (log) {
                 var icon = "🔔";
                 var color = "#88aaff";
@@ -8110,7 +8128,9 @@ function AlertasTab({ S, predictions }) {
                                     fb.total,
                                     ")"),
                                 React.createElement("div", { style: { color: color, marginTop: 2, fontWeight: 700, fontSize: 8 } }, log.body))),
-                        React.createElement("span", { style: { color: "#444", fontSize: 8, whiteSpace: "nowrap", marginLeft: 8 } }, log.time)),
+                        React.createElement("span", { style: { color: "#444", fontSize: 8, whiteSpace: "nowrap", marginLeft: 8 } },
+                            log.date && log.date !== new Date().toLocaleDateString("es-ES") ? log.date + " " : "",
+                            log.time)),
                     canRate && !rated && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 5, marginLeft: 22 } },
                         React.createElement("span", { style: { fontSize: 7, color: "#444" } }, "\u00BFSe\u00F1al correcta?"),
                         React.createElement("button", { onClick: function () { rateFeedback(log.id, log.type, true); }, style: { background: "rgba(0,255,136,.12)", border: "1px solid #00ff88", color: "#00ff88", padding: "2px 8px", borderRadius: 3, fontSize: 8, cursor: "pointer", fontWeight: 700 } }, "\u2713 S\u00ED"),
