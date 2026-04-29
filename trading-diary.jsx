@@ -289,7 +289,7 @@ function generateProfileSummary(ps,pats,jnl,hist,xhist,sc,predictions){
   return items;
 }
 
-const TABS=["Resumen","Posiciones","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat","Auditoría"];
+const TABS=["Resumen","Posiciones","Calculadora","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat","Auditoría"];
 const TC={win:"#00ff88",mistake:"#ff4444",lesson:"#f0b429",analysis:"#888"};
 const TL={win:"VICTORIA",mistake:"ERROR",lesson:"LECCION",analysis:"ANALISIS"};
 
@@ -1943,6 +1943,11 @@ export default function App(){
               </div>
             )}
           </div>
+        )}
+
+        {/* ═══ CALCULADORA ═══ */}
+        {tab==="Calculadora"&&(
+          <CalculadoraPosicion S={S}/>
         )}
 
         {/* ═══ HISTORIAL ═══ */}
@@ -7001,6 +7006,187 @@ function ModalCerrar({p,PM,getPnL,fmtNum,fmtP,closePos,setModal,S}){
       </button>
       <button onClick={()=>setModal(m=>({...m,close:null}))} style={{...S.btn(false),width:"100%",padding:8}}>CANCELAR</button>
     </div></div>
+  );
+}
+
+// - CALCULADORA -
+function CheckRow(props){
+  var ok=props.ok;
+  var label=props.label;
+  var value=props.value;
+  return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <span style={{fontSize:11,color:ok?"#00ff88":"#ff4444"}}>{ok?"✓":"✗"}</span>
+        <span style={{fontSize:9,color:"#aaa"}}>{label}</span>
+      </div>
+      <span style={{fontSize:10,fontWeight:700,color:ok?"#00ff88":"#ff4444"}}>{value}</span>
+    </div>
+  );
+}
+function CalculadoraPosicion(props){
+  var S=props.S;
+  var [capital,setCapital]=useState(function(){
+    try{var s=localStorage.getItem("td-calc-prefs");if(s){var p=JSON.parse(s);return p.capital||10000;}return 10000;}catch(e){return 10000;}
+  });
+  var [riskPct,setRiskPct]=useState(function(){
+    try{var s=localStorage.getItem("td-calc-prefs");if(s){var p=JSON.parse(s);return p.riskPct||1;}return 1;}catch(e){return 1;}
+  });
+  var [maintMargin,setMaintMargin]=useState(function(){
+    try{var s=localStorage.getItem("td-calc-prefs");if(s){var p=JSON.parse(s);return p.maintMargin||0.5;}return 0.5;}catch(e){return 0.5;}
+  });
+  var [side,setSide]=useState("long");
+  var [entry,setEntry]=useState("");
+  var [sl,setSl]=useState("");
+  var [tp,setTp]=useState("");
+
+  function savePref(key,val){
+    try{var prefs={};var s=localStorage.getItem("td-calc-prefs");if(s)prefs=JSON.parse(s);prefs[key]=val;localStorage.setItem("td-calc-prefs",JSON.stringify(prefs));}catch(e){}
+  }
+
+  // Compute results inline — fast math, no useMemo needed
+  var eN=parseFloat(entry);
+  var sN=parseFloat(sl);
+  var tN=parseFloat(tp);
+  var cN=parseFloat(capital);
+  var rN=parseFloat(riskPct);
+  var mN=parseFloat(maintMargin);
+  var calc=null;
+  if(eN&&sN&&tN&&cN&&rN&&mN){
+    var validSide=side==="long"?((sN<eN)&&(tN>eN)):((sN>eN)&&(tN<eN));
+    var slDistPct=Math.abs((eN-sN)/eN)*100;
+    var tpDistPct=Math.abs((tN-eN)/eN)*100;
+    var rr=slDistPct>0?tpDistPct/slDistPct:0;
+    var riskAmount=cN*(rN/100);
+    var positionSize=slDistPct>0?riskAmount/(slDistPct/100):0;
+    var leverage=cN>0?positionSize/cN:0;
+    var liqDistPct=leverage>0?(100/leverage)-mN:0;
+    var liqRatio=slDistPct>0?liqDistPct/slDistPct:0;
+    var rrOk=rr>=2;
+    var leverageOk=leverage>0&&leverage<=20;
+    var liqOk=liqRatio>=2;
+    var allOk=rrOk&&leverageOk&&liqOk&&validSide;
+    calc={slDistPct:slDistPct,tpDistPct:tpDistPct,rr:rr,riskAmount:riskAmount,positionSize:positionSize,leverage:leverage,liqDistPct:liqDistPct,liqRatio:liqRatio,rrOk:rrOk,leverageOk:leverageOk,liqOk:liqOk,validSide:validSide,allOk:allOk};
+  }
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:12}}>CALCULADORA DE POSICIÓN</div>
+
+      <div style={S.card}>
+        <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:8,letterSpacing:1}}>CONFIGURACIÓN BASE</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <div>
+            <div style={S.lbl}>CAPITAL ($)</div>
+            <input type="number" value={capital} style={S.inp}
+              onChange={function(ev){var v=ev.target.value;setCapital(v);savePref("capital",parseFloat(v)||10000);}}/>
+          </div>
+          <div>
+            <div style={S.lbl}>RIESGO (%)</div>
+            <input type="number" value={riskPct} style={S.inp} step="0.1" min="0.1" max="10"
+              onChange={function(ev){var v=ev.target.value;setRiskPct(v);savePref("riskPct",parseFloat(v)||1);}}/>
+          </div>
+          <div>
+            <div style={S.lbl}>MAINT. MARGEN (%)</div>
+            <input type="number" value={maintMargin} style={S.inp} step="0.1" min="0.1" max="5"
+              onChange={function(ev){var v=ev.target.value;setMaintMargin(v);savePref("maintMargin",parseFloat(v)||0.5);}}/>
+          </div>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:8,letterSpacing:1}}>DIRECCIÓN</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <button onClick={function(){setSide("long");}}
+            style={{background:side==="long"?"rgba(0,255,136,.15)":"rgba(255,255,255,.03)",border:"1px solid "+(side==="long"?"#00ff88":"#1e1e2e"),color:side==="long"?"#00ff88":"#555",padding:"8px",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>
+            LONG ↑
+          </button>
+          <button onClick={function(){setSide("short");}}
+            style={{background:side==="short"?"rgba(255,68,68,.15)":"rgba(255,255,255,.03)",border:"1px solid "+(side==="short"?"#ff4444":"#1e1e2e"),color:side==="short"?"#ff4444":"#555",padding:"8px",borderRadius:5,fontSize:10,fontWeight:700,cursor:"pointer"}}>
+            SHORT ↓
+          </button>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:8,letterSpacing:1}}>PARÁMETROS DEL TRADE</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <div>
+            <div style={S.lbl}>ENTRADA</div>
+            <input type="number" value={entry} style={S.inp} placeholder="50000"
+              onChange={function(ev){setEntry(ev.target.value);}}/>
+          </div>
+          <div>
+            <div style={{fontSize:9,color:"#ff6666",marginBottom:3}}>STOP LOSS</div>
+            <input type="number" value={sl} style={{...S.inp,borderColor:"rgba(255,68,68,.35)"}}
+              placeholder={side==="long"?"49000":"51000"}
+              onChange={function(ev){setSl(ev.target.value);}}/>
+          </div>
+          <div>
+            <div style={{fontSize:9,color:"#00cc88",marginBottom:3}}>TAKE PROFIT</div>
+            <input type="number" value={tp} style={{...S.inp,borderColor:"rgba(0,255,136,.25)"}}
+              placeholder={side==="long"?"52000":"48000"}
+              onChange={function(ev){setTp(ev.target.value);}}/>
+          </div>
+        </div>
+        {calc&&!calc.validSide&&(
+          <div style={{marginTop:6,padding:"5px 8px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.3)",borderRadius:4,fontSize:8,color:"#ff6666"}}>
+            {"⚠ Dirección inválida: "+(side==="long"?"SL debe ser menor y TP mayor que la entrada":"SL debe ser mayor y TP menor que la entrada")}
+          </div>
+        )}
+      </div>
+
+      {calc&&(
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+            <div style={{...S.card,textAlign:"center",marginBottom:0}}>
+              <div style={S.lbl}>RIESGO ($)</div>
+              <div style={{fontSize:18,fontWeight:700,color:"#ff4444"}}>{"$"+calc.riskAmount.toFixed(0)}</div>
+            </div>
+            <div style={{...S.card,textAlign:"center",marginBottom:0}}>
+              <div style={S.lbl}>TAMAÑO POSICIÓN</div>
+              <div style={{fontSize:18,fontWeight:700,color:"#e0e0e0"}}>{"$"+calc.positionSize.toFixed(0)}</div>
+            </div>
+            <div style={{...S.card,textAlign:"center",marginBottom:0}}>
+              <div style={S.lbl}>LEVERAGE</div>
+              <div style={{fontSize:18,fontWeight:700,color:calc.leverageOk?"#f0b429":"#ff4444"}}>{calc.leverage.toFixed(1)+"×"}</div>
+            </div>
+            <div style={{...S.card,textAlign:"center",marginBottom:0}}>
+              <div style={S.lbl}>RATIO R:R</div>
+              <div style={{fontSize:18,fontWeight:700,color:calc.rrOk?"#00ff88":"#ff4444"}}>{calc.rr.toFixed(2)}</div>
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:8,letterSpacing:1}}>VERIFICACIÓN</div>
+            <CheckRow ok={calc.rrOk} label={"R:R mínimo 2.0 (actual: "+calc.rr.toFixed(2)+")"} value={calc.rrOk?"OK":"BAJO"}/>
+            <CheckRow ok={calc.leverageOk} label={"Leverage máx. 20× (actual: "+calc.leverage.toFixed(1)+"×)"} value={calc.leverageOk?"OK":"EXCESO"}/>
+            <CheckRow ok={calc.liqOk} label={"Liquidación ≥ 2× dist. SL (ratio: "+calc.liqRatio.toFixed(1)+"×)"} value={calc.liqOk?"OK":"CERCA"}/>
+            <CheckRow ok={calc.validSide} label={"Dirección SL/TP coherente"} value={calc.validSide?"OK":"ERROR"}/>
+            <div style={{fontSize:8,color:"#444",marginTop:8}}>
+              {"Dist. SL: "+calc.slDistPct.toFixed(2)+"% · Dist. TP: "+calc.tpDistPct.toFixed(2)+"% · Dist. liq.: "+calc.liqDistPct.toFixed(2)+"%"}
+            </div>
+          </div>
+
+          <div style={{...S.card,textAlign:"center",padding:"18px",background:calc.allOk?"rgba(0,255,136,.07)":"rgba(255,68,68,.07)",border:"1px solid "+(calc.allOk?"rgba(0,255,136,.35)":"rgba(255,68,68,.35)"),marginBottom:0}}>
+            <div style={{fontSize:22,fontWeight:700,color:calc.allOk?"#00ff88":"#ff4444",letterSpacing:2}}>
+              {calc.allOk?"✅ OPERAR":"❌ RECHAZAR"}
+            </div>
+            {!calc.allOk&&(
+              <div style={{fontSize:9,color:"#888",marginTop:8}}>
+                {(!calc.rrOk?"R:R insuficiente (mín. 2.0) ":"")+(!calc.leverageOk?"Leverage excesivo (máx. 20×) ":"")+(!calc.liqOk?"Liquidación demasiado cercana al SL ":"")+(!calc.validSide?"Dirección SL/TP incorrecta ":"")}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!calc&&(
+        <div style={{...S.card,textAlign:"center",padding:"24px",color:"#333",fontSize:9}}>
+          Introduce Entrada · SL · TP para calcular
+        </div>
+      )}
+    </div>
   );
 }
 
