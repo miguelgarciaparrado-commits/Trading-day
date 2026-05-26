@@ -8704,7 +8704,7 @@ function RegistroTab(props) {
     var S = props.S;
     var fmtNum = props.fmtNum || function (v) { return v; };
     var [checks, setChecks] = useState([false, false, false, false, false]);
-    var [form, setForm] = useState({ asset: "BTC/USDT", dir: "long", entry: "", sl: "", tp: "", setup: "FVG", thesis: "", timeframe: "1h" });
+    var [form, setForm] = useState({ asset: "BTC/USDT", dir: "long", entry: "", sl: "", tp: "", leverage: 1, setup: "FVG", thesis: "", timeframe: "1h" });
     var [showForm, setShowForm] = useState(false);
     var [formError, setFormError] = useState("");
     var [closing, setClosing] = useState(null); // trade id being closed
@@ -8752,13 +8752,14 @@ function RegistroTab(props) {
         setFormError("");
         var trade = {
             asset: form.asset, direction: form.dir, entry_price: e, sl: s, tp: t,
+            leverage: form.leverage || 1,
             setup_type: form.setup, thesis: form.thesis, timeframe: form.timeframe,
             rr: parseFloat(rr.toFixed(2)),
             pre_checklist: { c1: checks[0], c2: checks[1], c3: checks[2], c4: checks[3], c5: checks[4] },
             status: "open", result: null, exit_price: null
         };
         saveTrade(trade);
-        setForm({ asset: "BTC/USDT", dir: "long", entry: "", sl: "", tp: "", setup: "FVG", thesis: "", timeframe: "1h" });
+        setForm({ asset: "BTC/USDT", dir: "long", entry: "", sl: "", tp: "", leverage: 1, setup: "FVG", thesis: "", timeframe: "1h" });
         setChecks([false, false, false, false, false]);
         setShowForm(false);
         setSaved(true);
@@ -8801,7 +8802,7 @@ function RegistroTab(props) {
                             React.createElement("span", { style: { ...S.bdg(t.direction === "long" ? "#00ff88" : "#ff4444") } }, (t.direction || "").toUpperCase()),
                             React.createElement("span", { style: { fontSize: 8, color: "#555" } }, t.setup_type)),
                         React.createElement("button", { onClick: function () { setClosing(t.id); setCloseForm({ exit_price: "", c1: false, c2: false, c3: false, note: "" }); }, style: { background: "rgba(255,68,68,.1)", border: "1px solid rgba(255,68,68,.4)", color: "#ff6666", padding: "3px 9px", borderRadius: 4, fontSize: 9, cursor: "pointer", fontWeight: 700 } }, "CERRAR")),
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4 } },
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 4 } },
                         React.createElement("div", null,
                             React.createElement("div", { style: S.lbl }, "ENTRADA"),
                             React.createElement("div", { style: { fontSize: 10, fontWeight: 700 } }, t.entry_price)),
@@ -8810,7 +8811,10 @@ function RegistroTab(props) {
                             React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#ff4444" } }, t.sl)),
                         React.createElement("div", null,
                             React.createElement("div", { style: S.lbl }, "TP"),
-                            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#00ff88" } }, t.tp))),
+                            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#00ff88" } }, t.tp)),
+                        React.createElement("div", null,
+                            React.createElement("div", { style: S.lbl }, "APAL."),
+                            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "#f0b429" } }, (t.leverage || 1) + "×"))),
                     t.thesis && React.createElement("div", { style: { fontSize: 8, color: "#555", marginTop: 4, borderTop: "1px solid #1e1e2e", paddingTop: 4 } }, t.thesis)));
             }))),
         closing && (React.createElement("div", { style: S.modal },
@@ -8873,6 +8877,16 @@ function RegistroTab(props) {
                     React.createElement("input", { type: "number", value: form.tp, style: { ...S.inp, borderColor: "rgba(0,255,136,.25)" }, placeholder: "104000", onChange: function (e) { setForm(function (p) { return { ...p, tp: e.target.value }; }); } }))),
             rr > 0 && (React.createElement("div", { style: { textAlign: "center", marginBottom: 8, padding: "5px", borderRadius: 4, background: rr >= 2 ? "rgba(0,255,136,.06)" : rr >= 1.5 ? "rgba(240,180,41,.06)" : "rgba(255,68,68,.06)", border: "1px solid " + (rr >= 2 ? "rgba(0,255,136,.3)" : rr >= 1.5 ? "rgba(240,180,41,.3)" : "rgba(255,68,68,.3)") } },
                 React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: rrColor } }, "RR: " + rr.toFixed(2) + (rr < 1.5 ? " ⚠ Considera ampliar el TP" : "")))),
+            React.createElement("div", { style: { marginBottom: 10 } },
+                React.createElement("div", { style: S.lbl }, "APALANCAMIENTO"),
+                React.createElement("div", { style: { textAlign: "center", fontSize: 22, fontWeight: 700, color: "#f0b429", marginBottom: 4 } }, form.leverage + "×"),
+                React.createElement("input", { type: "range", min: "1", max: "100", step: "1", value: form.leverage, style: { width: "100%", accentColor: "#f0b429", cursor: "pointer" }, onChange: function (e) { setForm(function (p) { return { ...p, leverage: parseInt(e.target.value) || 1 }; }); } }),
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 7, color: "#444", marginTop: 2 } },
+                    React.createElement("span", null, "1\u00D7"),
+                    React.createElement("span", null, "25\u00D7"),
+                    React.createElement("span", null, "50\u00D7"),
+                    React.createElement("span", null, "75\u00D7"),
+                    React.createElement("span", null, "100\u00D7"))),
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 } },
                 React.createElement("div", null,
                     React.createElement("div", { style: S.lbl }, "SETUP"),
@@ -8945,11 +8959,12 @@ function HistorialNuevoTab(props) {
                     React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
                         React.createElement("span", { style: { fontSize: 9, fontWeight: 700, color: res >= 0 ? "#00ff88" : "#ff4444" } }, res >= 0 ? "+" + res.toFixed(2) + "%" : res.toFixed(2) + "%"),
                         React.createElement("span", { style: { fontSize: 8, color: "#555" } }, rulesOk(t)))),
-                React.createElement("div", { style: { display: "flex", gap: 12 } },
+                React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap" } },
                     React.createElement("span", { style: { fontSize: 8, color: "#444" } }, dateStr),
                     React.createElement("span", { style: { fontSize: 8, color: "#444" } }, "E: " + (t.entry_price || "—")),
                     React.createElement("span", { style: { fontSize: 8, color: "#444" } }, "C: " + (t.exit_price || "—")),
-                    React.createElement("span", { style: { fontSize: 8, color: "#f0b429" } }, "RR: " + (t.rr ? t.rr.toFixed(2) : "—")))));
+                    React.createElement("span", { style: { fontSize: 8, color: "#f0b429" } }, "RR: " + (t.rr ? t.rr.toFixed(2) : "—")),
+                    React.createElement("span", { style: { fontSize: 8, color: "#f0b429", fontWeight: 700 } }, "Apal: " + (t.leverage || 1) + "×"))));
         })));
 }
 // - CALCULADORA -

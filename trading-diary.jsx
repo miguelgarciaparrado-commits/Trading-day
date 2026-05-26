@@ -7910,7 +7910,7 @@ function RegistroTab(props){
   var fmtNum=props.fmtNum||function(v){return v;};
 
   var [checks,setChecks]=useState([false,false,false,false,false]);
-  var [form,setForm]=useState({asset:"BTC/USDT",dir:"long",entry:"",sl:"",tp:"",setup:"FVG",thesis:"",timeframe:"1h"});
+  var [form,setForm]=useState({asset:"BTC/USDT",dir:"long",entry:"",sl:"",tp:"",leverage:1,setup:"FVG",thesis:"",timeframe:"1h"});
   var [showForm,setShowForm]=useState(false);
   var [formError,setFormError]=useState("");
   var [closing,setClosing]=useState(null); // trade id being closed
@@ -7949,13 +7949,14 @@ function RegistroTab(props){
     setFormError("");
     var trade={
       asset:form.asset,direction:form.dir,entry_price:e,sl:s,tp:t,
+      leverage:form.leverage||1,
       setup_type:form.setup,thesis:form.thesis,timeframe:form.timeframe,
       rr:parseFloat(rr.toFixed(2)),
       pre_checklist:{c1:checks[0],c2:checks[1],c3:checks[2],c4:checks[3],c5:checks[4]},
       status:"open",result:null,exit_price:null
     };
     saveTrade(trade);
-    setForm({asset:"BTC/USDT",dir:"long",entry:"",sl:"",tp:"",setup:"FVG",thesis:"",timeframe:"1h"});
+    setForm({asset:"BTC/USDT",dir:"long",entry:"",sl:"",tp:"",leverage:1,setup:"FVG",thesis:"",timeframe:"1h"});
     setChecks([false,false,false,false,false]);
     setShowForm(false);
     setSaved(true);
@@ -8012,10 +8013,11 @@ function RegistroTab(props){
                     CERRAR
                   </button>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
                   <div><div style={S.lbl}>ENTRADA</div><div style={{fontSize:10,fontWeight:700}}>{t.entry_price}</div></div>
                   <div><div style={S.lbl}>SL</div><div style={{fontSize:10,fontWeight:700,color:"#ff4444"}}>{t.sl}</div></div>
                   <div><div style={S.lbl}>TP</div><div style={{fontSize:10,fontWeight:700,color:"#00ff88"}}>{t.tp}</div></div>
+                  <div><div style={S.lbl}>APAL.</div><div style={{fontSize:10,fontWeight:700,color:"#f0b429"}}>{(t.leverage||1)+"×"}</div></div>
                 </div>
                 {t.thesis&&<div style={{fontSize:8,color:"#555",marginTop:4,borderTop:"1px solid #1e1e2e",paddingTop:4}}>{t.thesis}</div>}
               </div>
@@ -8143,6 +8145,17 @@ function RegistroTab(props){
             </div>
           )}
 
+          <div style={{marginBottom:10}}>
+            <div style={S.lbl}>APALANCAMIENTO</div>
+            <div style={{textAlign:"center",fontSize:22,fontWeight:700,color:"#f0b429",marginBottom:4}}>{form.leverage+"×"}</div>
+            <input type="range" min="1" max="100" step="1" value={form.leverage}
+              style={{width:"100%",accentColor:"#f0b429",cursor:"pointer"}}
+              onChange={function(e){setForm(function(p){return{...p,leverage:parseInt(e.target.value)||1};});}}/>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:"#444",marginTop:2}}>
+              <span>1×</span><span>25×</span><span>50×</span><span>75×</span><span>100×</span>
+            </div>
+          </div>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
             <div>
               <div style={S.lbl}>SETUP</div>
@@ -8259,11 +8272,12 @@ function HistorialNuevoTab(props){
                 <span style={{fontSize:8,color:"#555"}}>{rulesOk(t)}</span>
               </div>
             </div>
-            <div style={{display:"flex",gap:12}}>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
               <span style={{fontSize:8,color:"#444"}}>{dateStr}</span>
               <span style={{fontSize:8,color:"#444"}}>{"E: "+(t.entry_price||"—")}</span>
               <span style={{fontSize:8,color:"#444"}}>{"C: "+(t.exit_price||"—")}</span>
               <span style={{fontSize:8,color:"#f0b429"}}>{"RR: "+(t.rr?t.rr.toFixed(2):"—")}</span>
+              <span style={{fontSize:8,color:"#f0b429",fontWeight:700}}>{"Apal: "+(t.leverage||1)+"×"}</span>
             </div>
           </div>
         );
