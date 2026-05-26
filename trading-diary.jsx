@@ -612,7 +612,7 @@ function mapQfTradeToHist(t){
   };
 }
 
-const TABS=["Resumen","Posiciones","Calculadora","Historial","Patrones","Perfil","Recuperacion","Calendario","Alertas","Chat","Auditoría","Importar","Diagnóstico"];
+const TABS=["Dashboard","Registro","Calculadora","Historial","Chat"];
 const TC={win:"#00ff88",mistake:"#ff4444",lesson:"#f0b429",analysis:"#888"};
 const TL={win:"VICTORIA",mistake:"ERROR",lesson:"LECCION",analysis:"ANALISIS"};
 
@@ -930,6 +930,8 @@ export default function App(){
   const[pats,setPats]=useState(PAT0);
   const[jnl,setJnl]=useState(J0);
   const[ps,setPs]=useState(PS0);
+  // ─── Trades (nueva tabla Supabase) ───────────────────────────────────────
+  const[trades,setTrades]=useState([]);
 
   // Closes via la app - se anaden cuando cierras una posicion con el boton CERRAR
   // QUANTFURY_BASE = P&L total de las 246 ops del PDF (23/03/2026). Ops recientes cerradas via app van a xhist.
@@ -1103,6 +1105,51 @@ export default function App(){
     var iv=setInterval(fetchPrices,60000);
     return function(){clearInterval(iv);};
   },[]);
+
+  // ─── Carga de trades desde Supabase ──────────────────────────────────────
+  useEffect(function(){
+    loadTrades();
+  },[]);
+  function loadTrades(){
+    var cfg=window.SUPABASE_CFG;
+    if(!cfg||!cfg.url||!cfg.key)return;
+    fetch(cfg.url+"/rest/v1/trades?user_id=eq.miguel&order=created_at.desc&limit=200",{
+      headers:{"apikey":cfg.key,"Authorization":"Bearer "+cfg.key}
+    }).then(function(r){if(r.ok)return r.json();return[];})
+    .then(function(rows){setTrades(rows||[]);})
+    .catch(function(){});
+  }
+  function saveTrade(tradeData){
+    var cfg=window.SUPABASE_CFG;
+    if(!cfg||!cfg.url||!cfg.key){
+      var tmp={...tradeData,id:"local_"+Date.now(),user_id:"miguel",created_at:new Date().toISOString()};
+      setTrades(function(prev){return[tmp].concat(prev);});
+      return;
+    }
+    fetch(cfg.url+"/rest/v1/trades",{
+      method:"POST",
+      headers:{"apikey":cfg.key,"Authorization":"Bearer "+cfg.key,"Content-Type":"application/json","Prefer":"return=representation"},
+      body:JSON.stringify({...tradeData,user_id:"miguel"})
+    }).then(function(r){if(r.ok)return r.json();throw new Error("save failed");})
+    .then(function(rows){
+      var saved=rows&&rows[0]?rows[0]:{...tradeData,id:"local_"+Date.now(),created_at:new Date().toISOString()};
+      setTrades(function(prev){return[saved].concat(prev);});
+    }).catch(function(){
+      var tmp={...tradeData,id:"local_"+Date.now(),user_id:"miguel",created_at:new Date().toISOString()};
+      setTrades(function(prev){return[tmp].concat(prev);});
+    });
+  }
+  function closeTrade(id,exitData){
+    var cfg=window.SUPABASE_CFG;
+    var patch={...exitData,status:"closed",closed_at:new Date().toISOString()};
+    setTrades(function(prev){return prev.map(function(t){return t.id===id?{...t,...patch}:t;});});
+    if(!cfg||!cfg.url||!cfg.key)return;
+    fetch(cfg.url+"/rest/v1/trades?id=eq."+id,{
+      method:"PATCH",
+      headers:{"apikey":cfg.key,"Authorization":"Bearer "+cfg.key,"Content-Type":"application/json"},
+      body:JSON.stringify(patch)
+    }).catch(function(){});
+  }
 
   // ── Polling de feedback Telegram (nivel App — siempre activo, cualquier pestaña) ──
   useEffect(function(){
@@ -2105,8 +2152,38 @@ export default function App(){
       {/* TABS */}
       <div style={S.tabs}>{TABS.map(t=><button key={t} onClick={()=>setTab(t)} style={S.tab(tab===t)}>{t.toUpperCase()}</button>)}</div>
 
-      {/* Boton actualizar precios - solo en pestanas relevantes */}
-      {(tab==="Resumen"||tab==="Posiciones")&&(
+      {/* ═══ CUERPO DE TABS ═══ */}
+      <div style={S.body}>
+
+        {/* DASHBOARD */}
+        {tab==="Dashboard"&&(
+          <DashboardTab trades={trades} S={S} fmtNum={fmtNum}/>
+        )}
+
+        {/* REGISTRO */}
+        {tab==="Registro"&&(
+          <RegistroTab trades={trades} saveTrade={saveTrade} closeTrade={closeTrade} S={S} fmtNum={fmtNum}/>
+        )}
+
+        {/* CALCULADORA */}
+        {tab==="Calculadora"&&(
+          <CalculadoraPosicion S={S}/>
+        )}
+
+        {/* HISTORIAL */}
+        {tab==="Historial"&&(
+          <HistorialNuevoTab trades={trades} S={S} fmtNum={fmtNum}/>
+        )}
+
+        {/* CHAT */}
+        <div style={{display:tab==="Chat"?"block":"none"}}>
+          <ChatTab S={S} pos={[]} PM={function(){}} pats={[]} ps={ps} sc={sc} jnl={[]} hist={hist} xhist={trades.map(function(t){return{id:t.id,asset:t.asset||"",dir:t.direction==="long"?"Long":"Short",result:t.result||0,date:(t.created_at||"").slice(0,10),note:t.thesis||""};})} SPs={SPs} SJ={SJ} D={D} save={save} predictions={predictions} SPred={SPred} initialChatMsgs={D.current.chatMsgs||[]}/>
+        </div>
+
+      </div>
+
+      {/* ═══ placeholder to replace old tab block end ═══ */}
+      {false&&(tab==="Resumen"||tab==="Posiciones")&&(
         <div style={{background:"#080810",borderBottom:"1px solid #1a1a2a",padding:"5px 14px",display:"flex",justifyContent:"flex-end"}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <button onClick={fetchPrices} disabled={fetchingPrices} style={{background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",color:"#00ff88",padding:"3px 10px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
@@ -3039,6 +3116,7 @@ export default function App(){
           <DiagnosticoTab S={S} qfTrades={qfTrades} qfOpen={qfOpen} qfMeta={qfMeta}/>
         )}
       </div>
+      )}
 
       {/* ═══ MODAL CERRAR POSICION ═══ */}
       {modal.close&&(
@@ -7709,6 +7787,488 @@ function ModalCerrar({p,PM,getPnL,fmtNum,fmtP,closePos,setModal,S}){
       </button>
       <button onClick={()=>setModal(m=>({...m,close:null}))} style={{...S.btn(false),width:"100%",padding:8}}>CANCELAR</button>
     </div></div>
+  );
+}
+
+// ─── DASHBOARD TAB ───────────────────────────────────────────────────────────
+function DashboardTab(props){
+  var trades=props.trades||[];
+  var S=props.S;
+  var fmtNum=props.fmtNum;
+  var now=new Date();
+  var ms30=30*24*60*60*1000;
+  var ms7=7*24*60*60*1000;
+  var todayStr=now.toISOString().slice(0,10);
+
+  // Trades de los últimos 30 días (cerrados)
+  var closed30=trades.filter(function(t){
+    if(t.status!=="closed")return false;
+    var d=t.closed_at||t.created_at||"";
+    return d&&(now-new Date(d))<ms30;
+  });
+  var wins=closed30.filter(function(t){return (t.result||0)>0;}).length;
+  var total=closed30.length;
+  var winrate=total>0?Math.round(wins/total*100):0;
+  var rrList=closed30.filter(function(t){return t.rr&&t.rr>0;}).map(function(t){return t.rr;});
+  var rrMedio=rrList.length>0?(rrList.reduce(function(a,b){return a+b;},0)/rrList.length).toFixed(1):"—";
+  var last5=closed30.slice(0,5).map(function(t){return (t.result||0)>=0?"🟢":"🔴";});
+  var racha=last5.length>0?last5.join(""):"—";
+
+  // Regla más violada esta semana
+  var week7=trades.filter(function(t){
+    if(t.status!=="closed")return false;
+    var d=t.closed_at||t.created_at||"";
+    return d&&(now-new Date(d))<ms7;
+  });
+  var violations={"Respetar SL":0,"Setup completo":0,"Sin FOMO":0};
+  week7.forEach(function(t){
+    var pc=t.post_checklist||{};
+    if(pc.c1===false)violations["Respetar SL"]++;
+    if(pc.c2===false)violations["Setup completo"]++;
+    if(pc.c3===false)violations["Sin FOMO"]++;
+  });
+  var maxV=0; var worstRule=null;
+  Object.keys(violations).forEach(function(k){if(violations[k]>maxV){maxV=violations[k];worstRule=k;}});
+
+  // Sesión de hoy
+  var todayTrades=trades.filter(function(t){
+    var d=(t.created_at||"").slice(0,10);
+    return d===todayStr;
+  });
+  var todayClosed=todayTrades.filter(function(t){return t.status==="closed";});
+  var pnlHoy=todayClosed.reduce(function(a,t){return a+(t.result||0);},0);
+  var lossesList=todayClosed.filter(function(t){return (t.result||0)<0;});
+  var sessionLimit=todayClosed.length>=2||lossesList.length>=2;
+
+  // Tiempo hasta 16:00 CEST (UTC+2)
+  var spainNow=new Date(now.getTime()+2*3600*1000);
+  var h=spainNow.getUTCHours(); var m=spainNow.getUTCMinutes();
+  var minsToWindow=h<16?(16-h)*60-m:h<18?0:(16+24-h)*60-m;
+  var ventanaText=h>=16&&h<18?"🟢 Ventana activa ahora":minsToWindow===0?"⏳ Ventana en curso":(Math.floor(minsToWindow/60)+"h "+( minsToWindow%60)+"m para la ventana (16:00–18:00 CEST)");
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:12}}>DASHBOARD</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+        <div style={{...S.card,textAlign:"center",marginBottom:0}}>
+          <div style={S.lbl}>WINRATE 30D</div>
+          <div style={{fontSize:22,fontWeight:700,color:winrate>=60?"#00ff88":winrate>=50?"#f0b429":"#ff4444"}}>{winrate+"%"}</div>
+        </div>
+        <div style={{...S.card,textAlign:"center",marginBottom:0}}>
+          <div style={S.lbl}>RR MEDIO 30D</div>
+          <div style={{fontSize:22,fontWeight:700,color:"#e0e0e0"}}>{rrMedio}</div>
+        </div>
+        <div style={{...S.card,textAlign:"center",marginBottom:0}}>
+          <div style={S.lbl}>TRADES 30D</div>
+          <div style={{fontSize:22,fontWeight:700,color:"#e0e0e0"}}>{total}</div>
+        </div>
+        <div style={{...S.card,textAlign:"center",marginBottom:0}}>
+          <div style={S.lbl}>RACHA (últ. 5)</div>
+          <div style={{fontSize:16,fontWeight:700}}>{racha}</div>
+        </div>
+      </div>
+
+      <div style={{...S.card,background:maxV>0?"rgba(255,68,68,.07)":"rgba(0,255,136,.07)",border:"1px solid "+(maxV>0?"rgba(255,68,68,.3)":"rgba(0,255,136,.3)"),marginBottom:10}}>
+        <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:4,letterSpacing:1}}>REGLA MÁS VIOLADA ESTA SEMANA</div>
+        {maxV>0
+          ? <div style={{fontSize:11,fontWeight:700,color:"#ff4444"}}>{"⚠ "+worstRule+" — "+maxV+" vez"+(maxV>1?"es":"")}</div>
+          : <div style={{fontSize:11,fontWeight:700,color:"#00ff88"}}>Disciplina perfecta esta semana ✓</div>
+        }
+      </div>
+
+      <div style={S.card}>
+        <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:8,letterSpacing:1}}>SESIÓN DE HOY</div>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+          <span style={{fontSize:9,color:"#888"}}>Trades hoy</span>
+          <span style={{fontSize:10,fontWeight:700,color:"#e0e0e0"}}>{todayTrades.length}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+          <span style={{fontSize:9,color:"#888"}}>PnL hoy</span>
+          <span style={{fontSize:10,fontWeight:700,color:pnlHoy>=0?"#00ff88":"#ff4444"}}>{pnlHoy===0?"$0.00":fmtNum(pnlHoy)}</span>
+        </div>
+        <div style={{textAlign:"center",padding:"6px 0",background:sessionLimit?"rgba(255,68,68,.1)":"rgba(0,255,136,.05)",borderRadius:4,border:"1px solid "+(sessionLimit?"rgba(255,68,68,.3)":"rgba(0,255,136,.15)"),fontSize:9,fontWeight:700,color:sessionLimit?"#ff4444":"#00ff88"}}>
+          {sessionLimit?"🛑 LÍMITE ALCANZADO — para hoy":"✅ SESIÓN LIBRE"}
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:4,letterSpacing:1}}>PRÓXIMA VENTANA ÓPTIMA</div>
+        <div style={{fontSize:10,color:"#f0b429"}}>{"🕓 "+ventanaText}</div>
+        <div style={{fontSize:8,color:"#444",marginTop:3}}>Overlap Londres-NY · 16:00–18:00 (CEST / UTC+2)</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── REGISTRO TAB ─────────────────────────────────────────────────────────────
+function RegistroTab(props){
+  var trades=props.trades||[];
+  var saveTrade=props.saveTrade||function(){};
+  var closeTrade=props.closeTrade||function(){};
+  var S=props.S;
+  var fmtNum=props.fmtNum||function(v){return v;};
+
+  var [checks,setChecks]=useState([false,false,false,false,false]);
+  var [form,setForm]=useState({asset:"BTC/USDT",dir:"long",entry:"",sl:"",tp:"",setup:"FVG",thesis:"",timeframe:"1h"});
+  var [showForm,setShowForm]=useState(false);
+  var [formError,setFormError]=useState("");
+  var [closing,setClosing]=useState(null); // trade id being closed
+  var [closeForm,setCloseForm]=useState({exit_price:"",c1:false,c2:false,c3:false,note:""});
+  var [saved,setSaved]=useState(false);
+
+  var allChecked=checks.every(function(c){return c===true;});
+  var openTrades=trades.filter(function(t){return t.status==="open";});
+
+  var PAIRS=["BTC/USDT","ETH/USDT","SOL/USDT","LINK/USDT","AAPL","NVDA","GOOGL","SPY","OTRO"];
+  var SETUPS=["FVG","Patrón chartista","Soporte/Resistencia","EMA","Canal","Otro"];
+  var TFS=["1m","5m","15m","1h","4h","1d"];
+
+  function toggleCheck(i){
+    setChecks(function(prev){
+      var n=prev.slice();
+      n[i]=!n[i];
+      return n;
+    });
+  }
+
+  function calcRR(entry,sl,tp,dir){
+    var e=parseFloat(entry); var s=parseFloat(sl); var t=parseFloat(tp);
+    if(!e||!s||!t||s===e)return 0;
+    var risk=Math.abs(e-s);
+    var reward=Math.abs(t-e);
+    return reward/risk;
+  }
+
+  function handleSave(){
+    var e=parseFloat(form.entry); var s=parseFloat(form.sl); var t=parseFloat(form.tp);
+    if(!e||!s||!t){setFormError("Completa Entrada, SL y TP");return;}
+    if(!(form.thesis&&form.thesis.trim())){setFormError("La tesis es obligatoria");return;}
+    var rr=calcRR(form.entry,form.sl,form.tp,form.dir);
+    if(rr<1.0){setFormError("RR insuficiente ("+rr.toFixed(2)+"). Revisa tu TP o SL.");return;}
+    setFormError("");
+    var trade={
+      asset:form.asset,direction:form.dir,entry_price:e,sl:s,tp:t,
+      setup_type:form.setup,thesis:form.thesis,timeframe:form.timeframe,
+      rr:parseFloat(rr.toFixed(2)),
+      pre_checklist:{c1:checks[0],c2:checks[1],c3:checks[2],c4:checks[3],c5:checks[4]},
+      status:"open",result:null,exit_price:null
+    };
+    saveTrade(trade);
+    setForm({asset:"BTC/USDT",dir:"long",entry:"",sl:"",tp:"",setup:"FVG",thesis:"",timeframe:"1h"});
+    setChecks([false,false,false,false,false]);
+    setShowForm(false);
+    setSaved(true);
+    setTimeout(function(){setSaved(false);},2500);
+  }
+
+  function handleClose(){
+    if(!closing)return;
+    var exit=parseFloat(closeForm.exit_price);
+    if(!exit){return;}
+    var trade=trades.filter(function(t){return t.id===closing;})[0];
+    if(!trade)return;
+    var entry=trade.entry_price||0;
+    var result=trade.direction==="long"?(exit-entry)/entry*100:(entry-exit)/entry*100;
+    closeTrade(closing,{
+      exit_price:exit,
+      result:parseFloat(result.toFixed(2)),
+      rr:calcRR(entry,trade.sl,exit,trade.direction),
+      post_checklist:{c1:closeForm.c1,c2:closeForm.c2,c3:closeForm.c3},
+      post_note:closeForm.note
+    });
+    setClosing(null);
+    setCloseForm({exit_price:"",c1:false,c2:false,c3:false,note:""});
+  }
+
+  var rr=form.entry&&form.sl&&form.tp?calcRR(form.entry,form.sl,form.tp,form.dir):0;
+  var rrColor=rr>=2?"#00ff88":rr>=1.5?"#f0b429":"#ff4444";
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:12}}>REGISTRO DE TRADES</div>
+
+      {saved&&(
+        <div style={{...S.card,background:"rgba(0,255,136,.1)",border:"1px solid #00ff88",textAlign:"center",color:"#00ff88",fontWeight:700,fontSize:11,marginBottom:10}}>
+          ✅ Trade registrado correctamente
+        </div>
+      )}
+
+      {/* Trades abiertos */}
+      {openTrades.length>0&&(
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:9,color:"#f0b429",fontWeight:700,marginBottom:6,letterSpacing:1}}>POSICIONES ABIERTAS</div>
+          {openTrades.map(function(t){
+            return(
+              <div key={t.id} style={{...S.card,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <span style={{fontSize:12,fontWeight:700}}>{t.asset}</span>
+                    <span style={{...S.bdg(t.direction==="long"?"#00ff88":"#ff4444")}}>{(t.direction||"").toUpperCase()}</span>
+                    <span style={{fontSize:8,color:"#555"}}>{t.setup_type}</span>
+                  </div>
+                  <button onClick={function(){setClosing(t.id);setCloseForm({exit_price:"",c1:false,c2:false,c3:false,note:""}); }}
+                    style={{background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.4)",color:"#ff6666",padding:"3px 9px",borderRadius:4,fontSize:9,cursor:"pointer",fontWeight:700}}>
+                    CERRAR
+                  </button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+                  <div><div style={S.lbl}>ENTRADA</div><div style={{fontSize:10,fontWeight:700}}>{t.entry_price}</div></div>
+                  <div><div style={S.lbl}>SL</div><div style={{fontSize:10,fontWeight:700,color:"#ff4444"}}>{t.sl}</div></div>
+                  <div><div style={S.lbl}>TP</div><div style={{fontSize:10,fontWeight:700,color:"#00ff88"}}>{t.tp}</div></div>
+                </div>
+                {t.thesis&&<div style={{fontSize:8,color:"#555",marginTop:4,borderTop:"1px solid #1e1e2e",paddingTop:4}}>{t.thesis}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal cierre */}
+      {closing&&(
+        <div style={S.modal}>
+          <div style={S.mc}>
+            <div style={{fontSize:11,color:"#f0b429",fontWeight:700,marginBottom:12}}>CERRAR TRADE</div>
+            <div style={{marginBottom:8}}>
+              <div style={S.lbl}>PRECIO DE CIERRE</div>
+              <input type="number" value={closeForm.exit_price} style={S.inp} placeholder="Precio de cierre"
+                onChange={function(e){setCloseForm(function(p){return{...p,exit_price:e.target.value};});}}/>
+            </div>
+            <div style={{...S.card,marginBottom:10}}>
+              <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:6}}>CHECKLIST POST-TRADE</div>
+              {[["c1","Respeté el SL sin moverlo en contra"],["c2","Entré solo cuando el setup estaba completo"],["c3","No abrí por impulso / FOMO"]].map(function(item){
+                return(
+                  <label key={item[0]} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:6,cursor:"pointer"}}>
+                    <input type="checkbox" checked={closeForm[item[0]]||false}
+                      onChange={function(ev){var k=item[0];setCloseForm(function(p){var n={...p};n[k]=ev.target.checked;return n;});}}
+                      style={{marginTop:2,flexShrink:0}}/>
+                    <span style={{fontSize:9,color:"#aaa"}}>{item[1]}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div style={{marginBottom:12}}>
+              <div style={S.lbl}>NOTA (opcional)</div>
+              <textarea value={closeForm.note} maxLength={200} style={{...S.inp,minHeight:50,resize:"vertical"}}
+                onChange={function(e){setCloseForm(function(p){return{...p,note:e.target.value};});}}
+                placeholder="Qué salió bien o mal..."/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <button onClick={function(){setClosing(null);}}
+                style={{...S.btn(false),padding:"9px"}}>Cancelar</button>
+              <button onClick={handleClose}
+                style={{...S.btn(true),padding:"9px"}}>Confirmar cierre</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Checklist pre-trade */}
+      {!showForm&&(
+        <div style={S.card}>
+          <div style={{fontSize:8,color:"#555",fontWeight:700,marginBottom:10,letterSpacing:1}}>CHECKLIST PRE-TRADE</div>
+          {[
+            "Tengo tesis técnica clara (setup + confluencia)",
+            "El SL está definido ANTES de entrar",
+            "El RR es mínimo 1:2",
+            "No tengo otra posición abierta",
+            "Estoy en ventana horaria válida (o tengo razón para estar fuera)"
+          ].map(function(label,i){
+            return(
+              <label key={i} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:10,cursor:"pointer"}}>
+                <input type="checkbox" checked={checks[i]} onChange={function(){toggleCheck(i);}
+                } style={{marginTop:2,width:16,height:16,flexShrink:0,accentColor:"#00ff88"}}/>
+                <span style={{fontSize:10,color:checks[i]?"#00ff88":"#888",lineHeight:1.4}}>{label}</span>
+              </label>
+            );
+          })}
+          <button onClick={function(){if(!allChecked){alert("Completa el checklist antes de operar");return;}setShowForm(true);}}
+            style={{...S.btn(allChecked),width:"100%",padding:"10px",marginTop:4,opacity:allChecked?1:0.5}}>
+            {allChecked?"CONTINUAR AL FORMULARIO →":"Completa los 5 checks para continuar"}
+          </button>
+        </div>
+      )}
+
+      {/* Formulario nuevo trade */}
+      {showForm&&(
+        <div style={S.card}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:9,color:"#00ff88",fontWeight:700}}>✅ Checklist completado</div>
+            <button onClick={function(){setShowForm(false);}} style={{background:"transparent",border:"none",color:"#555",cursor:"pointer",fontSize:12}}>✕ Volver</button>
+          </div>
+
+          <div style={{marginBottom:8}}>
+            <div style={S.lbl}>PAR</div>
+            <select value={form.asset} style={{...S.inp,appearance:"auto"}}
+              onChange={function(e){setForm(function(p){return{...p,asset:e.target.value};});}}>
+              {PAIRS.map(function(p){return <option key={p} value={p}>{p}</option>;})}
+            </select>
+          </div>
+
+          <div style={{marginBottom:8}}>
+            <div style={S.lbl}>DIRECCIÓN</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              <button onClick={function(){setForm(function(p){return{...p,dir:"long"};});}}
+                style={{background:form.dir==="long"?"rgba(0,255,136,.15)":"rgba(255,255,255,.03)",border:"1px solid "+(form.dir==="long"?"#00ff88":"#1e1e2e"),color:form.dir==="long"?"#00ff88":"#555",padding:"7px",borderRadius:4,fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                LONG ↑
+              </button>
+              <button onClick={function(){setForm(function(p){return{...p,dir:"short"};});}}
+                style={{background:form.dir==="short"?"rgba(255,68,68,.15)":"rgba(255,255,255,.03)",border:"1px solid "+(form.dir==="short"?"#ff4444":"#1e1e2e"),color:form.dir==="short"?"#ff4444":"#555",padding:"7px",borderRadius:4,fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                SHORT ↓
+              </button>
+            </div>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}>
+            <div>
+              <div style={S.lbl}>ENTRADA</div>
+              <input type="number" value={form.entry} style={S.inp} placeholder="100000"
+                onChange={function(e){setForm(function(p){return{...p,entry:e.target.value};});}}/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"#ff6666",marginBottom:3}}>STOP LOSS</div>
+              <input type="number" value={form.sl} style={{...S.inp,borderColor:"rgba(255,68,68,.35)"}} placeholder="98000"
+                onChange={function(e){setForm(function(p){return{...p,sl:e.target.value};});}}/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"#00cc88",marginBottom:3}}>TAKE PROFIT</div>
+              <input type="number" value={form.tp} style={{...S.inp,borderColor:"rgba(0,255,136,.25)"}} placeholder="104000"
+                onChange={function(e){setForm(function(p){return{...p,tp:e.target.value};});}}/>
+            </div>
+          </div>
+
+          {rr>0&&(
+            <div style={{textAlign:"center",marginBottom:8,padding:"5px",borderRadius:4,background:rr>=2?"rgba(0,255,136,.06)":rr>=1.5?"rgba(240,180,41,.06)":"rgba(255,68,68,.06)",border:"1px solid "+(rr>=2?"rgba(0,255,136,.3)":rr>=1.5?"rgba(240,180,41,.3)":"rgba(255,68,68,.3)")}}>
+              <span style={{fontSize:10,fontWeight:700,color:rrColor}}>{"RR: "+rr.toFixed(2)+(rr<1.5?" ⚠ Considera ampliar el TP":"")}</span>
+            </div>
+          )}
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+            <div>
+              <div style={S.lbl}>SETUP</div>
+              <select value={form.setup} style={{...S.inp,appearance:"auto"}}
+                onChange={function(e){setForm(function(p){return{...p,setup:e.target.value};});}}>
+                {SETUPS.map(function(s){return <option key={s} value={s}>{s}</option>;})}
+              </select>
+            </div>
+            <div>
+              <div style={S.lbl}>TIMEFRAME</div>
+              <select value={form.timeframe} style={{...S.inp,appearance:"auto"}}
+                onChange={function(e){setForm(function(p){return{...p,timeframe:e.target.value};});}}>
+                {TFS.map(function(t){return <option key={t} value={t}>{t}</option>;})}
+              </select>
+            </div>
+          </div>
+
+          <div style={{marginBottom:10}}>
+            <div style={S.lbl}>{"TESIS (máx. 100 chars)"}</div>
+            <input type="text" value={form.thesis} maxLength={100} style={S.inp}
+              placeholder="FVG alcista 4H + ruptura canal bajista. RSI < 40..."
+              onChange={function(e){setForm(function(p){return{...p,thesis:e.target.value};});}}/>
+            {form.thesis.trim()&&form.thesis.trim().length<15&&(
+              <div style={{fontSize:7,color:"#ff6666",marginTop:2}}>Mínimo 15 caracteres</div>
+            )}
+          </div>
+
+          {formError&&(
+            <div style={{padding:"6px 8px",background:"rgba(255,68,68,.1)",border:"1px solid rgba(255,68,68,.3)",borderRadius:4,color:"#ff6666",fontSize:9,marginBottom:8}}>
+              {"⚠ "+formError}
+            </div>
+          )}
+
+          <button onClick={handleSave} style={{...S.btn(true),width:"100%",padding:"10px",fontSize:11}}>
+            REGISTRAR TRADE
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── HISTORIAL NUEVO TAB ──────────────────────────────────────────────────────
+function HistorialNuevoTab(props){
+  var trades=props.trades||[];
+  var S=props.S;
+  var fmtNum=props.fmtNum||function(v){return v;};
+  var [filterResult,setFilterResult]=useState("all");
+  var [filterSetup,setFilterSetup]=useState("all");
+  var [filterPeriod,setFilterPeriod]=useState("all");
+
+  var closed=trades.filter(function(t){return t.status==="closed";});
+
+  var now=new Date();
+  var filtered=closed.filter(function(t){
+    var d=new Date(t.closed_at||t.created_at||0);
+    if(filterPeriod==="week"&&(now-d)>7*86400000)return false;
+    if(filterPeriod==="month"&&(now-d)>30*86400000)return false;
+    if(filterResult==="win"&&(t.result||0)<=0)return false;
+    if(filterResult==="loss"&&(t.result||0)>=0)return false;
+    if(filterSetup!=="all"&&t.setup_type!==filterSetup)return false;
+    return true;
+  }).slice(0,100);
+
+  var setups=["all"].concat(trades.filter(function(t){return t.setup_type;}).map(function(t){return t.setup_type;}).filter(function(v,i,a){return a.indexOf(v)===i;}));
+
+  function rulesOk(t){
+    var pc=t.post_checklist;
+    if(!pc)return "—";
+    if(pc.c1===true&&pc.c2===true&&pc.c3===true)return "✅";
+    return "⚠️";
+  }
+
+  return(
+    <div style={{padding:"0 0 40px"}}>
+      <div style={{fontSize:10,color:"#f0b429",fontWeight:700,marginBottom:12}}>HISTORIAL</div>
+
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        <select value={filterResult} style={{...S.inp,width:"auto",fontSize:9,padding:"4px 8px"}}
+          onChange={function(e){setFilterResult(e.target.value);}}>
+          <option value="all">Todos</option>
+          <option value="win">Ganadores</option>
+          <option value="loss">Perdedores</option>
+        </select>
+        <select value={filterSetup} style={{...S.inp,width:"auto",fontSize:9,padding:"4px 8px"}}
+          onChange={function(e){setFilterSetup(e.target.value);}}>
+          {setups.map(function(s){return <option key={s} value={s}>{s==="all"?"Todos los setups":s}</option>;})}
+        </select>
+        <select value={filterPeriod} style={{...S.inp,width:"auto",fontSize:9,padding:"4px 8px"}}
+          onChange={function(e){setFilterPeriod(e.target.value);}}>
+          <option value="all">Todo</option>
+          <option value="week">Esta semana</option>
+          <option value="month">Este mes</option>
+        </select>
+      </div>
+
+      {filtered.length===0&&(
+        <div style={{...S.card,textAlign:"center",color:"#333",fontSize:9}}>No hay trades cerrados con estos filtros</div>
+      )}
+
+      {filtered.map(function(t){
+        var res=t.result||0;
+        var dateStr=(t.closed_at||t.created_at||"").slice(0,10);
+        return(
+          <div key={t.id} style={{...S.card,marginBottom:6,padding:"10px 12px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{fontSize:11,fontWeight:700}}>{t.asset}</span>
+                <span style={{...S.bdg(t.direction==="long"?"#00ff88":"#ff4444"),fontSize:7}}>{(t.direction||"").toUpperCase()}</span>
+                <span style={{fontSize:7,color:"#555",background:"#0d0d16",padding:"1px 5px",borderRadius:3}}>{t.setup_type||"—"}</span>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:9,fontWeight:700,color:res>=0?"#00ff88":"#ff4444"}}>{res>=0?"+"+res.toFixed(2)+"%":res.toFixed(2)+"%"}</span>
+                <span style={{fontSize:8,color:"#555"}}>{rulesOk(t)}</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:12}}>
+              <span style={{fontSize:8,color:"#444"}}>{dateStr}</span>
+              <span style={{fontSize:8,color:"#444"}}>{"E: "+(t.entry_price||"—")}</span>
+              <span style={{fontSize:8,color:"#444"}}>{"C: "+(t.exit_price||"—")}</span>
+              <span style={{fontSize:8,color:"#f0b429"}}>{"RR: "+(t.rr?t.rr.toFixed(2):"—")}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
